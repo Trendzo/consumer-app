@@ -16,6 +16,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.moon.closetx",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -25,6 +26,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-video"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0b470b68-c1e0-436e-97ac-db5918968650"
+      }
+    },
+    "owner": "chandreshheree"
   }
 }
