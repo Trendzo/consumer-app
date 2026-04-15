@@ -2,7 +2,7 @@
 // Reactive palette: C is a Proxy that resolves at access time, so styles
 // built inside components (re-evaluated on `night` toggle) flip instantly.
 
-type Palette = {
+export type Palette = {
   bg: string;
   ink: string;
   inkSoft: string;
@@ -29,43 +29,80 @@ export const LIGHT: Palette = {
 };
 
 export const DARK: Palette = {
-  bg: '#000000',
+  bg: '#0a0a0a',      // page bg — very dark, not pure black
   ink: '#FFFFFF',     // text/borders → white in dark
   inkSoft: '#e6e6e6',
-  dim: '#999999',
-  faint: '#444444',
-  hairline: '#222222',
-  white: '#0a0a0a',   // "card" surface → near-black
+  dim: '#a0a0a0',     // slightly brighter dim so secondary text is readable
+  faint: '#555555',
+  hairline: '#2a2a2a',
+  white: '#1a1a1a',   // "card" surface — clearly lighter than bg for visible cards
   ok: '#FFFFFF',
   warn: '#FFFFFF',
   err: '#FFFFFF',
 };
 
-// Mutable current palette object — same reference across the app.
-const _current: Palette = { ...LIGHT };
+// Swappable palette reference — ALWAYS points at LIGHT or DARK directly.
+// No mutation — we reassign the whole ref, and the Proxy reads from it
+// on every property access.
+let _active: Palette = LIGHT;
 
-export function setNight(on: boolean) {
-  const src = on ? DARK : LIGHT;
-  (Object.keys(src) as (keyof Palette)[]).forEach(k => {
-    _current[k] = src[k];
-  });
+const subscribers = new Set<() => void>();
+export function subscribeTheme(fn: () => void) {
+  subscribers.add(fn);
+  return () => { subscribers.delete(fn); };
 }
 
-// Proxy: every property access returns the current palette value.
-// Works for both inline styles (resolved at render time) and StyleSheet.create
-// blocks that are called inside components on each render.
-export const C: Palette = new Proxy(_current, {
-  get(_, key: string) {
-    return (_current as any)[key];
+export function setNight(on: boolean) {
+  _active = on ? DARK : LIGHT;
+  subscribers.forEach(fn => fn());
+}
+
+// Proxy forwards every access to the current _active palette.
+// `C.ink` → `_active.ink` at read time, so there's no stale snapshot.
+export const C: Palette = new Proxy({} as Palette, {
+  get(_, key: string | symbol) {
+    return (_active as any)[key];
   },
-}) as Palette;
+  has(_, key: string | symbol) {
+    return key in _active;
+  },
+  ownKeys() {
+    return Object.keys(_active);
+  },
+  getOwnPropertyDescriptor(_, key: string | symbol) {
+    return Object.getOwnPropertyDescriptor(_active, key);
+  },
+});
 
 export const SP = { xs: 4, s: 8, m: 12, l: 16, xl: 24, xxl: 32, huge: 48 };
 
 export const RADIUS = { none: 0, sm: 0, md: 0, lg: 0 };
 
-export const BORDER = (w = 1) => ({ borderWidth: w, borderColor: C.ink });
-export const HAIRLINE = { borderWidth: 1, borderColor: C.hairline };
+// Gender curve — globally applied to every BORDER() call so the entire app
+// rounds when HER is active without per-component wiring. AppState drives
+// setGender('her' | 'him'); each switch forces a theme-nonce bump so
+// already-mounted components re-read the current radius.
+let _isHer = false;
+export function setGenderCurve(on: boolean) {
+  _isHer = on;
+  subscribers.forEach(fn => fn());
+}
+function curveRadius(w: number) {
+  if (!_isHer) return 0;
+  // Heavier borders (hero cards) get slightly tighter radius to avoid
+  // the "pill" look; thin borders get a softer corner.
+  return w >= 2 ? 16 : 14;
+}
+
+// BORDER now returns a getter-backed borderRadius so every re-render
+// (on gender toggle or theme toggle) re-reads the current value.
+export const BORDER = (w = 1) => ({
+  borderWidth: w,
+  borderColor: C.ink,
+  get borderRadius() { return curveRadius(w); },
+});
+// Getter-based so `HAIRLINE.borderColor` reads C.hairline at access time, not module-load time.
+export const HAIRLINE = { borderWidth: 1, get borderColor() { return C.hairline; } };
 
 // T is built lazily via getters so each access pulls the current C.
 export const T: any = new Proxy(

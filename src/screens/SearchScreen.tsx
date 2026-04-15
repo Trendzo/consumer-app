@@ -6,6 +6,7 @@ import { MotiView } from 'moti';
 import { C, T, SP, BORDER } from '../theme/brutal';
 import { AsciiDivider, Chip } from '../components/Brutal';
 import { PRODUCTS } from '../data/mockData';
+import { useApp } from '../state/AppState';
 
 const RECENT = ['oversized blazer', 'cropped cargo', 'silk dress', 'sneakers'];
 const TRENDING = ['Y2K', 'wide leg', 'cargo', 'mesh', 'utility', 'denim', 'satin', 'preppy'];
@@ -13,6 +14,7 @@ const TRENDING = ['Y2K', 'wide leg', 'cargo', 'mesh', 'utility', 'denim', 'satin
 export default function SearchScreen() {
   const nav = useNavigation<any>();
   const [q, setQ] = useState('');
+  const { night, theme } = useApp();
 
   const results = useMemo(
     () => q ? PRODUCTS.filter(p => p.name.toLowerCase().includes(q.toLowerCase()) || p.brand.toLowerCase().includes(q.toLowerCase())) : [],
@@ -20,8 +22,8 @@ export default function SearchScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" />
+    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
+      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
       {/* HEADER */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingTop: 56, paddingBottom: SP.m, gap: 10 }}>
         <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10 }, BORDER(1)]}>

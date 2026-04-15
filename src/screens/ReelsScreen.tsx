@@ -5,26 +5,28 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useNavigation } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import SearchScreen from './SearchScreen';
 import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
 import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
+import { useGenderCurve } from '../components/Brutal';
 
 const { height, width } = Dimensions.get('window');
 
-// Bikini / swimsuit / glamour reels (Mixkit, royalty-free)
+// Fashion / clothing reels (Mixkit, royalty-free – verified URLs)
 const FASHION_VIDEOS = [
-  'https://assets.mixkit.co/videos/49407/49407-720.mp4',  // Model red bikini
-  'https://assets.mixkit.co/videos/49408/49408-720.mp4',  // Model posing red bikini
-  'https://assets.mixkit.co/videos/21274/21274-720.mp4',  // Woman bikini
-  'https://assets.mixkit.co/videos/1208/1208-720.mp4',    // Bikini beach sunny
-  'https://assets.mixkit.co/videos/1111/1111-720.mp4',    // Bikini beach
-  'https://assets.mixkit.co/videos/1213/1213-720.mp4',    // Swimsuit beach
-  'https://assets.mixkit.co/videos/1214/1214-720.mp4',    // Swimsuit beach
-  'https://assets.mixkit.co/videos/13181/13181-720.mp4',  // Glamour model
-  'https://assets.mixkit.co/videos/49092/49092-720.mp4',  // Glamour model
-  'https://assets.mixkit.co/videos/1306/1306-720.mp4',    // Woman spins beach
+  'https://assets.mixkit.co/videos/23327/23327-720.mp4',  // Hand selecting through clothes
+  'https://assets.mixkit.co/videos/33167/33167-720.mp4',  // Sweaters on coat rack
+  'https://assets.mixkit.co/videos/21326/21326-720.mp4',  // Woman viewing discounted clothes
+  'https://assets.mixkit.co/videos/21330/21330-720.mp4',  // Walking through clothing store
+  'https://assets.mixkit.co/videos/49382/49382-720.mp4',  // Woman posing in mirror, clothing store
+  'https://assets.mixkit.co/videos/805/805-720.mp4',      // Woman modeling black dress
+  'https://assets.mixkit.co/videos/50641/50641-720.mp4',  // Model posing for photographer in studio
+  'https://assets.mixkit.co/videos/52270/52270-720.mp4',  // Catwalk model in white outfit
+  'https://assets.mixkit.co/videos/44541/44541-720.mp4',  // Stylish woman fashion look
+  'https://assets.mixkit.co/videos/42298/42298-720.mp4',  // Retro fashion style
 ];
 
 // Build a page of reel data starting at a given offset
@@ -46,7 +48,7 @@ const PAGE_SIZE = 12;
 
 export default function ReelsScreen() {
   const nav = useNavigation<any>();
-  const { addToCart, toggleFavorite, isFavorite, night } = useApp();
+  const { addToCart, toggleFavorite, isFavorite, night, showToast } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const [active, setActive] = useState(0);
   const [seed, setSeed] = useState(0);
@@ -85,8 +87,9 @@ export default function ReelsScreen() {
         ref={listRef}
         data={data}
         keyExtractor={r => r.id}
-        pagingEnabled
         snapToInterval={height}
+        snapToAlignment="start"
+        disableIntervalMomentum
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}
         onEndReachedThreshold={1.5}
@@ -107,7 +110,7 @@ export default function ReelsScreen() {
             isLiked={isFavorite(item.product.id)}
             onAdd={() => {
               addToCart(item.product);
-              Alert.alert('Added to bag', item.product.name);
+              showToast('Added to bag', item.product.name, 'shopping-bag');
             }}
             onProduct={() => nav.navigate('ProductDetail', { product: item.product })}
           />
@@ -126,9 +129,7 @@ export default function ReelsScreen() {
       {searchMounted && (
         <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: C.white, zIndex: 50 }, searchStyle]}>
           <SearchScreen />
-          <Pressable onPress={closeSearch} style={s.searchClose} hitSlop={12}>
-            <Feather name="x" size={24} color={C.ink} />
-          </Pressable>
+          <SearchCloseButton onPress={closeSearch} />
         </Animated.View>
       )}
     </View>
@@ -161,6 +162,41 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
   const [comments, setComments] = useState(SEED_COMMENTS);
   const [draft, setDraft] = useState('');
 
+  // HER-mode curves for all the overlay cards on the reel
+  const prodCurve = useGenderCurve(14);
+  const inputCurve = useGenderCurve(10);
+  const sendCurve = useGenderCurve(21);
+  const avatarCurve = useGenderCurve(16);
+
+  // Double-tap heart pop — tracks the tap location so the heart blooms where the user hit
+  const heartX = useSharedValue(width / 2);
+  const heartY = useSharedValue(height / 2);
+  const heartOpacity = useSharedValue(0);
+  const heartScale = useSharedValue(0);
+  const heartStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    left: heartX.value - 60,
+    top: heartY.value - 60,
+    opacity: heartOpacity.value,
+    transform: [{ scale: heartScale.value }],
+  }));
+
+  const popHeart = () => {
+    heartOpacity.value = withSequence(withTiming(1, { duration: 120 }), withDelay(260, withTiming(0, { duration: 240 })));
+    heartScale.value = withSequence(withTiming(1.1, { duration: 160 }), withTiming(0.95, { duration: 140 }), withTiming(1.15, { duration: 200 }));
+  };
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDelay(260)
+    .onEnd((e, success) => {
+      if (!success) return;
+      heartX.value = e.x;
+      heartY.value = e.y;
+      runOnJS(popHeart)();
+      if (!isLiked) runOnJS(onLike)();
+    });
+
   useEffect(() => {
     if (isActive) player.play();
     else player.pause();
@@ -184,13 +220,21 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
 
   return (
     <View style={{ height, width, backgroundColor: '#000' }}>
-      <VideoView
-        player={player}
-        style={StyleSheet.absoluteFillObject as any}
-        contentFit="cover"
-        nativeControls={false}
-      />
-      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+      <GestureDetector gesture={doubleTap}>
+        <View style={StyleSheet.absoluteFillObject}>
+          <VideoView
+            player={player}
+            style={StyleSheet.absoluteFillObject as any}
+            contentFit="cover"
+            nativeControls={false}
+          />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+          {/* Double-tap heart — blooms at the tap position and fades */}
+          <Animated.View style={[{ width: 120, height: 120, alignItems: 'center', justifyContent: 'center' }, heartStyle]} pointerEvents="none">
+            <Ionicons name="heart" size={120} color="#fff" style={{ textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 12 }} />
+          </Animated.View>
+        </View>
+      </GestureDetector>
 
       {/* RIGHT ACTIONS */}
       <View style={s.actions}>
@@ -214,7 +258,9 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 14 }}>
             {comments.map((c, i) => (
               <View key={i} style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={s.avatar}><Text style={{ color: C.white, fontFamily: 'Inter_900Black', fontSize: 12 }}>{c.user[0].toUpperCase()}</Text></View>
+                <Animated.View style={[s.avatar, avatarCurve]}>
+                  <Text style={{ color: C.white, fontFamily: 'Inter_900Black', fontSize: 12 }}>{c.user[0].toUpperCase()}</Text>
+                </Animated.View>
                 <View style={{ flex: 1 }}>
                   <Text style={[T.monoB, { fontSize: 11, color: C.ink }]}>@{c.user}</Text>
                   <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: C.ink, marginTop: 2 }}>{c.text}</Text>
@@ -223,18 +269,22 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
             ))}
           </ScrollView>
           <View style={s.commentInputRow}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="add a comment..."
-              placeholderTextColor="#888"
-              style={s.commentInput}
-              onSubmitEditing={submitComment}
-              returnKeyType="send"
-            />
-            <Pressable onPress={submitComment} style={s.sendBtn}>
-              <Feather name="send" size={18} color={C.white} />
-            </Pressable>
+            <Animated.View style={[{ flex: 1, overflow: 'hidden' }, inputCurve]}>
+              <TextInput
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="add a comment..."
+                placeholderTextColor="#888"
+                style={s.commentInput}
+                onSubmitEditing={submitComment}
+                returnKeyType="send"
+              />
+            </Animated.View>
+            <Animated.View style={[s.sendBtn, sendCurve]}>
+              <Pressable onPress={submitComment} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <Feather name="send" size={18} color={C.white} />
+              </Pressable>
+            </Animated.View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -247,19 +297,32 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       </View>
 
       {/* PRODUCT TAG */}
-      <Pressable onPress={onProduct} style={s.prodTag}>
-        <Image source={{ uri: reel.product.img }} style={s.prodTagImg} />
-        <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
-          <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
-          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{reel.product.price}</Text>
-        </View>
+      <Animated.View style={[s.prodTag, prodCurve]}>
+        <Pressable onPress={onProduct} style={{ flex: 1, flexDirection: 'row' }}>
+          <Image source={{ uri: reel.product.img }} style={s.prodTagImg} />
+          <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
+            <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
+            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{reel.product.price}</Text>
+          </View>
+        </Pressable>
         <Pressable onPress={onAdd} style={s.prodAdd}>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>+ ADD</Text>
         </Pressable>
-      </Pressable>
+      </Animated.View>
 
     </View>
+  );
+}
+
+function SearchCloseButton({ onPress }: { onPress: () => void }) {
+  const curve = useGenderCurve(18);
+  return (
+    <Animated.View style={[{ position: 'absolute', top: 60, right: 16, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, zIndex: 60, overflow: 'hidden' }, curve]}>
+      <Pressable onPress={onPress} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' }} hitSlop={12}>
+        <Feather name="x" size={24} color={C.ink} />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -278,9 +341,9 @@ const makeS = () => StyleSheet.create({
   topBar: { position: 'absolute', top: 60, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   actions: { position: 'absolute', right: 14, bottom: 220, gap: 18, alignItems: 'center' },
   bottom: { position: 'absolute', bottom: 200, left: 16, right: 90 },
-  prodTag: { position: 'absolute', bottom: 110, left: 16, right: 16, height: 70, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.white },
-  prodTagImg: { width: 70, height: 70, borderRightWidth: 1, borderColor: C.ink },
-  prodAdd: { paddingHorizontal: 16, justifyContent: 'center', backgroundColor: C.ink },
+  prodTag: { position: 'absolute', bottom: 110, left: 16, right: 16, height: 70, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' },
+  prodTagImg: { width: 70, height: 70 },
+  prodAdd: { paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink },
   cornerAscii: { position: 'absolute', fontFamily: 'SpaceMono_700Bold', fontSize: 14, color: C.white },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
   modalSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.7, backgroundColor: C.white, borderTopWidth: 2, borderColor: C.ink },
@@ -288,7 +351,7 @@ const makeS = () => StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.ink },
   avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   commentInputRow: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.ink, padding: 10, gap: 8 },
-  commentInput: { flex: 1, height: 42, paddingHorizontal: 12, borderWidth: 1, borderColor: C.ink, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink },
+  commentInput: { width: '100%', height: 42, paddingHorizontal: 12, borderWidth: 1, borderColor: C.ink, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink },
   sendBtn: { width: 42, height: 42, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   searchClose: { position: 'absolute', top: 60, right: 16, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, zIndex: 60 },
 });

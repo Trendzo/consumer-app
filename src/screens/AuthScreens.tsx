@@ -5,7 +5,7 @@ import { BlurView } from 'expo-blur';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
-import { BrutalButton, BrutalInput, AsciiDivider } from '../components/Brutal';
+import { BrutalButton, BrutalInput, AsciiDivider, BrutalStatusBar } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
 const { height } = Dimensions.get('window');
@@ -17,7 +17,7 @@ export function LoginScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <StatusBar barStyle="dark-content" />
+      <BrutalStatusBar />
 
       {/* Full-bleed hero image */}
       <Image source={LOGIN_HERO} style={StyleSheet.absoluteFill} resizeMode="contain" />
@@ -156,13 +156,13 @@ const landingStyles = StyleSheet.create({
 
 // ── Email login form (kept for users who tap "Log In") ──
 export function EmailLoginScreen({ navigation }: any) {
-  const { signIn } = useApp();
+  const { signIn, showToast } = useApp();
   const [email, setEmail] = useState('demo@closetx.app');
   const [password, setPassword] = useState('••••••••');
 
   const handleLogin = () => {
     if (!email.includes('@')) {
-      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      showToast('Invalid email', 'Please enter a valid email address', 'alert-circle');
       return;
     }
     signIn(email, email.split('@')[0]);
@@ -171,7 +171,7 @@ export function EmailLoginScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="dark-content" />
+      <BrutalStatusBar />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ paddingTop: 64, paddingHorizontal: SP.l, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => navigation.goBack()}>
@@ -195,14 +195,14 @@ export function EmailLoginScreen({ navigation }: any) {
 }
 
 export function SignupScreen({ navigation }: any) {
-  const { signIn } = useApp();
+  const { signIn, showToast } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   const handleSignup = () => {
     if (!name || !email.includes('@') || password.length < 4) {
-      Alert.alert('Check your details', 'Name, valid email, and a password (4+ chars) are required.');
+      showToast('Check your details', 'Name, valid email, password (4+ chars)', 'alert-circle');
       return;
     }
     signIn(email, name);
@@ -211,7 +211,7 @@ export function SignupScreen({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-      <StatusBar barStyle="dark-content" />
+      <BrutalStatusBar />
 
       {/* Top bar — sharp, no grab handle */}
       <View style={signupStyles.topBar}>

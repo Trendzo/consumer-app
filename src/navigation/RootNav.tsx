@@ -15,6 +15,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
+import { BrutalToast, BrutalConfirm } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
 import SplashScreen from '../screens/SplashScreen';
@@ -28,8 +29,20 @@ import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
 import CheckoutScreen from '../screens/CheckoutScreen';
-import { OrderSuccessScreen, OrderTrackingScreen } from '../screens/OrderScreens';
+import { OrderSuccessScreen, OrderTrackingScreen, OrderHistoryScreen } from '../screens/OrderScreens';
 import { DailyRewardScreen, SpinWheelScreen, StyleQuizScreen, NotificationsScreen, TryOnScreen } from '../screens/GameScreens';
+import {
+  SavedAddressesScreen, PaymentMethodsScreen, LoyaltyRewardsScreen, GiftCardScreen,
+  ReferralRewardsScreen, NotificationSettingsScreen, LanguageScreen, CustomerSupportScreen,
+  StylePreferencesScreen, MeasurementScreen, FashionCalendarScreen,
+  SustainabilityScreen, OrderReturnScreen, ReviewsScreen,
+  StorePickupScreen, TryAndBuyScreen,
+} from '../screens/ProfileScreens';
+import {
+  ImageSearchScreen, CouponWalletScreen, CommunityFeedScreen, MoodBoardScreen,
+  LuckyDrawScreen, InviteFriendsScreen, AppChallengesScreen, NewArrivalsScreen,
+  DiscoverBrandsScreen, ForHerScreen, ForHimScreen, OccasionShoppingScreen,
+} from '../screens/FeatureScreens';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -42,7 +55,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
     { name: 'CartTab', label: 'BAG', icon: 'shopping-bag' },
     { name: 'ProfileTab', label: 'ME', icon: 'user' },
   ];
-  const { cartCount, night } = useApp();
+  const { cartCount, night, curveProgress } = useApp();
   const insets = useSafeAreaInsets();
   const tabStyles = React.useMemo(() => makeTabStyles(), [night]);
 
@@ -77,21 +90,19 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
       { scaleX: sx.value },
       { scaleY: sy.value },
     ],
+    borderRadius: curveProgress.value * (PILL_H / 2),
+  }));
+  const blobInnerStyle = useAnimatedStyle(() => ({
+    borderRadius: curveProgress.value * (PILL_H / 2),
   }));
 
   return (
     <View style={tabStyles.wrap} pointerEvents="box-none">
-      {/* Hairline top border */}
-      <View style={tabStyles.topRule} />
-
       {/* Liquid glass blur layer — iOS-style heavy frost */}
       <BlurView intensity={100} tint={night ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
 
       {/* Very faint wash so background colors bleed through more */}
       <View style={[StyleSheet.absoluteFill, { backgroundColor: night ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.25)' }]} />
-
-      {/* Subtle highlight gradient at the very top of the bar (mimics curved glass edge) */}
-      <View style={tabStyles.highlight} />
 
       <View
         style={[tabStyles.inner, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}
@@ -107,7 +118,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               blobStyle,
             ]}
           >
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: C.ink }]} />
+            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.ink }, blobInnerStyle]} />
           </Animated.View>
         )}
 
@@ -119,6 +130,8 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               onPress={() => {
                 if (active && it.name === 'ReelsTab') {
                   DeviceEventEmitter.emit('reelsReload');
+                } else if (active && it.name === 'HomeTab') {
+                  DeviceEventEmitter.emit('homeScrollToTop');
                 } else {
                   navigation.navigate(it.name);
                 }
@@ -344,14 +357,47 @@ export default function RootNav() {
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
         <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />
+        <Stack.Screen name="OrderHistory" component={OrderHistoryScreen} />
         <Stack.Screen name="DailyReward" component={DailyRewardScreen} />
         <Stack.Screen name="SpinWheel" component={SpinWheelScreen} />
         <Stack.Screen name="StyleQuiz" component={StyleQuizScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="TryOn" component={TryOnScreen} />
+        {/* Profile sub-screens */}
+        <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
+        <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
+        <Stack.Screen name="LoyaltyRewards" component={LoyaltyRewardsScreen} />
+        <Stack.Screen name="GiftCard" component={GiftCardScreen} />
+        <Stack.Screen name="ReferralRewards" component={ReferralRewardsScreen} />
+        <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+        <Stack.Screen name="Language" component={LanguageScreen} />
+        <Stack.Screen name="CustomerSupport" component={CustomerSupportScreen} />
+        <Stack.Screen name="StylePreferences" component={StylePreferencesScreen} />
+        <Stack.Screen name="Measurement" component={MeasurementScreen} />
+        <Stack.Screen name="FashionCalendar" component={FashionCalendarScreen} />
+        <Stack.Screen name="Sustainability" component={SustainabilityScreen} />
+        <Stack.Screen name="OrderReturn" component={OrderReturnScreen} />
+        <Stack.Screen name="Reviews" component={ReviewsScreen} />
+        <Stack.Screen name="StorePickup" component={StorePickupScreen} />
+        <Stack.Screen name="TryAndBuy" component={TryAndBuyScreen} />
+        {/* Feature screens */}
+        <Stack.Screen name="ImageSearch" component={ImageSearchScreen} />
+        <Stack.Screen name="CouponWallet" component={CouponWalletScreen} />
+        <Stack.Screen name="CommunityFeed" component={CommunityFeedScreen} />
+        <Stack.Screen name="MoodBoard" component={MoodBoardScreen} />
+        <Stack.Screen name="LuckyDraw" component={LuckyDrawScreen} />
+        <Stack.Screen name="InviteFriends" component={InviteFriendsScreen} />
+        <Stack.Screen name="AppChallenges" component={AppChallengesScreen} />
+        <Stack.Screen name="NewArrivals" component={NewArrivalsScreen} />
+        <Stack.Screen name="DiscoverBrands" component={DiscoverBrandsScreen} />
+        <Stack.Screen name="ForHer" component={ForHerScreen} />
+        <Stack.Screen name="ForHim" component={ForHimScreen} />
+        <Stack.Screen name="OccasionShopping" component={OccasionShoppingScreen} />
       </Stack.Navigator>
     </NavigationContainer>
     <NightOverlay />
+    <BrutalToast />
+    <BrutalConfirm />
     </View>
   );
 }

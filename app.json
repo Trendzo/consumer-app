@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.moon.closetx"
     },
     "android": {
       "package": "com.moon.closetx",
@@ -29,7 +30,19 @@
     },
     "plugins": [
       "expo-font",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ClosetX needs your camera to let you try on outfits live."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ClosetX needs access to your photos so you can try on or search with your own images."
+        }
+      ]
     ],
     "extra": {
       "eas": {

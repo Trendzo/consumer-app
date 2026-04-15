@@ -1,9 +1,180 @@
 // Reusable brutalism primitives
-import React, { ReactNode, useRef } from 'react';
-import { View, Text, Pressable, TextInput, StyleSheet, ViewStyle, TextStyle, Animated, Image } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import React, { ReactNode, useRef, useEffect } from 'react';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { Feather } from '@expo/vector-icons';
 import { C, T, BORDER, SP, ASCII, HAIRLINE } from '../theme/brutal';
+import { useApp } from '../state/AppState';
+
+// CachedImage — drop-in `<Image>` replacement backed by expo-image.
+// Aggressively caches to memory + disk so product PNGs load once over the
+// network, then stay instant for the rest of the session.
+export function CachedImage({ source, style, resizeMode = 'contain', ...rest }: any) {
+  const uri = typeof source === 'string' ? source : source?.uri;
+  return (
+    <ExpoImage
+      source={uri ? { uri } : source}
+      style={style}
+      contentFit={resizeMode === 'cover' ? 'cover' : resizeMode === 'stretch' ? 'fill' : 'contain'}
+      cachePolicy="memory-disk"
+      transition={200}
+      {...rest}
+    />
+  );
+}
+
+// Theme-aware status bar — flips barStyle when night mode toggles.
+export function BrutalStatusBar() {
+  const { night } = useApp();
+  return <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />;
+}
+
+// ─── BRUTAL CONFIRM — full brand-matching alert modal ─────────
+// Replaces native Alert.alert. Centered card with title, optional message,
+// and Confirm/Cancel buttons. Slides in from bottom with a soft scale.
+export function BrutalConfirm() {
+  const { confirm, hideConfirm, night } = useApp();
+  if (!confirm) return null;
+  const danger = !!confirm.danger;
+  return (
+    <Modal transparent visible={!!confirm} animationType="none" onRequestClose={hideConfirm}>
+      <Pressable onPress={hideConfirm} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
+        <MotiView
+          from={{ opacity: 0, translateY: 30, scale: 0.94 }}
+          animate={{ opacity: 1, translateY: 0, scale: 1 }}
+          transition={{ type: 'timing', duration: 240 }}
+          onStartShouldSetResponder={() => true}
+          style={[{ width: '100%', maxWidth: 400, backgroundColor: night ? '#0a0a0a' : '#FFFFFF', overflow: 'hidden' }, BORDER(2)]}
+        >
+          {/* Header strip */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.ink }}>
+            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
+              <Feather name={(confirm.icon as any) || (danger ? 'alert-triangle' : 'info')} size={14} color={C.ink} />
+            </View>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 1, flex: 1 }}>{confirm.title.toUpperCase()}</Text>
+            <Pressable onPress={hideConfirm} hitSlop={10}>
+              <Feather name="x" size={16} color={C.white} />
+            </Pressable>
+          </View>
+          {/* Body */}
+          {confirm.msg && (
+            <View style={{ padding: SP.l }}>
+              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: C.ink, lineHeight: 19 }}>{confirm.msg}</Text>
+            </View>
+          )}
+          {/* Action bar */}
+          <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.ink }}>
+            <Pressable
+              onPress={hideConfirm}
+              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: night ? '#0a0a0a' : C.white, borderRightWidth: 1, borderColor: C.ink }}
+            >
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink, letterSpacing: 0.5 }}>{(confirm.cancelLabel || 'CANCEL').toUpperCase()}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => { confirm.onConfirm?.(); hideConfirm(); }}
+              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink }}
+            >
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{(confirm.confirmLabel || (danger ? 'CONFIRM' : 'OK')).toUpperCase()}</Text>
+            </Pressable>
+          </View>
+        </MotiView>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ─── BRUTAL TOAST — brand-matching inline notification ─────────
+// Renders at the bottom of the screen above the tab bar. Global, driven
+// by `useApp().showToast('title', 'msg?')`. Auto-dismisses after ~2s.
+export function BrutalToast() {
+  const { toast, hideToast } = useApp();
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: toast ? 1 : 0,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [toast]);
+  if (!toast) return null;
+  return (
+    <Animated.View
+      pointerEvents="box-none"
+      style={{
+        position: 'absolute',
+        left: 0, right: 0, bottom: 108,
+        alignItems: 'center',
+        zIndex: 9999,
+        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
+        opacity: anim,
+      }}
+    >
+      <View style={[{ flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.ink, maxWidth: '92%', overflow: 'hidden' }, BORDER(1)]}>
+        <Pressable onPress={hideToast} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 10, flex: 1 }}>
+          <View style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
+            <Feather name={(toast.icon as any) || 'check'} size={14} color={C.ink} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{toast.title.toUpperCase()}</Text>
+            {toast.msg && <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 9, color: C.white, opacity: 0.75, marginTop: 1 }} numberOfLines={1}>{toast.msg}</Text>}
+          </View>
+          {!toast.action && <Feather name="x" size={14} color={C.white} />}
+        </Pressable>
+        {toast.action && (
+          <Pressable
+            onPress={() => { toast.action!.onPress(); hideToast(); }}
+            style={{ paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.ink }}
+          >
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink, letterSpacing: 0.6 }}>{toast.action.label.toUpperCase()}</Text>
+          </Pressable>
+        )}
+      </View>
+    </Animated.View>
+  );
+}
+
+// Hook used by brutalist cards/buttons to softly round when HER gender is active.
+// Reads the shared curveProgress from AppState so dragging the gender switch
+// updates every brutalist component in real time.
+export function useGenderCurve(maxRadius = 14) {
+  const { curveProgress } = useApp();
+  return useAnimatedStyle(() => ({ borderRadius: curveProgress.value * maxRadius }));
+}
+
+// ─── BRUTAL BOX — curve-aware bordered container ──────────────
+// Drop-in replacement for `<View style={[{...}, BORDER(1)]}>`. Applies
+// the shared HER-mode radius and clips children so inner borders don't
+// poke past rounded corners.
+type BrutalBoxProps = {
+  children?: ReactNode;
+  style?: any;
+  maxRadius?: number;
+  padded?: boolean;     // apply default SP.l padding
+  solid?: boolean;      // black bg instead of white
+  border?: number;      // border width (default 1, 0 disables)
+  transparent?: boolean;// no background
+};
+export function BrutalBox({ children, style, maxRadius = 14, padded, solid, border = 1, transparent }: BrutalBoxProps) {
+  const curve = useGenderCurve(maxRadius);
+  return (
+    <Reanimated.View
+      style={[
+        {
+          backgroundColor: transparent ? 'transparent' : solid ? C.ink : C.white,
+          overflow: 'hidden',
+        },
+        border > 0 && { borderWidth: border, borderColor: C.ink },
+        padded && { padding: SP.l },
+        curve,
+        style,
+      ]}
+    >
+      {children}
+    </Reanimated.View>
+  );
+}
 
 // ─── BUTTON ────────────────────────────────────────────────
 type BtnProps = {
@@ -24,24 +195,28 @@ export function BrutalButton({ label, onPress, variant = 'solid', icon, iconRigh
   const isSolid = variant === 'solid';
   const bg = disabled ? C.faint : isSolid ? C.ink : variant === 'ghost' ? 'transparent' : C.white;
   const fg = isSolid ? C.white : C.ink;
+  const curveStyle = useGenderCurve(small ? 10 : 14);
   return (
     <Animated.View style={[{ transform: [{ scale }] }, block && { alignSelf: 'stretch' }, style]}>
-      <Pressable
-        disabled={disabled}
-        onPressIn={onIn}
-        onPressOut={onOut}
-        onPress={onPress}
-        style={[
-          { backgroundColor: bg, paddingHorizontal: small ? SP.m : SP.l, paddingVertical: small ? SP.s : SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-          variant !== 'ghost' && BORDER(1),
-        ]}
-      >
-        {icon && <Feather name={icon} size={small ? 14 : 16} color={fg} />}
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: small ? 11 : 13, color: fg, letterSpacing: 0.5 }}>
-          {label.toUpperCase()}
-        </Text>
-        {iconRight && <Feather name={iconRight} size={small ? 14 : 16} color={fg} />}
-      </Pressable>
+      <Reanimated.View style={[
+        { backgroundColor: bg, overflow: 'hidden' },
+        variant !== 'ghost' && BORDER(1),
+        curveStyle,
+      ]}>
+        <Pressable
+          disabled={disabled}
+          onPressIn={onIn}
+          onPressOut={onOut}
+          onPress={onPress}
+          style={{ paddingHorizontal: small ? SP.m : SP.l, paddingVertical: small ? SP.s : SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >
+          {icon && <Feather name={icon} size={small ? 14 : 16} color={fg} />}
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: small ? 11 : 13, color: fg, letterSpacing: 0.5 }}>
+            {label.toUpperCase()}
+          </Text>
+          {iconRight && <Feather name={iconRight} size={small ? 14 : 16} color={fg} />}
+        </Pressable>
+      </Reanimated.View>
     </Animated.View>
   );
 }
@@ -49,16 +224,19 @@ export function BrutalButton({ label, onPress, variant = 'solid', icon, iconRigh
 // ─── ICON BUTTON ───────────────────────────────────────────
 export function BrutalIconBtn({ icon, onPress, size = 38, active }: { icon: keyof typeof Feather.glyphMap; onPress?: () => void; size?: number; active?: boolean }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const curveStyle = useGenderCurve(size / 2);
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
-      <Pressable
-        onPressIn={() => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 50 }).start()}
-        onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }).start()}
-        onPress={onPress}
-        style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? C.ink : C.white }, BORDER(1)]}
-      >
-        <Feather name={icon} size={size * 0.45} color={active ? C.white : C.ink} />
-      </Pressable>
+      <Reanimated.View style={[{ width: size, height: size, backgroundColor: active ? C.ink : C.white, overflow: 'hidden' }, BORDER(1), curveStyle]}>
+        <Pressable
+          onPressIn={() => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 50 }).start()}
+          onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }).start()}
+          onPress={onPress}
+          style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Feather name={icon} size={size * 0.45} color={active ? C.white : C.ink} />
+        </Pressable>
+      </Reanimated.View>
     </Animated.View>
   );
 }
@@ -171,9 +349,6 @@ export function ProductCard({ p, onPress, w = 160 }: { p: any; onPress?: () => v
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5 }}>{p.tag}</Text>
             </View>
           )}
-          <View style={[{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-            <Feather name="heart" size={13} color={C.ink} />
-          </View>
         </View>
         <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
         <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
