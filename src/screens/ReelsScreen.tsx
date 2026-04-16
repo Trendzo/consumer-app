@@ -143,24 +143,51 @@ const SEED_COMMENTS = [
   { user: 'urban_threads', text: 'need this in my closet asap' },
 ];
 
+// ── Isolated video component — only mounts when the reel is active so we
+//    never create multiple AVPlayer instances simultaneously (fixes TestFlight crash).
+function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
+  const player = useVideoPlayer(url, p => {
+    p.loop = true;
+    p.muted = true;
+    try { (p as any).preservesPitch = false; } catch {}
+    try {
+      (p as any).bufferOptions = {
+        preferredForwardBufferDuration: 8,
+        waitsToMinimizeStalling: false,
+      };
+    } catch {}
+  });
+
+  useEffect(() => {
+    try {
+      if (isActive) player.play();
+      else player.pause();
+    } catch {}
+  }, [isActive, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFillObject as any}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
+
 function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
   const { night } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
-  const player = useVideoPlayer(reel.video, p => {
-    p.loop = true;
-    p.muted = true;
-    p.preservesPitch = false;
-    p.bufferOptions = {
-      preferredForwardBufferDuration: 8,
-      waitsToMinimizeStalling: false,
-    } as any;
-  });
 
   const [saved, setSaved] = useState(false);
   const [shareCount, setShareCount] = useState(102);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState(SEED_COMMENTS);
   const [draft, setDraft] = useState('');
+  // Track if this reel has ever been active so we mount the video player once
+  // and keep it alive (avoids re-buffering on quick swipes back).
+  const [wasActive, setWasActive] = useState(isActive);
+  useEffect(() => { if (isActive) setWasActive(true); }, [isActive]);
 
   // HER-mode curves for all the overlay cards on the reel
   const prodCurve = useGenderCurve(14);
@@ -197,11 +224,6 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       if (!isLiked) runOnJS(onLike)();
     });
 
-  useEffect(() => {
-    if (isActive) player.play();
-    else player.pause();
-  }, [isActive, player]);
-
   const handleShare = async () => {
     try {
       const r = await Share.share({
@@ -222,12 +244,8 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
     <View style={{ height, width, backgroundColor: '#000' }}>
       <GestureDetector gesture={doubleTap}>
         <View style={StyleSheet.absoluteFillObject}>
-          <VideoView
-            player={player}
-            style={StyleSheet.absoluteFillObject as any}
-            contentFit="cover"
-            nativeControls={false}
-          />
+          {/* Only mount the video player after this reel first becomes active */}
+          {wasActive && <ReelVideo url={reel.video} isActive={isActive} />}
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
           {/* Double-tap heart — blooms at the tap position and fades */}
           <Animated.View style={[{ width: 120, height: 120, alignItems: 'center', justifyContent: 'center' }, heartStyle]} pointerEvents="none">

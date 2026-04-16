@@ -17,8 +17,6 @@ import Animated, {
   useAnimatedScrollHandler,
   interpolate,
   Extrapolation,
-  withSpring,
-  withTiming,
   runOnJS,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,6 +32,44 @@ const ONB3 = require('../../assets/onb3.jpeg');
 
 const { width, height } = Dimensions.get('window');
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+
+// ── Sub-components so hooks are never called inside .map() ──────────────────
+function SlideBackground({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: Animated.SharedValue<number> }) {
+  const bgStyle = useAnimatedStyle(() => {
+    const p = Math.max(0, Math.min(1, (scrollX.value - (index - 1) * width) / width));
+    const tx = (1 - p) * width;
+    return { transform: [{ translateX: tx }] };
+  });
+  return (
+    <Animated.View
+      style={[
+        { position: 'absolute', top: 0, left: 0, width, height, alignItems: 'center', justifyContent: 'center' },
+        bgStyle,
+      ]}
+    >
+      <Image source={slide.img} style={{ width, height }} resizeMode="cover" />
+    </Animated.View>
+  );
+}
+
+function NavDot({ index, scrollX }: { index: number; scrollX: Animated.SharedValue<number> }) {
+  const dotStyle = useAnimatedStyle(() => {
+    const w = interpolate(
+      scrollX.value,
+      [(index - 1) * width, index * width, (index + 1) * width],
+      [8, 28, 8],
+      Extrapolation.CLAMP,
+    );
+    const op = interpolate(
+      scrollX.value,
+      [(index - 1) * width, index * width, (index + 1) * width],
+      [0.4, 1, 0.4],
+      Extrapolation.CLAMP,
+    );
+    return { width: w, opacity: op };
+  });
+  return <Animated.View style={[styles.dot, dotStyle]} />;
+}
 
 const SLIDES = [
   {
@@ -97,26 +133,9 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
       {/* ── Stacked reveal: each image slides in from the right
               over the previous one and stays put. Going back, it
               slides back out to the right. ──────────────────── */}
-      {SLIDES.map((s, i) => {
-        const bgStyle = useAnimatedStyle(() => {
-          // Local progress from prev slide → this slide, in [0, 1]
-          const p = Math.max(0, Math.min(1, (scrollX.value - (i - 1) * width) / width));
-          // Linear track: image follows the finger 1:1, settles dead-center
-          const tx = (1 - p) * width;
-          return { transform: [{ translateX: tx }] };
-        });
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              { position: 'absolute', top: 0, left: 0, width, height, alignItems: 'center', justifyContent: 'center' },
-              bgStyle,
-            ]}
-          >
-            <Image source={s.img} style={{ width, height }} resizeMode="cover" />
-          </Animated.View>
-        );
-      })}
+      {SLIDES.map((s, i) => (
+        <SlideBackground key={i} slide={s} index={i} scrollX={scrollX} />
+      ))}
 
       {/* heavy bottom-up gradient so text reads */}
       <LinearGradient
@@ -230,24 +249,9 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
       >
         {/* progress dots — white */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          {SLIDES.map((_, i) => {
-            const dotStyle = useAnimatedStyle(() => {
-              const w = interpolate(
-                scrollX.value,
-                [(i - 1) * width, i * width, (i + 1) * width],
-                [8, 28, 8],
-                Extrapolation.CLAMP,
-              );
-              const op = interpolate(
-                scrollX.value,
-                [(i - 1) * width, i * width, (i + 1) * width],
-                [0.4, 1, 0.4],
-                Extrapolation.CLAMP,
-              );
-              return { width: w, opacity: op };
-            });
-            return <Animated.View key={i} style={[styles.dot, dotStyle]} />;
-          })}
+          {SLIDES.map((_, i) => (
+            <NavDot key={i} index={i} scrollX={scrollX} />
+          ))}
         </View>
 
         {/* CTA — glass morphism */}
