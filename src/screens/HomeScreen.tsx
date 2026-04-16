@@ -22,62 +22,6 @@ const { width: W } = Dimensions.get('window');
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedImage = Animated.createAnimatedComponent(Image);
 
-// ─── PIXEL DISSOLVE — mosaic overlay that "generates" pixels during the drag ───
-// Each cell owns a random threshold in [0,1]. As curveProgress crosses that
-// threshold the cell flashes visible, then fades, so the banner looks like
-// it's being re-rendered pixel-by-pixel rather than a smooth crossfade.
-//
-// Perf notes: cell size was bumped from 26 → 40 to cut the live-animated-view
-// count by ~2.4x (225 → ~95 on a full-width banner). PixelCell is memoized so
-// theme / state re-renders up the tree don't flush every cell. The worklet
-// early-exits at the rest positions (p≈0 / p≈1) so idle frames cost nothing.
-const PIXEL_SIZE = 40;
-const PIXEL_PALETTE = ['#000000', '#FFFFFF', '#1a1a1a', '#e5e5e5', '#808080'];
-
-const PixelCell = React.memo(function PixelCell({ threshold, color, progress }: { threshold: number; color: string; progress: Animated.SharedValue<number> }) {
-  const style = useAnimatedStyle(() => {
-    'worklet';
-    const p = progress.value;
-    // At rest — skip the bell math entirely, keep the overlay fully transparent.
-    if (p <= 0.01 || p >= 0.99) return { opacity: 0 };
-    // Global envelope fades overlay to 0 near the endpoints so the final
-    // image always reads clean (no stray cells visible at rest).
-    const edge = Math.min(p, 1 - p) * 3;
-    if (edge <= 0.01) return { opacity: 0 };
-    // Bell around threshold — cell is visible while drag is in its slot.
-    const dist = Math.abs(p - threshold);
-    const near = Math.max(0, 1 - dist * 5);
-    return { opacity: near * Math.min(1, edge) };
-  });
-  return <Animated.View style={[{ width: PIXEL_SIZE, height: PIXEL_SIZE, backgroundColor: color }, style]} />;
-});
-
-function PixelDissolve({ progress, width, height }: { progress: Animated.SharedValue<number>; width: number; height: number }) {
-  const cells = useMemo(() => {
-    const cols = Math.ceil(width / PIXEL_SIZE);
-    const rows = Math.ceil(height / PIXEL_SIZE);
-    const out: { t: number; c: string }[] = [];
-    for (let i = 0; i < cols * rows; i++) {
-      out.push({
-        t: Math.random(),
-        c: PIXEL_PALETTE[Math.floor(Math.random() * PIXEL_PALETTE.length)],
-      });
-    }
-    return out;
-  }, [width, height]);
-  if (width <= 0) return null;
-  return (
-    <View
-      pointerEvents="none"
-      style={[StyleSheet.absoluteFillObject, { flexDirection: 'row', flexWrap: 'wrap', overflow: 'hidden' }]}
-    >
-      {cells.map((cell, idx) => (
-        <PixelCell key={idx} threshold={cell.t} color={cell.c} progress={progress} />
-      ))}
-    </View>
-  );
-}
-
 // Expanded product list for the Explore More infinite feed — fake 24 items from PRODUCTS
 const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
   ...PRODUCTS[i % PRODUCTS.length],
@@ -113,10 +57,7 @@ export default function HomeScreen() {
   // Breathing room beneath the flash-sale timer bar when cards round
   const flashColStyle = useAnimatedStyle(() => ({ marginBottom: curveProgress.value * 10 }));
 
-  // Hero banner — pixel-dissolve transition. HIM sits beneath, HER fades in on top,
-  // and a mosaic of staggered cells flashes across so the swap reads as pixels
-  // being rebuilt rather than a smooth fade.
-  const [heroSize, setHeroSize] = useState({ w: 0, h: 380 });
+  // Hero banner — HIM sits beneath, HER fades in on top as the gender switch drags.
   const herHeroStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
   const himHeadlineStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   const herHeadlineStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
@@ -210,15 +151,12 @@ export default function HomeScreen() {
         {/* ═══════════ HERO ═══════════ */}
         <FadeInUp delay={50}>
           <Animated.View
-            onLayout={e => setHeroSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
             style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 380, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), curveStyle]}
           >
             {/* HIM base layer */}
             <CachedImage source={{ uri: HIM_HERO }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             {/* HER overlay — opacity tracks curveProgress so the drag drives the crossfade live */}
             <AnimatedImage source={{ uri: HER_HERO }} style={[StyleSheet.absoluteFillObject as any, herHeroStyle]} resizeMode="cover" />
-            {/* Pixel-dissolve mosaic — cells flash in/out across the drag like the banner is being regenerated */}
-            <PixelDissolve progress={curveProgress} width={heroSize.w} height={heroSize.h} />
             <View style={{ flex: 1, padding: 18, justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,0.25)' }}>
               <Animated.View style={[{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1), curveSmStyle]}>
                 <Text style={[T.monoB, { fontSize: 10 }]}>60-MIN ETA</Text>
@@ -888,26 +826,15 @@ const CLOSED_PH = SECTION_HEAD_H + PH + 70;
 const OPEN_PH = SECTION_HEAD_H + CIRCLE_R * 2 + PH + 40;
 const GAME_MAP: any = { g1:'DailyReward', g2:'SpinWheel', g3:'LuckyDraw', g4:'StyleQuiz', g5:'InviteFriends', g6:'AppChallenges' };
 
-function PlayWheelSection({ nav, scrollRef, scrollYRef }: { nav: any; scrollRef: any; scrollYRef: any }) {
+function PlayWheelSection({ nav }: { nav: any; scrollRef?: any; scrollYRef?: any }) {
   const progress = useSharedValue(0);
   const closeRot = useSharedValue(0);
   const isOpen = useRef(false);
 
   const toggle = () => {
-    const halfExpand = (OPEN_PH - CLOSED_PH) / 2;
-    // Spin the close button forward on every toggle (open AND close).
     closeRot.value = withSpring(closeRot.value + 360, { damping: 14, stiffness: 90, mass: 0.9 });
-    if (!isOpen.current) {
-      isOpen.current = true;
-      progress.value = withSpring(1, { damping: 16, stiffness: 120, mass: 0.8 });
-      // Scroll down by half the expansion so the cards stay centered in viewport —
-      // visually content above slides up, content below slides down.
-      scrollRef.current?.scrollTo({ y: (scrollYRef?.current ?? 0) + halfExpand, animated: true });
-    } else {
-      isOpen.current = false;
-      progress.value = withSpring(0, { damping: 16, stiffness: 120, mass: 0.8 });
-      scrollRef.current?.scrollTo({ y: Math.max(0, (scrollYRef?.current ?? 0) - halfExpand), animated: true });
-    }
+    isOpen.current = !isOpen.current;
+    progress.value = withSpring(isOpen.current ? 1 : 0, { damping: 16, stiffness: 120, mass: 0.8 });
   };
 
   const expand = (OPEN_PH - CLOSED_PH);
