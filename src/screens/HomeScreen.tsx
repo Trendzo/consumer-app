@@ -889,8 +889,9 @@ const PH = 110;
 const SECTION_HEAD_H = 70; // approx height of SectionHead
 const CLOSED_PH = SECTION_HEAD_H + PH + 70;
 const OPEN_PH = SECTION_HEAD_H + CIRCLE_R * 2 + PH + 40;
+const GAME_MAP: any = { g1:'DailyReward', g2:'SpinWheel', g3:'LuckyDraw', g4:'StyleQuiz', g5:'InviteFriends', g6:'AppChallenges' };
 
-function PlayWheelSection({ scrollRef, scrollYRef }: { nav?: any; scrollRef: any; scrollYRef: any }) {
+function PlayWheelSection({ nav, scrollRef, scrollYRef }: { nav: any; scrollRef: any; scrollYRef: any }) {
   const progress = useSharedValue(0);
   const closeRot = useSharedValue(0);
   const isOpen = useRef(false);
@@ -949,7 +950,10 @@ function PlayWheelSection({ scrollRef, scrollYRef }: { nav?: any; scrollRef: any
             game={g}
             index={i}
             progress={progress}
-            onTap={toggle}
+            onTap={() => {
+              if (!isOpen.current) { toggle(); return; }
+              nav.navigate(GAME_MAP[g.id] || 'DailyReward');
+            }}
           />
         ))}
         {/* Close button */}
