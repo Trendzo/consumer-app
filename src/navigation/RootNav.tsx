@@ -11,7 +11,6 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
@@ -98,11 +97,10 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View style={tabStyles.wrap} pointerEvents="box-none">
-      {/* Liquid glass blur layer — iOS-style heavy frost */}
-      <BlurView intensity={100} tint={night ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-
-      {/* Very faint wash so background colors bleed through more */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: night ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.25)' }]} />
+      {/* Solid tab surface — the live BlurView was re-compositing on every
+          scroll/drag frame and tanking perf. A solid fill matches the rest of
+          the brutalist UI and costs nothing to render. */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: night ? '#000000' : '#FFFFFF' }]} />
 
       <View
         style={[tabStyles.inner, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}

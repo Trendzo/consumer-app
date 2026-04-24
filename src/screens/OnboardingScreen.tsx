@@ -18,7 +18,6 @@ import Animated, {
   interpolate,
   Extrapolation,
   runOnJS,
-  SharedValue,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -35,7 +34,7 @@ const { width, height } = Dimensions.get('window');
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 // ── Sub-components so hooks are never called inside .map() ──────────────────
-function SlideBackground({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: SharedValue<number> }) {
+function SlideBackground({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: Animated.SharedValue<number> }) {
   const bgStyle = useAnimatedStyle(() => {
     const p = Math.max(0, Math.min(1, (scrollX.value - (index - 1) * width) / width));
     const tx = (1 - p) * width;
@@ -53,7 +52,7 @@ function SlideBackground({ slide, index, scrollX }: { slide: { img: any }; index
   );
 }
 
-function NavDot({ index, scrollX }: { index: number; scrollX: SharedValue<number> }) {
+function NavDot({ index, scrollX }: { index: number; scrollX: Animated.SharedValue<number> }) {
   const dotStyle = useAnimatedStyle(() => {
     const w = interpolate(
       scrollX.value,

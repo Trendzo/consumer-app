@@ -1,10 +1,10 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, TextInput, DeviceEventEmitter } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolateColor, useDerivedValue, withTiming, runOnJS, useAnimatedRef, useAnimatedReaction, scrollTo, SharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolateColor, withTiming, runOnJS, SharedValue } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -21,64 +21,7 @@ const HOME_HERO = require('../../assets/home.jpeg');
 const { width: W } = Dimensions.get('window');
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedImage = Animated.createAnimatedComponent(Image);
-
-// ─── PIXEL DISSOLVE — mosaic overlay that "generates" pixels during the drag ───
-// Each cell owns a random threshold in [0.1, 0.9]. As curveProgress crosses
-// that threshold the cell flashes visible, then fades, so the banner looks
-// like it's being re-rendered pixel-by-pixel rather than a smooth crossfade.
-//
-// Why the drag now stays smooth (what was causing the lag before):
-// 1. PIXEL_SIZE 40 → 56 roughly halves cell count on a full banner.
-// 2. Cells with thresholds outside [0.1, 0.9] are culled at build time — they
-//    could never reach visible opacity because of the edge envelope, so before
-//    they were pure worklet overhead with no visual contribution.
-// 3. Each cell's worklet bails instantly when |p - threshold| >= BELL_WIDTH.
-//    Reanimated elides native view updates when the returned style is unchanged,
-//    so out-of-window cells truly cost nothing past the worklet evaluation.
-// Net: ~30–35 active worklets per drag frame vs ~95 before, same visual.
-const PIXEL_SIZE = 56;
-const PIXEL_PALETTE = ['#000000', '#FFFFFF', '#1a1a1a', '#e5e5e5', '#808080'];
-const BELL_WIDTH = 0.2;
-
-const PixelCell = React.memo(function PixelCell({ threshold, color, progress }: { threshold: number; color: string; progress: SharedValue<number> }) {
-  const style = useAnimatedStyle(() => {
-    'worklet';
-    const p = progress.value;
-    const dist = p > threshold ? p - threshold : threshold - p;
-    if (dist >= BELL_WIDTH) return { opacity: 0 };
-    const edge = (p < 1 - p ? p : 1 - p) * 3;
-    if (edge <= 0) return { opacity: 0 };
-    const near = 1 - dist / BELL_WIDTH;
-    return { opacity: near * (edge < 1 ? edge : 1) };
-  });
-  return <Animated.View style={[{ width: PIXEL_SIZE, height: PIXEL_SIZE, backgroundColor: color }, style]} />;
-});
-
-function PixelDissolve({ progress, width, height }: { progress: SharedValue<number>; width: number; height: number }) {
-  const cells = useMemo(() => {
-    const cols = Math.ceil(width / PIXEL_SIZE);
-    const rows = Math.ceil(height / PIXEL_SIZE);
-    const out: { t: number; c: string }[] = [];
-    for (let i = 0; i < cols * rows; i++) {
-      const t = Math.random();
-      if (t < 0.1 || t > 0.9) continue;
-      out.push({ t, c: PIXEL_PALETTE[Math.floor(Math.random() * PIXEL_PALETTE.length)] });
-    }
-    return out;
-  }, [width, height]);
-  if (width <= 0) return null;
-  return (
-    <View
-      pointerEvents="none"
-      collapsable={false}
-      style={[StyleSheet.absoluteFillObject, { flexDirection: 'row', flexWrap: 'wrap', overflow: 'hidden' }]}
-    >
-      {cells.map((cell, idx) => (
-        <PixelCell key={idx} threshold={cell.t} color={cell.c} progress={progress} />
-      ))}
-    </View>
-  );
-}
+const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 // Expanded product list for the Explore More infinite feed — fake 24 items from PRODUCTS
 const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
@@ -100,10 +43,8 @@ export default function HomeScreen() {
   const activeHero = gender === 'her' ? HER_HERO : HIM_HERO;
   const brandPage = useRef(0);
   const brandRef = useRef<FlatList>(null);
-  // Animated ref so PlayWheelSection can drive scroll from the UI thread (worklet
-   // scrollTo) — prevents the open/close scroll from racing the spring.
-  const scrollRef = useAnimatedRef<Animated.ScrollView>();
-  const scrollYRef = useRef(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useSharedValue(0);
   // Gender → curvature: HIM = 0 (sharp brutalist), HER = 1 (rounded/soft).
   // curveProgress lives in AppState so the GenderSwitch drag can drive it
   // and every component in the app stays in sync during the gesture.
@@ -117,9 +58,7 @@ export default function HomeScreen() {
   // Breathing room beneath the flash-sale timer bar when cards round
   const flashColStyle = useAnimatedStyle(() => ({ marginBottom: curveProgress.value * 10 }));
 
-  // Hero banner — HIM sits beneath, HER fades in on top, and a pixel-dissolve
-  // mosaic flashes across so the swap reads as the banner being re-rendered.
-  const [heroSize, setHeroSize] = useState({ w: 0, h: 380 });
+  // Hero banner — HIM sits beneath, HER fades in on top, driven by curveProgress.
   const herHeroStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
   const himHeadlineStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   const herHeadlineStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
@@ -135,6 +74,21 @@ export default function HomeScreen() {
   const searchBarStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: searchBarSlide.value }],
   }));
+
+  // UI-thread scroll handler — drives searchBarSlide directly and only pings
+  // JS when the show/hide boolean actually flips. Replaces the 60Hz JS onScroll
+  // that was causing scroll lag.
+  const searchBarShownUI = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler((e) => {
+    'worklet';
+    scrollY.value = e.contentOffset.y;
+    const shouldShow = e.contentOffset.y + 120 > exploreY ? 1 : 0;
+    if (shouldShow !== searchBarShownUI.value) {
+      searchBarShownUI.value = shouldShow;
+      searchBarSlide.value = withTiming(shouldShow ? 0 : -220, { duration: 260 });
+      runOnJS(setShowSearchBar)(shouldShow === 1);
+    }
+  });
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -164,20 +118,11 @@ export default function HomeScreen() {
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
       <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
-      <Animated.ScrollView
-        ref={scrollRef}
+      <AnimatedScrollView
+        ref={scrollRef as any}
         contentContainerStyle={{ paddingTop: 56, paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
-        onScroll={(e) => {
-          const y = e.nativeEvent.contentOffset.y;
-          scrollYRef.current = y;
-          // Slide sticky search bar in from top when Explore More enters viewport
-          const shouldShow = y + 120 > exploreY;
-          if (shouldShow !== showSearchBar) {
-            setShowSearchBar(shouldShow);
-            searchBarSlide.value = withTiming(shouldShow ? 0 : -220, { duration: 260 });
-          }
-        }}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
       >
@@ -213,15 +158,12 @@ export default function HomeScreen() {
         {/* ═══════════ HERO ═══════════ */}
         <FadeInUp delay={50}>
           <Animated.View
-            onLayout={e => setHeroSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
             style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 380, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), curveStyle]}
           >
             {/* HIM base layer */}
             <CachedImage source={{ uri: HIM_HERO }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             {/* HER overlay — opacity tracks curveProgress so the drag drives the crossfade live */}
             <AnimatedImage source={{ uri: HER_HERO }} style={[StyleSheet.absoluteFillObject as any, herHeroStyle]} resizeMode="cover" />
-            {/* Pixel-dissolve mosaic — cells flash in/out across the drag like the banner is regenerating */}
-            <PixelDissolve progress={curveProgress} width={heroSize.w} height={heroSize.h} />
             <View style={{ flex: 1, padding: 18, justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,0.25)' }}>
               <Animated.View style={[{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1), curveSmStyle]}>
                 <Text style={[T.monoB, { fontSize: 10 }]}>60-MIN ETA</Text>
@@ -355,7 +297,7 @@ export default function HomeScreen() {
         ║  Tap to fan out in circle, drag to rotate     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <PlayWheelSection nav={nav} scrollRef={scrollRef} scrollYRef={scrollYRef} />
+        <PlayWheelSection nav={nav} scrollRef={scrollRef} scrollY={scrollY} />
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -855,7 +797,7 @@ export default function HomeScreen() {
           <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>FROM YOUR BLOCK · IN 60 MINUTES</Text>
           <AsciiDivider faint style={{ marginTop: 8 }} />
         </View>
-      </Animated.ScrollView>
+      </AnimatedScrollView>
 
       {/* STICKY SEARCH BAR — slides down from top (no fade) */}
       <Animated.View pointerEvents={showSearchBar ? 'auto' : 'none'} style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: Math.max(insets.top - 8, 4), paddingHorizontal: SP.l, paddingBottom: 6, backgroundColor: C.bg, borderBottomWidth: 1, borderColor: C.ink, zIndex: 100 }, searchBarStyle]}>
@@ -891,43 +833,27 @@ const CLOSED_PH = SECTION_HEAD_H + PH + 70;
 const OPEN_PH = SECTION_HEAD_H + CIRCLE_R * 2 + PH + 40;
 const GAME_MAP: any = { g1:'DailyReward', g2:'SpinWheel', g3:'LuckyDraw', g4:'StyleQuiz', g5:'InviteFriends', g6:'AppChallenges' };
 
-function PlayWheelSection({ nav, scrollRef, scrollYRef }: { nav: any; scrollRef: any; scrollYRef: any }) {
+function PlayWheelSection({ nav, scrollRef, scrollY }: { nav: any; scrollRef: any; scrollY: SharedValue<number> }) {
   const progress = useSharedValue(0);
   const closeRot = useSharedValue(0);
   const isOpen = useRef(false);
 
-  // Worklet-driven scroll sync — eliminates the jitter that happened when the
-  // old JS-thread `scrollTo({ animated: true })` raced against the UI-thread
-  // spring on the container height. Both now ride the SAME spring.
-  // `scrollPhase` goes 0 → 1 on every toggle (regardless of open/close direction)
-  // using the same spring config as `progress`, so they advance in lockstep.
-  // `useAnimatedReaction` bridges it to a worklet `scrollTo` on the ScrollView's
-  // animated ref — all on the UI thread, no JS round-trip per frame.
-  const scrollPhase = useSharedValue(0);
-  const scrollStart = useSharedValue(0);
-  const scrollTarget = useSharedValue(0);
-
-  useAnimatedReaction(
-    () => scrollPhase.value,
-    (phase) => {
-      if (!scrollRef) return;
-      const y = scrollStart.value + (scrollTarget.value - scrollStart.value) * phase;
-      scrollTo(scrollRef, 0, y, false);
-    },
-  );
-
   const toggle = () => {
     const halfExpand = (OPEN_PH - CLOSED_PH) / 2;
+    const currentY = scrollY?.value ?? 0;
+    // Spin the close button forward on every toggle (open AND close).
     closeRot.value = withSpring(closeRot.value + 360, { damping: 14, stiffness: 90, mass: 0.9 });
-    const willOpen = !isOpen.current;
-    isOpen.current = willOpen;
-    // Seed the scroll animation — starts from current scroll position, ends
-    // at +/- halfExpand, interpolated by scrollPhase over the same spring.
-    scrollStart.value = scrollYRef?.current ?? 0;
-    scrollTarget.value = Math.max(0, scrollStart.value + (willOpen ? halfExpand : -halfExpand));
-    scrollPhase.value = 0;
-    scrollPhase.value = withSpring(1, { damping: 16, stiffness: 120, mass: 0.8 });
-    progress.value = withSpring(willOpen ? 1 : 0, { damping: 16, stiffness: 120, mass: 0.8 });
+    if (!isOpen.current) {
+      isOpen.current = true;
+      progress.value = withSpring(1, { damping: 16, stiffness: 120, mass: 0.8 });
+      // Scroll down by half the expansion so the cards stay centered in viewport —
+      // visually content above slides up, content below slides down.
+      scrollRef.current?.scrollTo({ y: currentY + halfExpand, animated: true });
+    } else {
+      isOpen.current = false;
+      progress.value = withSpring(0, { damping: 16, stiffness: 120, mass: 0.8 });
+      scrollRef.current?.scrollTo({ y: Math.max(0, currentY - halfExpand), animated: true });
+    }
   };
 
   const expand = (OPEN_PH - CLOSED_PH);
@@ -1119,8 +1045,14 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
       // even if the square hasn't crossed the midpoint.
       const velocityBias = e.velocityX / 1200;
       const target = Math.min(1, Math.max(0, final + velocityBias)) >= 0.5 ? 1 : 0;
-      curveProgress.value = withSpring(target, GENDER_SPRING);
-      runOnJS(commitFromDrag)(target === 1 ? 'her' : 'him');
+      const nextGender: 'her' | 'him' = target === 1 ? 'her' : 'him';
+      // Delay the JS-side gender commit until the spring lands. The big
+      // re-render (hero crossfade, product/category/bundle/occasion swap)
+      // then happens after the dot has visually settled — no JS work
+      // competing with the spring frames, so the snap is jitter-free.
+      curveProgress.value = withSpring(target, GENDER_SPRING, (finished) => {
+        if (finished) runOnJS(commitFromDrag)(nextGender);
+      });
     });
 
   // Tap-on-line handler: tap left of midpoint → HIM, right of midpoint → HER.

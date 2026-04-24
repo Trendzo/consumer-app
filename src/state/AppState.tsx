@@ -2,6 +2,9 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useSharedValue, withSpring, SharedValue } from 'react-native-reanimated';
 import { Image as ExpoImage } from 'expo-image';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const GENDER_KEY = '@closetx/gender';
 import {
   Product, PRODUCTS, CATEGORIES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, REELS,
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
@@ -104,7 +107,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ].filter(Boolean);
     ExpoImage.prefetch(urls, 'memory-disk').catch(() => { /* ignore */ });
   }, []);
-  const [gender, setGender] = useState<'her' | 'him'>('him');
+  const [gender, setGenderRaw] = useState<'her' | 'him'>('him');
   const [toast, setToast] = useState<AppCtx['toast']>(null);
   const toastTimer = React.useRef<any>(null);
   const showToast = useCallback<AppCtx['showToast']>((title, msg, icon, action) => {
@@ -123,23 +126,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const hideConfirm = useCallback(() => setConfirm(null), []);
   const curveProgress = useSharedValue(0);
-  // When the GenderSwitch drag settles, it springs curveProgress itself and
-  // flips this flag so the effect below skips re-animating — otherwise two
-  // animations race to the same target and the transition jitters.
-  const gestureDriving = useRef(false);
+  // When the GenderSwitch drag settles (or hydration restores a saved value),
+  // the caller updates curveProgress itself and flips this flag so the effect
+  // below skips re-animating — otherwise two animations race to the same
+  // target and the transition jitters.
+  const skipNextCurveSpring = useRef(false);
   useEffect(() => {
     setGenderCurve(gender === 'her');
-    if (gestureDriving.current) {
-      gestureDriving.current = false;
+    if (skipNextCurveSpring.current) {
+      skipNextCurveSpring.current = false;
       return;
     }
     curveProgress.value = withSpring(gender === 'her' ? 1 : 0, {
       damping: 22, stiffness: 180, mass: 0.7, overshootClamping: false,
     });
   }, [gender]);
+
+  // Persist gender — hydrate once on mount, write on every change.
+  const hydratedGender = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(GENDER_KEY).then(v => {
+      if (cancelled) return;
+      if ((v === 'her' || v === 'him') && v !== gender) {
+        // Jump curveProgress directly and skip the spring in the gender
+        // effect so the restore is instant — no opening animation on cold
+        // start. Only arm the skip flag when state is actually changing,
+        // otherwise the flag leaks and swallows the next real spring.
+        skipNextCurveSpring.current = true;
+        curveProgress.value = v === 'her' ? 1 : 0;
+        setGenderRaw(v);
+      }
+      hydratedGender.current = true;
+    }).catch(() => { hydratedGender.current = true; });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    if (!hydratedGender.current) return;
+    AsyncStorage.setItem(GENDER_KEY, gender).catch(() => {});
+  }, [gender]);
+
+  const setGender = useCallback((g: 'her' | 'him') => {
+    setGenderRaw(g);
+  }, []);
   const setGenderFromDrag = useCallback((g: 'her' | 'him') => {
-    gestureDriving.current = true;
-    setGender(g);
+    // Only arm the skip flag when the state actually changes — otherwise
+    // setGenderRaw is a no-op, the effect doesn't run, and the flag leaks
+    // into the next real change and silently swallows that spring.
+    setGenderRaw(prev => {
+      if (prev !== g) skipNextCurveSpring.current = true;
+      return g;
+    });
   }, []);
   const toggleNight = useCallback(() => {
     setNight(n => {
