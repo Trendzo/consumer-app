@@ -62,8 +62,15 @@ export default function HomeScreen() {
   const rowGapStyle = { gap: gender === 'her' ? 8 : 0 };
   const flashColStyle = { marginBottom: gender === 'her' ? 10 : 0 };
 
-  // Hero banner — HIM sits beneath, HER fades in on top, driven by curveProgress.
-  const herHeroStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
+  // Hero banner — HIM sits beneath; the HER poster wipes IN from the left as the
+  // bar drags toward HER. Pure transform (translateX) → GPU-only, no per-frame
+  // layout. At progress 0 the HER poster sits fully off the left edge (only HIM
+  // shows); at 1 it has slid fully across the box and covers it. The box already
+  // has overflow:hidden, so the off-screen part is clipped.
+  const HERO_W = W - SP.l * 2;
+  const herHeroStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: (curveProgress.value - 1) * HERO_W }],
+  }));
   const himHeadlineStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   const herHeadlineStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
 
@@ -152,7 +159,6 @@ export default function HomeScreen() {
         <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, borderWidth: 1, borderColor: C.ink, backgroundColor: C.white }, curveStyle]}>
           <Feather name="search" size={16} color={C.ink} />
           <Text style={[T.mono, { flex: 1 }]}>SEARCH 60-MIN DROPS...</Text>
-          <Animated.View style={[{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.ink }, curveSmStyle]}><Text style={[T.monoB, { fontSize: 9 }]}>{'⌘ K'}</Text></Animated.View>
         </AnimatedPressable>
 
         {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════ */}
