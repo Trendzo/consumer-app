@@ -24,7 +24,7 @@ import { BlurView } from 'expo-blur';
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP } from '../theme/brutal';
+import { C, T, SP, rf } from '../theme/brutal';
 
 const ONB1 = require('../../assets/onb1.jpeg');
 const ONB2 = require('../../assets/onb2.jpeg');
@@ -176,7 +176,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           zIndex: 10,
         }}
       >
-        <Text style={styles.brand}>{`> CLOSET-X`}</Text>
+        <Text style={styles.brand}>{`> TRENDZO`}</Text>
         <Pressable onPress={onDone} hitSlop={16}>
           <Text style={styles.brand}>SKIP →</Text>
         </Pressable>
@@ -300,10 +300,10 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: 'Inter_900Black',
-    fontSize: 48,
+    fontSize: rf(48),
     color: '#fff',
     letterSpacing: -2.2,
-    lineHeight: 50,
+    lineHeight: rf(50),
   },
   body: {
     fontFamily: 'Inter_400Regular',

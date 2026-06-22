@@ -8,7 +8,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import SearchScreen from './SearchScreen';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useGenderCurve } from '../components/Brutal';
@@ -119,7 +119,7 @@ export default function ReelsScreen() {
 
       {/* TOP BAR */}
       <View style={s.topBar}>
-        <Text style={[T.monoB, { color: '#fff', fontSize: 11 }]}>{'> CLOSET-X / REELS'}</Text>
+        <Text style={[T.monoB, { color: '#fff', fontSize: 11 }]}>{'> TRENDZO / REELS'}</Text>
         <Pressable onPress={openSearch} hitSlop={12}>
           <Feather name="search" size={20} color="#fff" />
         </Pressable>
@@ -227,7 +227,7 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
   const handleShare = async () => {
     try {
       const r = await Share.share({
-        message: `Check out ${reel.user} on CLOSET-X — ${reel.title}`,
+        message: `Check out ${reel.user} on TRENDZO — ${reel.title}`,
       });
       if (r.action === Share.sharedAction) setShareCount(c => c + 1);
     } catch {}
@@ -310,7 +310,7 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       {/* BOTTOM INFO */}
       <View style={s.bottom}>
         <Text style={[T.monoB, { color: '#fff', fontSize: 10 }]}>{`> REEL_${reel.id.toUpperCase()}`}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: 22, marginTop: 4 }}>{reel.user}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: rf(22), marginTop: 4 }}>{reel.user}</Text>
         <Text style={{ fontFamily: 'Inter_500Medium', color: '#fff', fontSize: 13, marginTop: 4 }}>{reel.title}</Text>
       </View>
 

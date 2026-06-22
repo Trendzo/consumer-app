@@ -2,6 +2,34 @@
 // Reactive palette: C is a Proxy that resolves at access time, so styles
 // built inside components (re-evaluated on `night` toggle) flip instantly.
 
+import { Dimensions } from 'react-native';
+
+// ── Responsive scaling ──────────────────────────────────────────────
+// Baseline 390pt ≈ iPhone 13/14 logical width. On screens NARROWER than
+// the baseline (most small Android phones), font sizes shrink so big
+// wordmarks/headlines don't wrap to a second line or push layout down.
+// At/above the baseline sizes are left untouched, so larger phones and
+// tablets keep the hand-tuned values.
+const { width: _SW, height: _SH } = Dimensions.get('window');
+const SHORT_SIDE = Math.min(_SW, _SH);
+const BASE_WIDTH = 390;
+
+export const SCREEN = {
+  width: _SW,
+  height: _SH,
+  short: SHORT_SIDE,
+  isSmall: SHORT_SIDE < 360,
+};
+
+// Responsive font/size. Damped (0.7) so small screens shrink gently rather
+// than collapsing. Never upscales beyond the tuned baseline size.
+export const rf = (size: number) => {
+  const ratio = SHORT_SIDE / BASE_WIDTH;
+  if (ratio >= 1) return size;
+  const damped = 1 - (1 - ratio) * 0.7;
+  return Math.round(size * damped);
+};
+
 export type Palette = {
   bg: string;
   ink: string;
@@ -110,16 +138,16 @@ export const T: any = new Proxy(
   {
     get(_, key: string) {
       const map: any = {
-        display: { fontFamily: 'Inter_900Black', fontSize: 36, color: C.ink, letterSpacing: -1.2, lineHeight: 38 },
-        h1: { fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, letterSpacing: -0.8 },
-        h2: { fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, letterSpacing: -0.5 },
-        h3: { fontFamily: 'Inter_700Bold', fontSize: 16, color: C.ink, letterSpacing: -0.2 },
-        body: { fontFamily: 'Inter_400Regular', fontSize: 13, color: C.ink, lineHeight: 18 },
-        bodyB: { fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink },
-        caption: { fontFamily: 'Inter_500Medium', fontSize: 11, color: C.dim },
-        label: { fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, letterSpacing: 1 },
-        mono: { fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.ink, letterSpacing: 0.5 },
-        monoB: { fontFamily: 'SpaceMono_700Bold', fontSize: 10, color: C.ink, letterSpacing: 0.5 },
+        display: { fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.ink, letterSpacing: -1.2, lineHeight: rf(38) },
+        h1: { fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 },
+        h2: { fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 },
+        h3: { fontFamily: 'Inter_700Bold', fontSize: rf(16), color: C.ink, letterSpacing: -0.2 },
+        body: { fontFamily: 'Inter_400Regular', fontSize: rf(13), color: C.ink, lineHeight: rf(18) },
+        bodyB: { fontFamily: 'Inter_700Bold', fontSize: rf(13), color: C.ink },
+        caption: { fontFamily: 'Inter_500Medium', fontSize: rf(11), color: C.dim },
+        label: { fontFamily: 'Inter_900Black', fontSize: rf(10), color: C.ink, letterSpacing: 1 },
+        mono: { fontFamily: 'SpaceMono_400Regular', fontSize: rf(10), color: C.ink, letterSpacing: 0.5 },
+        monoB: { fontFamily: 'SpaceMono_700Bold', fontSize: rf(10), color: C.ink, letterSpacing: 0.5 },
       };
       return map[key];
     },

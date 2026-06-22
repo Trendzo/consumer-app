@@ -4,7 +4,7 @@ import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
@@ -102,9 +102,9 @@ export default function ProductDetailScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 6 }}>
             <View style={{ flex: 1 }}>
               <Text style={[T.monoB, { fontSize: 11, marginTop: 6 }]}>{product.brand}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, marginTop: 4, letterSpacing: -0.5, lineHeight: 30 }}>{product.name}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, marginTop: 4, letterSpacing: -0.5, lineHeight: rf(30) }}>{product.name}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 8 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink }}>₹{product.price}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink }}>₹{product.price}</Text>
                 <Text style={[T.body, { color: C.dim, textDecorationLine: 'line-through', fontSize: 14 }]}>₹{product.original}</Text>
                 <Text style={[T.monoB, { fontSize: 11 }]}>{`-${discount}%`}</Text>
               </View>
@@ -267,7 +267,7 @@ export default function ProductDetailScreen() {
             {/* Handle */}
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> CHOOSE_DELIVERY'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, letterSpacing: -1, marginTop: 4 }}>HOW YOU GETTING IT?</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1, marginTop: 4 }}>HOW YOU GETTING IT?</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Same item. Three speeds. Pick one.</Text>
 
             <View style={{ marginTop: SP.l, gap: SP.s }}>

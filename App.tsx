@@ -24,7 +24,7 @@ class ErrorBoundary extends React.Component<
   state = { error: null };
   static getDerivedStateFromError(e: Error) { return { error: e }; }
   componentDidCatch(e: Error, info: any) {
-    console.error('[ClosetX crash]', e, info?.componentStack);
+    console.error('[Trendzo crash]', e, info?.componentStack);
   }
   render() {
     const { error } = this.state;
@@ -32,7 +32,7 @@ class ErrorBoundary extends React.Component<
       return (
         <View style={{ flex: 1, backgroundColor: '#000', padding: 24, paddingTop: 80 }}>
           <Text style={{ color: '#fff', fontFamily: 'monospace', fontSize: 12, fontWeight: 'bold', marginBottom: 12 }}>
-            {'[ CLOSET-X · CRASH REPORT ]'}
+            {'[ TRENDZO · CRASH REPORT ]'}
           </Text>
           <ScrollView>
             <Text style={{ color: '#ff4444', fontFamily: 'monospace', fontSize: 11 }}>

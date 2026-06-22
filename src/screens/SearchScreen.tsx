@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, TextInput, StatusBar, StyleSheet, Im
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { AsciiDivider, Chip } from '../components/Brutal';
 import { PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';

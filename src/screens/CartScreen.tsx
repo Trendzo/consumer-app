@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, TextIn
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
@@ -67,7 +67,7 @@ export default function CartScreen() {
 
       {cart.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 56, color: C.ink, letterSpacing: -2 }}>{'[ ]'}</Text>
+          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(56), color: C.ink, letterSpacing: -2 }}>{'[ ]'}</Text>
           <Text style={[T.h2, { marginTop: 12 }]}>YOUR BAG IS EMPTY</Text>
           <Text style={[T.body, { color: C.dim, marginTop: 6, textAlign: 'center' }]}>Add some fits and they'll appear here.</Text>
           <BrutalButton label="Start shopping" iconRight="arrow-right" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: 18 }} />
@@ -218,7 +218,7 @@ export default function CartScreen() {
               ) : null)}
               {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>COUPON</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
               <AsciiDivider />
-              <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: 24 }}>₹{total}</Text></View>
+              <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{total}</Text></View>
             </View>
 
             {/* YOU MIGHT ALSO LIKE */}

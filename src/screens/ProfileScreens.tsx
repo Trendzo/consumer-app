@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, BrutalBox, FadeInUp, BrutalInput, Chip } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -37,7 +37,7 @@ function Hero({ code, title, intro, chips, inverted }: HeroProps) {
     <FadeInUp>
       <BrutalBox padded solid={inverted} maxRadius={18}>
         <Text style={[T.mono, { color: dim, fontSize: 9, letterSpacing: 0.6 }]}>{code}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 36, color: fg, letterSpacing: -1.4, marginTop: 6, lineHeight: 38 }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: fg, letterSpacing: -1.4, marginTop: 6, lineHeight: rf(38) }}>
           {title}
         </Text>
         {intro && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: inverted ? 'rgba(255,255,255,0.75)' : C.dim, marginTop: 8, lineHeight: 17 }}>{intro}</Text>}
@@ -142,7 +142,7 @@ export function SavedAddressesScreen() {
 const PAYMENTS = [
   { id: '1', type: 'UPI', label: 'pay@okhdfcbank', sub: 'HDFC · linked Oct 2024', icon: 'smartphone' },
   { id: '2', type: 'CARD', label: '•••• •••• •••• 4242', sub: 'VISA · exp 08/28', icon: 'credit-card' },
-  { id: '3', type: 'WALLET', label: 'ClosetX Pay', sub: 'Balance: ₹1,240', icon: 'briefcase' },
+  { id: '3', type: 'WALLET', label: 'Trendzo Pay', sub: 'Balance: ₹1,240', icon: 'briefcase' },
 ];
 
 export function PaymentMethodsScreen() {
@@ -227,7 +227,7 @@ export function LoyaltyRewardsScreen() {
               <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> LOYALTY · TIER: ' + currentTier.name}</Text>
               <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{new Date().toLocaleDateString()}</Text>
             </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 72, color: C.white, letterSpacing: -3, marginTop: 6, lineHeight: 72 }}>{points.toLocaleString()}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(72), color: C.white, letterSpacing: -3, marginTop: 6, lineHeight: rf(72) }}>{points.toLocaleString()}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1, marginTop: 4 }}>LOYALTY POINTS</Text>
 
             {nextTier && (
@@ -320,17 +320,17 @@ export function GiftCardScreen() {
         <Hero
           code={'> GIFT_CARD · DIGITAL'}
           title={'GIVE THE\nGIFT OF FIT.'}
-          intro="Send a ClosetX gift card to anyone. Redeemable across the entire catalog."
+          intro="Send a Trendzo gift card to anyone. Redeemable across the entire catalog."
           chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
         />
 
         {/* Live preview card */}
         <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink, minHeight: 180 }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'CLOSETX · GIFT CARD'}</Text>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO · GIFT CARD'}</Text>
             <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>//PREVIEW</Text>
           </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 48, color: C.white, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
           <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 8 }]}>TO: {toEmail || '—'}</Text>
           <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 2 }]}>NOTE: {note || '—'}</Text>
         </View>
@@ -376,7 +376,7 @@ export function ReferralRewardsScreen() {
         <FadeInUp delay={60}>
           <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
             <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> YOUR CODE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 44, color: C.white, marginTop: 8, letterSpacing: 4 }}>CLOSETX42</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
             <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 6, fontSize: 10 }]}>TAP COPY TO SHARE</Text>
           </View>
         </FadeInUp>
@@ -388,7 +388,7 @@ export function ReferralRewardsScreen() {
 
         <SectionLabel label="HOW IT WORKS" />
         {[
-          { i: 1, t: 'Share your code', sub: 'Send CLOSETX42 to your friends' },
+          { i: 1, t: 'Share your code', sub: 'Send TRENDZO42 to your friends' },
           { i: 2, t: 'Friend signs up', sub: 'They apply the code at checkout' },
           { i: 3, t: 'They order', sub: 'First order of ₹499 or more unlocks it' },
           { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
@@ -408,7 +408,7 @@ export function ReferralRewardsScreen() {
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
           {[{ label: 'INVITED', value: '7' }, { label: 'JOINED', value: '4' }, { label: 'EARNED', value: '₹800' }].map((s, i) => (
             <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, letterSpacing: -0.8 }}>{s.value}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 }}>{s.value}</Text>
               <Text style={[T.monoB, { fontSize: 9, marginTop: 4 }]}>{s.label}</Text>
             </View>
           ))}
@@ -742,7 +742,7 @@ export function MeasurementScreen() {
                   <Feather name={m.icon as any} size={12} color={C.dim} />
                   <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{m.label.toUpperCase()}</Text>
                 </View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.ink, letterSpacing: -0.8, marginTop: 6 }}>{convert(m.valueCm)}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.8, marginTop: 6 }}>{convert(m.valueCm)}</Text>
               </View>
             </FadeInUp>
           ))}
@@ -826,7 +826,7 @@ export function SustainabilityScreen() {
     { title: 'ECO-FRIENDLY PACKAGING', sub: '100% recyclable materials for all shipments', icon: 'package' },
     { title: 'CARBON NEUTRAL DELIVERY', sub: 'We offset every delivery with verified carbon credits', icon: 'wind' },
     { title: 'ETHICAL SOURCING', sub: 'Fair wages and safe conditions for all workers', icon: 'heart' },
-    { title: 'SECOND LIFE PROGRAM', sub: 'Donate old clothes for ClosetX credits', icon: 'refresh-cw' },
+    { title: 'SECOND LIFE PROGRAM', sub: 'Donate old clothes for Trendzo credits', icon: 'refresh-cw' },
     { title: 'SUSTAINABLE BRANDS', sub: '40+ eco-conscious brands on the platform', icon: 'award' },
   ];
   return (

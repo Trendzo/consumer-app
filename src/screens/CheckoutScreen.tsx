@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet, StatusBar, Alert } from 
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -318,7 +318,7 @@ export default function CheckoutScreen() {
               <AsciiDivider />
               <View style={s.row}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16 }}>TOTAL</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22 }}>₹{grand}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22) }}>₹{grand}</Text>
               </View>
             </View>
 
@@ -351,7 +351,7 @@ export default function CheckoutScreen() {
             {method === 'pickup' && (
               <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
                 <Text style={[T.monoB, { fontSize: 9, color: C.dim }]}>{'◆ PICKUP_CODE'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 36, color: C.ink, letterSpacing: 6, marginTop: 6 }}>{pickupCode}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.ink, letterSpacing: 6, marginTop: 6 }}>{pickupCode}</Text>
                 <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 6, textAlign: 'center' }]}>
                   {`Show this at ${STORES.find(st => st.id === store)?.name} to collect.`}
                 </Text>

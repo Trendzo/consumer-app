@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead } from '../components/Brutal';
 import { PRODUCTS, BRANDS, OCCASIONS, COMMUNITY, BUNDLES, CATEGORIES } from '../data/mockData';
 import { useApp } from '../state/AppState';
@@ -104,7 +104,7 @@ export function ImageSearchScreen() {
             </View>
           </FadeInUp>
           <FadeInUp delay={60}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, marginTop: SP.xl, textAlign: 'center', letterSpacing: -1 }}>SNAP TO{'\n'}FIND.</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: SP.xl, textAlign: 'center', letterSpacing: -1 }}>SNAP TO{'\n'}FIND.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s, textAlign: 'center', maxWidth: 280 }]}>Take a photo or upload an image to find similar products instantly.</Text>
           </FadeInUp>
           <View style={{ marginTop: SP.xl }}>
@@ -157,7 +157,7 @@ export function ImageSearchScreen() {
               <Text key={i} style={[T.monoB, { position: 'absolute', ...[{top:4,left:6},{top:4,right:6},{bottom:4,left:6},{bottom:4,right:6}][i], color: C.ink, fontSize: 16 }]}>{ch}</Text>
             ))}
           </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.ink, marginTop: SP.xl, letterSpacing: -0.5 }}>SCANNING...</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, marginTop: SP.xl, letterSpacing: -0.5 }}>SCANNING...</Text>
           <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>{'// MATCHING COLOR · CUT · FABRIC'}</Text>
         </View>
       )}
@@ -209,7 +209,7 @@ export function ImageSearchScreen() {
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> IMAGE_SOURCE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, letterSpacing: -1, marginTop: 4 }}>GRAB AN IMAGE</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>GRAB AN IMAGE</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>We'll scan it and find matches.</Text>
 
             <View style={{ marginTop: SP.l, gap: SP.s }}>
@@ -263,7 +263,7 @@ export function CouponWalletScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> COUPON_WALLET'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}COUPONS.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}COUPONS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         {COUPONS.map((c, i) => (
@@ -307,7 +307,7 @@ export function CommunityFeedScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> THE_FEED'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>COMMUNITY{'\n'}FITS.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>COMMUNITY{'\n'}FITS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         {FEED_POSTS.map((p, i) => (
@@ -361,7 +361,7 @@ export function MoodBoardScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> SAVED_BOARDS'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}MOOD BOARDS.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}MOOD BOARDS.</Text>
           <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>Save and organize outfit combinations for any occasion.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
@@ -444,13 +444,13 @@ export function LuckyDrawScreen() {
           <View style={[{ flexDirection: 'row', height: 130, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ flex: 3, backgroundColor: C.ink, padding: SP.m, justifyContent: 'space-between' }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'> DRAW_042 · LIVE'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.white, letterSpacing: -1.5, lineHeight: 32 }}>PICK{'\n'}ONE.</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.white, letterSpacing: -1.5, lineHeight: rf(32) }}>PICK{'\n'}ONE.</Text>
               <Text style={[T.mono, { color: C.white, fontSize: 9 }]}>1 TAP · 1 REVEAL</Text>
             </View>
             <View style={{ flex: 2, backgroundColor: C.white, padding: SP.m, justifyContent: 'space-between', borderLeftWidth: 1, borderColor: C.ink }}>
               <Text style={[T.monoB, { fontSize: 9 }]}>{'▲ ODDS'}</Text>
               <View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink }}>1 in 3</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink }}>1 in 3</Text>
                 <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>OF A RARE DROP</Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 2 }}>
@@ -502,7 +502,7 @@ export function LuckyDrawScreen() {
           <FadeInUp delay={400}>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
               <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>NEXT DRAW IN</Text>
-              <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 22, color: C.ink, letterSpacing: 3, marginTop: 4 }}>23:59:12</Text>
+              <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(22), color: C.ink, letterSpacing: 3, marginTop: 4 }}>23:59:12</Text>
             </View>
           </FadeInUp>
         )}
@@ -514,7 +514,7 @@ export function LuckyDrawScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1 }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ APR.2026'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.white, marginTop: 6, letterSpacing: -0.8 }}>₹10,000{'\n'}GIFT CARD</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 6, letterSpacing: -0.8 }}>₹10,000{'\n'}GIFT CARD</Text>
               <Text style={[T.mono, { color: C.white, marginTop: 6, fontSize: 9 }]}>+ 5 RUNNER-UP SLOTS</Text>
             </View>
             <Ionicons name="trophy" size={56} color={C.white} />
@@ -570,12 +570,12 @@ export function InviteFriendsScreen() {
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  const shareLink = 'https://closetx.app/invite/CLOSETX42';
-  const shareMessage = `Join me on CLOSET-X. Use my code CLOSETX42 and we both get ₹200. ${shareLink}`;
+  const shareLink = 'https://trendzo.app/invite/TRENDZO42';
+  const shareMessage = `Join me on TRENDZO. Use my code TRENDZO42 and we both get ₹200. ${shareLink}`;
 
   const copyCode = () => {
     setCopied(true);
-    showToast('Copied', 'CLOSETX42 copied to clipboard', 'copy');
+    showToast('Copied', 'TRENDZO42 copied to clipboard', 'copy');
     setTimeout(() => setCopied(false), 1800);
   };
 
@@ -606,7 +606,7 @@ export function InviteFriendsScreen() {
             ].map((s, i) => (
               <View key={i} style={{ flex: 1, padding: SP.m, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.ink, backgroundColor: i === 1 ? C.ink : C.white }}>
                 <Text style={[T.monoB, { fontSize: 8, color: i === 1 ? C.white : C.dim }]}>{s.label}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: i === 1 ? C.white : C.ink, marginTop: 4 }}>{s.val}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: i === 1 ? C.white : C.ink, marginTop: 4 }}>{s.val}</Text>
                 <Text style={[T.mono, { fontSize: 8, color: i === 1 ? C.white : C.dim, marginTop: 2 }]}>{s.sub}</Text>
               </View>
             ))}
@@ -620,9 +620,9 @@ export function InviteFriendsScreen() {
           <View style={[{ marginTop: SP.s, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }}>
               <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.6 }]}>{'TAP TO COPY'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 40, color: C.white, letterSpacing: 5, marginTop: 8 }}>CLOSETX42</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.white, letterSpacing: 5, marginTop: 8 }}>TRENDZO42</Text>
               <View style={{ flexDirection: 'row', gap: 4, marginTop: 10 }}>
-                {'CLOSETX42'.split('').map((ch, i) => (
+                {'TRENDZO42'.split('').map((ch, i) => (
                   <View key={i} style={{ width: 6, height: 2, backgroundColor: C.white }} />
                 ))}
               </View>
@@ -707,7 +707,7 @@ export function InviteFriendsScreen() {
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> SHARE_INVITE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, letterSpacing: -1, marginTop: 4 }}>DROP YOUR CODE.</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>DROP YOUR CODE.</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Every sign-up drops ₹200 in your pocket.</Text>
 
             {/* Link pill */}
@@ -799,11 +799,11 @@ export function AppChallengesScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View>
                 <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ LVL'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 56, color: C.white, letterSpacing: -2, lineHeight: 56 }}>{level}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(56), color: C.white, letterSpacing: -2, lineHeight: rf(56) }}>{level}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'> TOTAL_XP'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.white, marginTop: 2 }}>{totalXP.toLocaleString()}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, marginTop: 2 }}>{totalXP.toLocaleString()}</Text>
                 <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6, marginTop: 2 }]}>{`NEXT LVL · ${500 - (totalXP % 500)} XP`}</Text>
               </View>
             </View>
@@ -899,7 +899,7 @@ export function NewArrivalsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> JUST_DROPPED'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>LATEST{'\n'}DROPS.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>LATEST{'\n'}DROPS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
@@ -926,7 +926,7 @@ export function DiscoverBrandsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> BRAND_ARMY'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DISCOVER{'\n'}BRANDS.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DISCOVER{'\n'}BRANDS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         <View style={{ gap: SP.m, marginTop: SP.m }}>
@@ -994,7 +994,7 @@ export function ForHerScreen() {
                 <Text style={[T.monoB, { fontSize: 10 }]}>♀ WOMEN_EDIT</Text>
               </View>
               <View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 48, color: C.white, lineHeight: 48, letterSpacing: -2 }}>HER{'\n'}STYLE.</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2 }}>HER{'\n'}STYLE.</Text>
                 <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'// BOLD · FEMININE · UNAPOLOGETIC'}</Text>
               </View>
             </View>
@@ -1005,7 +1005,7 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
             <Text style={[T.monoB, { fontSize: 11 }]}>{'> CURATED_FOR_HER'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESSES, HEELS{'\n'}& EVERYTHING IN BETWEEN.</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESSES, HEELS{'\n'}& EVERYTHING IN BETWEEN.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>From silk slips to block heels — the women's edit handpicked for the modern queen.</Text>
           </FadeInUp>
         </View>
@@ -1058,7 +1058,7 @@ export function ForHerScreen() {
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l, backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'// FEMININE_ESSENTIALS'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: C.white, letterSpacing: -0.8 }}>SOFT POWER.</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>SOFT POWER.</Text>
             </View>
           </View>
         </View>
@@ -1131,7 +1131,7 @@ export function ForHimScreen() {
                 <Text style={[T.monoB, { fontSize: 10, color: C.white }]}>♂ MEN_EDIT</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 48, color: C.white, lineHeight: 48, letterSpacing: -2, textAlign: 'right' }}>HIS{'\n'}CODE.</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2, textAlign: 'right' }}>HIS{'\n'}CODE.</Text>
                 <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'// RAW · RUGGED · REFINED //'}</Text>
               </View>
             </View>
@@ -1142,7 +1142,7 @@ export function ForHimScreen() {
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
             <Text style={[T.monoB, { fontSize: 11 }]}>{'> CURATED_FOR_HIM'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DENIM, SNEAKERS{'\n'}& STREET STAPLES.</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DENIM, SNEAKERS{'\n'}& STREET STAPLES.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>Workwear to streetwear — gear that moves with you. No filler, no frills.</Text>
           </FadeInUp>
         </View>
@@ -1195,7 +1195,7 @@ export function ForHimScreen() {
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'// STREET_UNIFORM'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: C.white, letterSpacing: -0.8 }}>BUILT DIFFERENT.</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>BUILT DIFFERENT.</Text>
             </View>
           </View>
         </View>
@@ -1236,7 +1236,7 @@ export function OccasionShoppingScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
           <Text style={[T.monoB, { fontSize: 11 }]}>{'> SHOP_BY_OCCASION'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESS FOR{'\n'}THE MOMENT.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESS FOR{'\n'}THE MOMENT.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         {OCCASIONS.map((o, i) => (
@@ -1247,7 +1247,7 @@ export function OccasionShoppingScreen() {
               <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
                 <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`MODE_0${i + 1}`}</Text>
                 <View>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.white, letterSpacing: -0.5 }}>{o.label.toUpperCase()}</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, letterSpacing: -0.5 }}>{o.label.toUpperCase()}</Text>
                   <Text style={[T.mono, { color: C.white, marginTop: 4 }]}>{'SHOP NOW ──▶'}</Text>
                 </View>
               </View>

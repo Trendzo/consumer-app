@@ -5,7 +5,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { C, T, BORDER, SP, ASCII, HAIRLINE } from '../theme/brutal';
+import { C, T, BORDER, SP, ASCII, HAIRLINE, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 
 // CachedImage — drop-in `<Image>` replacement backed by expo-image.
@@ -289,7 +289,7 @@ export function SectionHead({ title, emphasis, action, onAction }: { title: stri
     <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
       <AsciiDivider />
       <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.ink, letterSpacing: -0.5 }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }}>
           {ASCII.caret} {title}
           {emphasis && <Text style={{ fontStyle: 'italic' }}> {emphasis}</Text>}
         </Text>

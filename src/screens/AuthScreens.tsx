@@ -4,7 +4,7 @@ import { View, Text, ScrollView, StatusBar, KeyboardAvoidingView, Platform, Pres
 import { BlurView } from 'expo-blur';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { BrutalButton, BrutalInput, AsciiDivider, BrutalStatusBar } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -157,7 +157,7 @@ const landingStyles = StyleSheet.create({
 // ── Email login form (kept for users who tap "Log In") ──
 export function EmailLoginScreen({ navigation }: any) {
   const { signIn, showToast } = useApp();
-  const [email, setEmail] = useState('demo@closetx.app');
+  const [email, setEmail] = useState('demo@trendzo.app');
   const [password, setPassword] = useState('••••••••');
 
   const handleLogin = () => {
@@ -179,11 +179,11 @@ export function EmailLoginScreen({ navigation }: any) {
           </Pressable>
           <AsciiDivider style={{ marginTop: 8 }} />
 
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 48, color: C.ink, letterSpacing: -2, lineHeight: 48, marginTop: 24 }}>WELCOME{'\n'}BACK.</Text>
-          <Text style={[T.body, { color: C.dim, marginTop: 10 }]}>Sign in to your closet.</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.ink, letterSpacing: -2, lineHeight: rf(48), marginTop: 24 }}>WELCOME{'\n'}BACK.</Text>
+          <Text style={[T.body, { color: C.dim, marginTop: 10 }]}>Sign in to Trendzo.</Text>
 
           <View style={{ marginTop: 36 }}>
-            <BrutalInput label="Email" value={email} onChangeText={setEmail} icon="mail" keyboardType="email-address" autoCapitalize="none" placeholder="you@closetx.app" />
+            <BrutalInput label="Email" value={email} onChangeText={setEmail} icon="mail" keyboardType="email-address" autoCapitalize="none" placeholder="you@trendzo.app" />
             <BrutalInput label="Password" value={password} onChangeText={setPassword} icon="lock" secureTextEntry placeholder="••••••••" />
           </View>
 
@@ -215,7 +215,7 @@ export function SignupScreen({ navigation }: any) {
 
       {/* Top bar — sharp, no grab handle */}
       <View style={signupStyles.topBar}>
-        <Text style={signupStyles.brand}>{'> CLOSET-X'}</Text>
+        <Text style={signupStyles.brand}>{'> TRENDZO'}</Text>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Text style={signupStyles.close}>CLOSE  ✕</Text>
         </Pressable>
@@ -230,14 +230,14 @@ export function SignupScreen({ navigation }: any) {
         >
           <Text style={signupStyles.kicker}>NEW HERE  ·  10s SIGN-UP</Text>
 
-          <Text style={signupStyles.title}>JOIN THE{'\n'}CLOSET.</Text>
+          <Text style={signupStyles.title}>JOIN THE{'\n'}TREND.</Text>
           <Text style={signupStyles.sub}>
             Drop in. Build your fit. Get fashion in 60 minutes.
           </Text>
 
           <View style={{ marginTop: 28 }}>
             <BrutalInput label="Full name" value={name} onChangeText={setName} icon="user" placeholder="Your name" />
-            <BrutalInput label="Email" value={email} onChangeText={setEmail} icon="mail" keyboardType="email-address" autoCapitalize="none" placeholder="you@closetx.app" />
+            <BrutalInput label="Email" value={email} onChangeText={setEmail} icon="mail" keyboardType="email-address" autoCapitalize="none" placeholder="you@trendzo.app" />
             <BrutalInput label="Password" value={password} onChangeText={setPassword} icon="lock" secureTextEntry placeholder="••••••••" />
           </View>
 
@@ -249,8 +249,8 @@ export function SignupScreen({ navigation }: any) {
             <View style={{ flex: 1, height: 1, backgroundColor: '#000' }} />
           </View>
 
-          <BrutalButton label="Continue with Apple" icon="smartphone" variant="outline" onPress={() => { signIn('apple@closetx.app', 'Apple User'); navigation.popToTop(); }} block style={{ marginBottom: 10 }} />
-          <BrutalButton label="Continue with Google" icon="globe" variant="outline" onPress={() => { signIn('google@closetx.app', 'Google User'); navigation.popToTop(); }} block />
+          <BrutalButton label="Continue with Apple" icon="smartphone" variant="outline" onPress={() => { signIn('apple@trendzo.app', 'Apple User'); navigation.popToTop(); }} block style={{ marginBottom: 10 }} />
+          <BrutalButton label="Continue with Google" icon="globe" variant="outline" onPress={() => { signIn('google@trendzo.app', 'Google User'); navigation.popToTop(); }} block />
 
           <Pressable onPress={() => navigation.replace('EmailLogin')} style={{ marginTop: 22 }}>
             <Text style={signupStyles.haveAcc}>
@@ -298,10 +298,10 @@ const signupStyles = StyleSheet.create({
   },
   title: {
     fontFamily: 'Inter_900Black',
-    fontSize: 44,
+    fontSize: rf(44),
     color: '#000',
     letterSpacing: -2,
-    lineHeight: 46,
+    lineHeight: rf(46),
   },
   sub: {
     fontFamily: 'Inter_400Regular',

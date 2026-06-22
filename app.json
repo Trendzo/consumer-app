@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "ClosetX",
-    "slug": "ClosetX",
+    "name": "Trendzo",
+    "slug": "Trendzo",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -33,20 +33,20 @@
       [
         "expo-video",
         {
-          "microphonePermission": "ClosetX uses the microphone for video features."
+          "microphonePermission": "Trendzo uses the microphone for video features."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "ClosetX needs your camera to let you try on outfits live.",
-          "microphonePermission": "ClosetX needs the microphone for live try-on video."
+          "cameraPermission": "Trendzo needs your camera to let you try on outfits live.",
+          "microphonePermission": "Trendzo needs the microphone for live try-on video."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "ClosetX needs access to your photos so you can try on or search with your own images."
+          "photosPermission": "Trendzo needs access to your photos so you can try on or search with your own images."
         }
       ]
     ],

@@ -3,7 +3,7 @@ import { View, Text, ScrollView, StyleSheet, StatusBar, Pressable } from 'react-
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -30,11 +30,11 @@ export function OrderSuccessScreen() {
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
       <BrutalStatusBar />
       <MotiView from={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12, stiffness: 160 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 64, color: C.ink }}>{'[✓]'}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.ink }}>{'[✓]'}</Text>
       </MotiView>
 
       <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 250 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 36, color: C.ink, marginTop: 18, textAlign: 'center', letterSpacing: -1 }}>{headline}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.ink, marginTop: 18, textAlign: 'center', letterSpacing: -1 }}>{headline}</Text>
       </MotiView>
 
       <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 450 }} style={{ marginTop: 24, alignItems: 'center' }}>
@@ -162,7 +162,7 @@ function ExpressHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · EXPRESS`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ARRIVING SOON</Text>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ARRIVING SOON</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>From NORTH. store · 2.4 km</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
@@ -178,7 +178,7 @@ function StandardHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · STANDARD`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ON ITS WAY</Text>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ON ITS WAY</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Tracked shipping · signature on delivery</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
@@ -194,7 +194,7 @@ function TryBuyHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · TRY & BUY`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>TRIAL BOOKED</Text>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>TRIAL BOOKED</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Courier will wait 15 min · keep what fits</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
@@ -214,7 +214,7 @@ function PickupHeader({ order, store, active, stepCount }: any) {
     <View>
       <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
         <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{`> ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.white, marginTop: 6, letterSpacing: -1, lineHeight: 34 }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.white, marginTop: 6, letterSpacing: -1, lineHeight: rf(34) }}>
           {ready ? 'READY AT STORE' : 'BEING PREPARED'}
         </Text>
         <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 6, fontSize: 10 }]}>{store?.name || 'NORTH. × ANDHERI'}</Text>
@@ -237,7 +237,7 @@ function PickupHeader({ order, store, active, stepCount }: any) {
         <View style={[{ marginTop: SP.m, width: 180, height: 180, backgroundColor: C.white, padding: 8 }, BORDER(2)]}>
           <PseudoQR seed={code} />
         </View>
-        <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 22, color: C.ink, letterSpacing: 4, marginTop: 12 }}>{code}</Text>
+        <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(22), color: C.ink, letterSpacing: 4, marginTop: 12 }}>{code}</Text>
         <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 4 }]}>PICKUP CODE</Text>
         {ready && (
           <View style={[{ marginTop: SP.m, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }]}>
@@ -344,7 +344,7 @@ export function OrderHistoryScreen() {
         <FadeInUp>
           <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
             <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> ORDER_HISTORY · LIFETIME'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 36, color: C.white, letterSpacing: -1.4, marginTop: 6, lineHeight: 38 }}>{'YOUR\nORDERS.'}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.white, letterSpacing: -1.4, marginTop: 6, lineHeight: rf(38) }}>{'YOUR\nORDERS.'}</Text>
             <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 8 }}>Every order you've ever placed. Tap any one for details.</Text>
             <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m, flexWrap: 'wrap' }}>
               <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }}>

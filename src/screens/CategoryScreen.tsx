@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, Image, Dimensions } from 'react-nati
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalStatusBar, CachedImage, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
@@ -67,8 +67,8 @@ export default function CategoryScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 9, color: C.white, letterSpacing: 1, opacity: 0.7 }}>{`> CATALOG // ${new Date().getFullYear()}`}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 44, color: C.white, letterSpacing: -2, lineHeight: 46, marginTop: 6 }}>
-                  {label.toUpperCase()}<Text style={{ fontSize: 28, color: C.white, opacity: 0.5 }}>×</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, letterSpacing: -2, lineHeight: rf(46), marginTop: 6 }}>
+                  {label.toUpperCase()}<Text style={{ fontSize: rf(28), color: C.white, opacity: 0.5 }}>×</Text>
                 </Text>
                 <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.white, opacity: 0.7, marginTop: 4 }}>{`${data.length} ITEMS · UPDATED HOURLY`}</Text>
               </View>

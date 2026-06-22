@@ -8,7 +8,7 @@ import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, w
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
 import {
   PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG,
@@ -52,11 +52,15 @@ export default function HomeScreen() {
   const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
   // Fades out brutalist ASCII corner marks when curves are active
   const fadeBrutalStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
-  // Gap styles for connected tile groups — tiles separate slightly when curves activate
-  const miniGapStyle = useAnimatedStyle(() => ({ gap: curveProgress.value * 6 }));
-  const rowGapStyle = useAnimatedStyle(() => ({ gap: curveProgress.value * 8 }));
-  // Breathing room beneath the flash-sale timer bar when cards round
-  const flashColStyle = useAnimatedStyle(() => ({ marginBottom: curveProgress.value * 10 }));
+  // Gap / spacing for connected tile groups — tiles separate slightly in HER mode.
+  // These are LAYOUT properties: animating them per-frame off the live drag forces a
+  // full Yoga relayout every frame and makes the drag jitter. The spacing delta is
+  // tiny (6–10px), so drive it off the committed `gender` instead — it settles at the
+  // snap alongside the crossfade, while the GPU-cheap styles (radius/opacity/transform)
+  // keep tracking the drag live for smoothness.
+  const miniGapStyle = { gap: gender === 'her' ? 6 : 0 };
+  const rowGapStyle = { gap: gender === 'her' ? 8 : 0 };
+  const flashColStyle = { marginBottom: gender === 'her' ? 10 : 0 };
 
   // Hero banner — HIM sits beneath, HER fades in on top, driven by curveProgress.
   const herHeroStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
@@ -129,8 +133,7 @@ export default function HomeScreen() {
         {/* ═══════════ HEADER ═══════════ */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: SP.l, marginBottom: SP.m }}>
           <View>
-            <Text style={[T.mono, { letterSpacing: 1 }]}>{`> CLOSET-X.SYS // v4.26`}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink, letterSpacing: -1, marginTop: 2 }}>CLOSET×</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1 }}>TRENDZO</Text>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <BrutalIconBtn icon={night ? 'sun' : 'moon'} onPress={toggleNight} />
@@ -169,8 +172,8 @@ export default function HomeScreen() {
                 <Text style={[T.monoB, { fontSize: 10 }]}>60-MIN ETA</Text>
               </Animated.View>
               <View>
-                <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 60, color: '#FFFFFF', lineHeight: 58, letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, himHeadlineStyle]}>{'HIS\nCODE.\nNO FILLER.'}</Animated.Text>
-                <Animated.Text style={[{ position: 'absolute', top: 0, left: 0, fontFamily: 'Inter_900Black', fontSize: 60, color: '#FFFFFF', lineHeight: 58, letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, herHeadlineStyle]}>{'HER\nSTYLE.\nHER RULES.'}</Animated.Text>
+                <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: rf(60), color: '#FFFFFF', lineHeight: rf(58), letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, himHeadlineStyle]}>{'HIS\nCODE.\nNO FILLER.'}</Animated.Text>
+                <Animated.Text style={[{ position: 'absolute', top: 0, left: 0, fontFamily: 'Inter_900Black', fontSize: rf(60), color: '#FFFFFF', lineHeight: rf(58), letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, herHeadlineStyle]}>{'HER\nSTYLE.\nHER RULES.'}</Animated.Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
                 <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 10 }]}>{`// FROM YOUR BLOCK`}</Text>
@@ -312,7 +315,7 @@ export default function HomeScreen() {
               <Pressable onPress={() => goToProduct(p)} style={{ width: 170, marginRight: SP.m }}>
                 <Animated.View style={[{ height: 230, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
                   {/* Giant rank number behind product */}
-                  <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: 110, color: C.ink, opacity: 0.06 }}>{`0${i + 1}`}</Text>
+                  <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: rf(110), color: C.ink, opacity: 0.06 }}>{`0${i + 1}`}</Text>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                   {/* Rank badge — diagonal strip */}
                   <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -386,12 +389,12 @@ export default function HomeScreen() {
           {/* HERO banner — high-contrast attention grab */}
           <AnimatedPressable onPress={() => nav.navigate('TryOn')} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
             <View style={{ position: 'absolute', top: -24, right: -10 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 140, color: 'rgba(255,255,255,0.06)', letterSpacing: -8 }}>FIT</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(140), color: 'rgba(255,255,255,0.06)', letterSpacing: -8 }}>FIT</Text>
             </View>
             <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
               <View>
                 <Text style={[T.monoB, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{'> NEW · AR POWERED'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 34, letterSpacing: -1.5, lineHeight: 32, marginTop: 8 }}>TRY BEFORE{'\n'}YOU BUY.</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(34), letterSpacing: -1.5, lineHeight: rf(32), marginTop: 8 }}>TRY BEFORE{'\n'}YOU BUY.</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Animated.View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, curveSmStyle]}>
@@ -533,7 +536,7 @@ export default function HomeScreen() {
                     </View>
                     <View>
                       <Text style={[T.mono, { color: '#FFFFFF', fontSize: 9, opacity: 0.85, marginBottom: 2 }]}>{`// SHOP THE`}</Text>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: '#FFFFFF', letterSpacing: 0.3, lineHeight: 26 }}>{o.label.toUpperCase()}</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: '#FFFFFF', letterSpacing: 0.3, lineHeight: rf(26) }}>{o.label.toUpperCase()}</Text>
                       <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <View style={{ width: 32, height: 2, backgroundColor: '#FFFFFF' }} />
                         <View style={[{ width: 28, height: 28, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
@@ -793,7 +796,7 @@ export default function HomeScreen() {
         {/* ═══════════ FOOTER ═══════════ */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.huge }}>
           <AsciiDivider />
-          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 8, fontSize: 9 }]}>// END.STREAM · CLOSET× · v4.26 //</Text>
+          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 8, fontSize: 9 }]}>// END.STREAM · TRENDZO //</Text>
           <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>FROM YOUR BLOCK · IN 60 MINUTES</Text>
           <AsciiDivider faint style={{ marginTop: 8 }} />
         </View>

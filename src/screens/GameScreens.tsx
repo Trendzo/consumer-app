@@ -6,7 +6,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
@@ -48,12 +48,12 @@ export function DailyRewardScreen() {
         <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
           <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.ink }]}>
             <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ STREAK'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 40, color: C.white, marginTop: 2 }}>{streakDays}<Text style={{ fontSize: 14 }}>/7</Text></Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.white, marginTop: 2 }}>{streakDays}<Text style={{ fontSize: 14 }}>/7</Text></Text>
             <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2 }]}>DAYS</Text>
           </View>
           <View style={{ flex: 1, padding: SP.m }}>
             <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{'▲ EARNED'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 40, color: C.ink, marginTop: 2 }}>+{totalClaimed}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.ink, marginTop: 2 }}>+{totalClaimed}</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>POINTS THIS WEEK</Text>
           </View>
         </View>
@@ -101,7 +101,7 @@ export function DailyRewardScreen() {
           {!claimed[today] ? (
             <>
               <Text style={[T.monoB, { fontSize: 10 }]}>{'> TODAY · DAY 07 · JACKPOT'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 64, color: C.ink, marginTop: 8, letterSpacing: -3 }}>+100</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.ink, marginTop: 8, letterSpacing: -3 }}>+100</Text>
               <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>POINTS + BONUS SPIN</Text>
               <AsciiDivider style={{ marginTop: 12, width: 160 }} />
               <Pressable onPress={claim} style={[{ marginTop: 12, paddingHorizontal: 28, paddingVertical: 14, backgroundColor: C.ink }, BORDER(1)]}>
@@ -111,7 +111,7 @@ export function DailyRewardScreen() {
           ) : (
             <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
               <Ionicons name="trophy" size={48} color={C.white} style={{ alignSelf: 'center' }} />
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: C.white, marginTop: 8, textAlign: 'center' }}>+100 CLAIMED</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, marginTop: 8, textAlign: 'center' }}>+100 CLAIMED</Text>
               <Text style={[T.mono, { color: C.white, fontSize: 10, textAlign: 'center', marginTop: 4 }]}>COMPLETE WEEK · BONUS ROLLING</Text>
             </MotiView>
           )}
@@ -237,11 +237,11 @@ export function SpinWheelScreen() {
         <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
           <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.ink }]}>
             <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ SPINS_LEFT'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 44, color: C.white, marginTop: 2, lineHeight: 46 }}>{spinsLeft}<Text style={{ fontSize: 18 }}>/3</Text></Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 2, lineHeight: rf(46) }}>{spinsLeft}<Text style={{ fontSize: 18 }}>/3</Text></Text>
           </View>
           <View style={{ flex: 1, padding: SP.m }}>
             <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{'▲ JACKPOT_ODDS'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 28, color: C.ink, marginTop: 2 }}>1 in 19</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 2 }}>1 in 19</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>₹500 SLICE</Text>
           </View>
         </View>
@@ -328,7 +328,7 @@ export function SpinWheelScreen() {
           <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
             <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
               <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'> SPIN_RESULT'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 34, color: C.white, marginTop: 6, letterSpacing: -1 }}>{result}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.white, marginTop: 6, letterSpacing: -1 }}>{result}</Text>
             </View>
           </MotiView>
         )}
@@ -509,7 +509,7 @@ export function StyleQuizScreen() {
         {/* Prompt */}
         <MotiView key={step} from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }}>
           <Text style={[T.monoB, { fontSize: 10, color: C.dim, marginTop: SP.l }]}>{`> QUESTION_${(step + 1).toString().padStart(2, '0')}`}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 32, color: C.ink, letterSpacing: -1, lineHeight: 34, marginTop: 4 }}>{q.prompt}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1, lineHeight: rf(34), marginTop: 4 }}>{q.prompt}</Text>
         </MotiView>
 
         {/* Question content — rendered by type */}
@@ -541,14 +541,14 @@ function QSwipe({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'swipe' }>; onAnswe
       <Animated.View style={[{ width: '100%', height: 360, backgroundColor: C.white, transform: [{ translateX: x }, { rotate: rot }], overflow: 'hidden' }, BORDER(1)]}>
         <Image source={{ uri: q.card.img }} style={{ width: '100%', height: '70%' }} resizeMode="cover" />
         <View style={{ padding: SP.m }}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.ink, letterSpacing: -0.5 }}>{q.card.label}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }}>{q.card.label}</Text>
           <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{q.card.sub}</Text>
         </View>
         <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 30, left: 20, opacity: x.interpolate({ inputRange: [-200, -20, 0], outputRange: [1, 0, 0] }), transform: [{ rotate: '-18deg' }] }}>
-          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 22 }}>NOPE</Text></View>
+          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(22) }}>NOPE</Text></View>
         </Animated.View>
         <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 30, right: 20, opacity: x.interpolate({ inputRange: [0, 20, 200], outputRange: [0, 0, 1] }), transform: [{ rotate: '18deg' }] }}>
-          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 22 }}>VIBE</Text></View>
+          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(22) }}>VIBE</Text></View>
         </Animated.View>
       </Animated.View>
       <View style={{ flexDirection: 'row', gap: SP.m, marginTop: SP.m }}>
@@ -697,7 +697,7 @@ function QSlider({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'slider' }>; onAns
     <View>
       {/* Big readout */}
       <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 72, color: C.white, letterSpacing: -3, lineHeight: 72 }}>{Math.round(val)}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(72), color: C.white, letterSpacing: -3, lineHeight: rf(72) }}>{Math.round(val)}</Text>
         <Text style={[T.monoB, { color: C.white, fontSize: 10, marginTop: 4 }]}>{val < 40 ? q.left : val > 60 ? q.right : 'BALANCED'}</Text>
       </View>
       {/* Slider track */}
@@ -780,7 +780,7 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
         <MotiView from={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 11 }}>
           <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
             <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'◆ YOUR_AESTHETIC'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 64, color: C.white, letterSpacing: -3, marginTop: 6 }}>{winner}×</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.white, letterSpacing: -3, marginTop: 6 }}>{winner}×</Text>
             <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 2 }]}>{`${Math.round(((counts[winner] || 0) / total) * 100)}% MATCH · LEVEL UP`}</Text>
             {/* XP earned */}
             <View style={{ marginTop: SP.m, flexDirection: 'row', gap: SP.s, alignItems: 'center' }}>
@@ -832,7 +832,7 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
           {sorted.slice(0, 3).map(([tag], i) => (
             <MotiView key={tag} from={{ scale: 0, rotate: '-20deg' }} animate={{ scale: 1, rotate: '0deg' }} transition={{ type: 'spring', delay: 700 + i * 100 }} style={{ flex: 1 }}>
               <View style={[{ padding: SP.s, backgroundColor: i === 0 ? C.ink : C.white, alignItems: 'center' }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: i === 0 ? C.white : C.ink }}>{i === 0 ? '◆' : i === 1 ? '◇' : '◈'}</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: i === 0 ? C.white : C.ink }}>{i === 0 ? '◆' : i === 1 ? '◇' : '◈'}</Text>
                 <Text style={[T.monoB, { fontSize: 9, color: i === 0 ? C.white : C.ink, marginTop: 4 }]}>{tag}</Text>
                 <Text style={[T.mono, { fontSize: 8, color: i === 0 ? C.white : C.dim }]}>{['GOLD', 'SILVER', 'BRONZE'][i]}</Text>
               </View>
@@ -1103,7 +1103,7 @@ export function TryOnScreen() {
               {/* Loading overlay while the HF Space is generating */}
               {generating && (
                 <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.white, letterSpacing: -0.5 }}>GENERATING...</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.white, letterSpacing: -0.5 }}>GENERATING...</Text>
                   <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'// AI is dressing your photo\nCan take 15–60s'}</Text>
                 </View>
               )}

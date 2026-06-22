@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, ScrollView, Pressable, StatusBar, Image } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { C, T, SP, BORDER, ASCII } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -46,12 +46,12 @@ const MENU_GROUPS = [
       { icon: 'star', label: 'Loyalty points', sub: '1,240 pts · BRONZE tier', screen: 'LoyaltyRewards' },
       { icon: 'gift', label: 'Daily reward', sub: 'Day 7 streak · keep it going', screen: 'DailyReward' },
       { icon: 'rotate-cw', label: 'Spin & win', sub: '1 free spin today', screen: 'SpinWheel' },
-      { icon: 'users', label: 'Refer & earn', sub: '₹200 per friend · CLOSETX42', screen: 'ReferralRewards' },
+      { icon: 'users', label: 'Refer & earn', sub: '₹200 per friend · TRENDZO42', screen: 'ReferralRewards' },
     ],
   },
   {
     code: '04',
-    title: 'MORE FROM CLOSET×',
+    title: 'MORE FROM TRENDZO',
     intro: 'Extras, insights, and the bigger picture.',
     items: [
       { icon: 'gift', label: 'Gift card', sub: 'Buy, send, redeem', screen: 'GiftCard' },
@@ -69,7 +69,7 @@ const MENU_GROUPS = [
       { icon: 'settings', label: 'Notification settings', sub: 'Push, email, deals', screen: 'NotificationSettings' },
       { icon: 'globe', label: 'Language', sub: 'English · 8 languages', screen: 'Language' },
       { icon: 'message-square', label: 'Customer support', sub: '24×7 chat · CX-Bot v2', screen: 'CustomerSupport' },
-      { icon: 'info', label: 'About Closet×', sub: 'v4.26 · build 1442' },
+      { icon: 'info', label: 'About Trendzo', sub: 'build 1442' },
     ],
   },
 ];
@@ -95,17 +95,17 @@ export default function ProfileScreen() {
         <FadeInUp>
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
             <BrutalBox solid padded maxRadius={20}>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.55 }]}>{`> CLOSETX // PROFILE_v4.26`}</Text>
+              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.55 }]}>{`> TRENDZO`}</Text>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m, marginTop: SP.m }}>
                 <BrutalBox maxRadius={36} style={{ width: 72, height: 72, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', color: C.ink, fontSize: 26, letterSpacing: -1 }}>{initials}</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', color: C.ink, fontSize: rf(26), letterSpacing: -1 }}>{initials}</Text>
                 </BrutalBox>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 24, color: C.white, letterSpacing: -0.8, lineHeight: 26 }}>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8, lineHeight: rf(26) }}>
                     {(user?.name || 'GUEST USER').toUpperCase()}
                   </Text>
-                  <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 2 }]}>{user?.email || 'guest@closetx.app'}</Text>
+                  <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 2 }]}>{user?.email || 'guest@trendzo.app'}</Text>
                   <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                     <BrutalBox maxRadius={10} border={0} style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }}>
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.6 }}>BRONZE</Text>
@@ -273,8 +273,7 @@ export default function ProfileScreen() {
             <BrutalButton label="Log in / Sign up" icon="log-in" block onPress={() => nav.navigate('Login')} />
           )}
           <View style={{ marginTop: SP.l, alignItems: 'center' }}>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, textAlign: 'center' }]}>{'// CLOSET× · BUILT FOR GEN-Z'}</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, textAlign: 'center', marginTop: 2 }]}>{'v4.26 · build 1442 · ' + ASCII.caret}</Text>
+            <Text style={[T.mono, { color: C.dim, fontSize: 9, textAlign: 'center' }]}>{'// TRENDZO · BUILT FOR GEN-Z'}</Text>
           </View>
         </View>
       </ScrollView>
@@ -290,7 +289,7 @@ function Stat({ label, value, sub, last }: { label: string; value: string; sub?:
         !last && { borderRightWidth: 1, borderColor: C.ink },
       ]}
     >
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 22, color: C.ink, letterSpacing: -0.8 }}>{value}</Text>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.8 }}>{value}</Text>
       <Text style={[T.monoB, { fontSize: 9, marginTop: 2 }]}>{label}</Text>
       {sub && <Text style={[T.mono, { fontSize: 8, color: C.dim, marginTop: 1 }]}>{sub}</Text>}
     </View>

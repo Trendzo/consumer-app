@@ -2,9 +2,9 @@ import React, { useEffect } from 'react';
 import { View, Text, StatusBar, StyleSheet, Dimensions } from 'react-native';
 import { MotiView, MotiText } from 'moti';
 import { Easing } from 'react-native-reanimated';
+import { rf } from '../theme/brutal';
 
 const { width } = Dimensions.get('window');
-const LETTERS = ['C', 'L', 'O', 'S', 'E', 'T'];
 
 export default function SplashScreen({ onDone }: { onDone: () => void }) {
   useEffect(() => {
@@ -31,8 +31,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
         style={styles.topRow}
       >
         <View style={styles.topDot} />
-        <Text style={styles.topMono}>BOOTING CLOSET-X.SYS</Text>
-        <Text style={[styles.topMono, { opacity: 0.5 }]}>v4.26</Text>
+        <Text style={styles.topMono}>BOOTING TRENDZO</Text>
       </MotiView>
 
       {/* ── Hero wordmark — reveals from behind a mask ───── */}
@@ -43,7 +42,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 750, delay: 250 }}
           >
-            <Text style={styles.letter}>CLOSET</Text>
+            <Text style={[styles.letter, { maxWidth: width - 40 }]} numberOfLines={1} adjustsFontSizeToFit>TRENDZO</Text>
           </MotiView>
         </View>
 
@@ -53,7 +52,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 750, delay: 420 }}
           >
-            <Text style={styles.cross}>×</Text>
+            <Text style={styles.cross}>.</Text>
           </MotiView>
         </View>
 
@@ -163,17 +162,18 @@ const styles = StyleSheet.create({
   },
   letter: {
     fontFamily: 'Inter_900Black',
-    fontSize: 76,
+    fontSize: rf(76),
     color: '#fff',
     letterSpacing: -4,
-    lineHeight: 78,
+    lineHeight: rf(78),
+    textAlign: 'center',
   },
   cross: {
     fontFamily: 'Inter_900Black',
-    fontSize: 76,
+    fontSize: rf(76),
     color: '#fff',
     letterSpacing: -3,
-    lineHeight: 78,
+    lineHeight: rf(78),
   },
   underlineTrack: {
     marginTop: 18,
