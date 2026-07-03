@@ -77,7 +77,7 @@ export default function CartScreen() {
           <ScrollView contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
             {/* Top meta */}
             <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-              <Text style={[T.mono, { color: C.dim }]}>{`> ${cartCount} ITEMS · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} DELIVERY SPLIT${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 'S' : ''}`}</Text>
+              <Text style={[T.mono, { color: C.dim }]}>{`${cartCount} ITEMS · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} DELIVERY SPLIT${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 'S' : ''}`}</Text>
               <AsciiDivider style={{ marginTop: 6 }} />
             </View>
 
@@ -101,7 +101,11 @@ export default function CartScreen() {
                     </BrutalBox>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{meta.label}</Text>
-                      <Text style={[T.mono, { fontSize: 9, color: C.white, opacity: 0.65, marginTop: 1 }]}>{`${items.length} ITEM${items.length > 1 ? 'S' : ''} · ${meta.blurb}`}</Text>
+                      {m === 'express' ? (
+                        <Text style={[T.monoB, { fontSize: 9, color: C.white, marginTop: 1 }]}>{`GET IT BY ~${40 + (items.length % 4) * 5} MIN`}</Text>
+                      ) : (
+                        <Text style={[T.mono, { fontSize: 9, color: C.white, opacity: 0.65, marginTop: 1 }]}>{`${items.length} ITEM${items.length > 1 ? 'S' : ''} · ${meta.blurb}`}</Text>
+                      )}
                     </View>
                     <BrutalBox maxRadius={10} border={0} style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }}>
                       <Text style={[T.monoB, { color: C.ink, fontSize: 9 }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
@@ -170,7 +174,7 @@ export default function CartScreen() {
 
             {/* COUPON */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-              <Text style={[T.label, { marginBottom: 6 }]}>{'> APPLY COUPON'}</Text>
+              <Text style={[T.label, { marginBottom: 6 }]}>{'APPLY COUPON'}</Text>
               <View style={[{ flexDirection: 'row', alignItems: 'stretch', height: 46, overflow: 'hidden' }, BORDER(1)]}>
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, backgroundColor: C.white }}>
                   <Feather name="tag" size={14} color={C.ink} />

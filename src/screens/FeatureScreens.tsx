@@ -2,16 +2,17 @@
 // Lucky Draw, Invite Friends, App Challenges, New Arrivals, Discover Brands,
 // For Her, For Him, Occasion Shopping, Flash Sale, Trending
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Alert, Animated, Easing, Modal, Share } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Alert, Animated, Easing, Modal, Share, TextInput } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead } from '../components/Brutal';
+import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead, CachedImage } from '../components/Brutal';
 import { PRODUCTS, BRANDS, OCCASIONS, COMMUNITY, BUNDLES, CATEGORIES } from '../data/mockData';
 import { useApp } from '../state/AppState';
+import { useZoom } from '../navigation/ZoomTransition';
 
 // ─── IMAGE SEARCH ──────────────────────────────────────────
 // Stubbed but feels real: the user picks a source, watches a fake scan on a
@@ -20,6 +21,8 @@ const FAKE_SCAN_IMAGES = PRODUCTS.slice(0, 6).map(p => p.img);
 
 export function ImageSearchScreen() {
   const nav = useNavigation<any>();
+  const { openZoom } = useZoom();
+  const zoomRefs = useRef<{ [k: string]: any }>({});
   const [pickerOpen, setPickerOpen] = useState(true);
   const [stage, setStage] = useState<'idle' | 'camera' | 'scanning' | 'results'>('idle');
   const [pickedImg, setPickedImg] = useState<string | null>(null);
@@ -111,7 +114,7 @@ export function ImageSearchScreen() {
             <BrutalButton label="Pick a source" icon="image" onPress={() => setPickerOpen(true)} />
           </View>
           <FadeInUp delay={120}>
-            <Text style={[T.mono, { color: C.dim, marginTop: SP.xl, textAlign: 'center' }]}>{'// AI-POWERED · VISUAL SEARCH · 98% ACCURACY'}</Text>
+            <Text style={[T.mono, { color: C.dim, marginTop: SP.xl, textAlign: 'center' }]}>{'AI-POWERED · VISUAL SEARCH'}</Text>
           </FadeInUp>
         </View>
       )}
@@ -158,7 +161,7 @@ export function ImageSearchScreen() {
             ))}
           </View>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, marginTop: SP.xl, letterSpacing: -0.5 }}>SCANNING...</Text>
-          <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>{'// MATCHING COLOR · CUT · FABRIC'}</Text>
+          <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>{'MATCHING COLOR · CUT · FABRIC'}</Text>
         </View>
       )}
 
@@ -169,7 +172,7 @@ export function ImageSearchScreen() {
               <Image source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> YOUR IMAGE'}</Text>
+              <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'YOUR IMAGE'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5, marginTop: 2 }}>12 MATCHES FOUND</Text>
               <Pressable onPress={reset} style={[{ marginTop: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
                 <Text style={[T.monoB, { fontSize: 9 }]}>⟲ TRY ANOTHER</Text>
@@ -180,8 +183,8 @@ export function ImageSearchScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: SP.m }}>
             {PRODUCTS.slice(0, 8).map((p, i) => (
               <FadeInUp key={p.id} delay={i * 40}>
-                <Pressable onPress={() => nav.navigate('ProductDetail', { product: p })} style={{ width: 160, marginBottom: SP.m }}>
-                  <View style={[{ height: 180, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
+                <Pressable onPress={() => openZoom(zoomRefs.current['is' + p.id], p.img, p)} style={{ width: 160, marginBottom: SP.m }}>
+                  <View ref={(el) => { zoomRefs.current['is' + p.id] = el; }} collapsable={false} style={[{ height: 180, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
                     <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                     <View style={{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
                       <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`${98 - i * 3}% MATCH`}</Text>
@@ -208,7 +211,7 @@ export function ImageSearchScreen() {
             style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> IMAGE_SOURCE'}</Text>
+            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'IMAGE_SOURCE'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>GRAB AN IMAGE</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>We'll scan it and find matches.</Text>
 
@@ -262,7 +265,7 @@ export function CouponWalletScreen() {
       <ScreenHeader title="Coupons" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> COUPON_WALLET'}</Text>
+          <Text style={[T.monoB, { fontSize: 11 }]}>{'COUPON_WALLET'}</Text>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}COUPONS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
@@ -270,7 +273,7 @@ export function CouponWalletScreen() {
           <FadeInUp key={c.id} delay={i * 50}>
             <View style={[{ marginTop: SP.m, flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
               <View style={{ width: 90, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, padding: SP.s }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, textAlign: 'center' }}>{c.discount}</Text>
+                <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, textAlign: 'center' }}>{c.discount}</Text>
               </View>
               <View style={{ flex: 1, padding: SP.m }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -291,103 +294,457 @@ export function CouponWalletScreen() {
 
 // ─── COMMUNITY FEED ────────────────────────────────────────
 const FEED_POSTS = [
-  { id: '1', user: '@zara.fits', caption: 'Sunday brunch fit check', likes: 1240, comments: 89, img: 'https://images.unsplash.com/photo-1485518882345-15568b007407?w=500&q=80' },
-  { id: '2', user: '@ren.style', caption: 'Office power look for Monday', likes: 892, comments: 45, img: 'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=500&q=80' },
-  { id: '3', user: '@mia.x', caption: 'Date night vibes', likes: 2103, comments: 156, img: 'https://images.unsplash.com/photo-1581044777550-4cfa60707c03?w=500&q=80' },
-  { id: '4', user: '@kio.drip', caption: 'Vintage thrift haul of the week', likes: 654, comments: 32, img: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=500&q=80' },
-  { id: '5', user: '@nova.fit', caption: 'Festival season ready', likes: 1876, comments: 98, img: 'https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=500&q=80' },
+  { id: '1', user: '@zara.fits', caption: 'Sunday brunch fit check', likes: 1240, comments: 89, saves: 214, city: 'Bandra', time: '12m', fit: 'BRUNCH', heat: 96, tags: ['brunch', 'dress'], img: 'https://images.unsplash.com/photo-1485518882345-15568b007407?w=900&q=80' },
+  { id: '2', user: '@ren.style', caption: 'Office power look for Monday', likes: 892, comments: 45, saves: 141, city: 'Lower Parel', time: '28m', fit: 'WORK', heat: 88, tags: ['work', 'minimal'], img: 'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=900&q=80' },
+  { id: '3', user: '@mia.x', caption: 'Date night textures with a clean heel.', likes: 2103, comments: 156, saves: 438, city: 'Colaba', time: '43m', fit: 'DATE', heat: 99, tags: ['date', 'night'], img: 'https://images.unsplash.com/photo-1581044777550-4cfa60707c03?w=900&q=80' },
+  { id: '4', user: '@kio.drip', caption: 'Vintage thrift haul of the week', likes: 654, comments: 32, saves: 87, city: 'Kala Ghoda', time: '1h', fit: 'VINTAGE', heat: 81, tags: ['street', 'vintage'], img: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=900&q=80' },
+  { id: '5', user: '@nova.fit', caption: 'Festival season ready', likes: 1876, comments: 98, saves: 302, city: 'Juhu', time: '2h', fit: 'FEST', heat: 94, tags: ['festival', 'color'], img: 'https://images.unsplash.com/photo-1496747611176-843222e1e57c?w=900&q=80' },
+];
+
+const FEED_FILTERS = [
+  { id: 'all', label: 'FOR YOU' },
+  { id: 'street', label: 'STREET' },
+  { id: 'work', label: 'WORK' },
+  { id: 'date', label: 'DATE' },
+  { id: 'brunch', label: 'BRUNCH' },
 ];
 
 export function CommunityFeedScreen() {
   const nav = useNavigation<any>();
+  const { showToast } = useApp();
+  const [filter, setFilter] = useState('all');
+  const [liked, setLiked] = useState<Record<string, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const visiblePosts = filter === 'all' ? FEED_POSTS : FEED_POSTS.filter(p => p.tags.includes(filter));
+  const lead = visiblePosts[0] || FEED_POSTS[0];
+  const rest = visiblePosts.slice(1);
+  const toggleLike = (id: string) => setLiked(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleSave = (id: string) => {
+    setSaved(prev => ({ ...prev, [id]: !prev[id] }));
+    showToast('Saved', 'Added to your mood board', 'bookmark');
+  };
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      <ScreenHeader title="Community" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
-        <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> THE_FEED'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>COMMUNITY{'\n'}FITS.</Text>
+      <ScreenHeader
+        title="Community"
+        onBack={() => nav.goBack()}
+        right={
+          <Pressable onPress={() => showToast('Post a fit', 'Creator upload coming next', 'camera')} style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+            <Feather name="camera" size={16} color={C.ink} />
+          </Pressable>
+        }
+      />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+        <FadeInUp style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: SP.m }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[T.monoB, { fontSize: 11, color: C.dim }]}>THE_FEED</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, marginTop: 4, lineHeight: rf(34) }}>COMMUNITY{'\n'}FITS.</Text>
+            </View>
+            <View style={[{ width: 84, backgroundColor: C.ink, padding: SP.s }, BORDER(1)]}>
+              <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>LIVE</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 22, marginTop: 2 }}>{FEED_POSTS.length}</Text>
+              <Text style={[T.mono, { color: C.white, opacity: 0.75, fontSize: 8 }]}>FITS NOW</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <CommunityStat value="12.8K" label="LIKES" />
+            <CommunityStat value="343" label="SAVED" />
+            <CommunityStat value="41" label="AREAS" />
+          </View>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
-        {FEED_POSTS.map((p, i) => (
-          <FadeInUp key={p.id} delay={i * 50}>
-            <View style={[{ marginTop: SP.m, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 10 }}>
-                <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 12 }}>{p.user[1].toUpperCase()}</Text>
-                </View>
-                <Text style={[T.monoB, { fontSize: 11 }]}>{p.user}</Text>
-              </View>
-              <View style={{ height: 300, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.ink }}>
-                <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-              </View>
-              <View style={{ padding: SP.m }}>
-                <View style={{ flexDirection: 'row', gap: SP.l }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Feather name="heart" size={16} color={C.ink} />
-                    <Text style={[T.monoB, { fontSize: 11 }]}>{p.likes}</Text>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.l }}>
+          {FEED_FILTERS.map(f => (
+            <Pressable key={f.id} onPress={() => setFilter(f.id)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: filter === f.id ? C.ink : C.white }, BORDER(1)]}>
+              {filter === f.id && <Feather name="check" size={11} color={C.white} />}
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: filter === f.id ? C.white : C.ink, letterSpacing: 0.6 }}>{f.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <FadeInUp delay={50} style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+          <Pressable onPress={() => showToast('Featured fit', lead.caption, 'zap')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+            <View style={{ height: 420, backgroundColor: C.hairline }}>
+              <CachedImage source={{ uri: lead.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.20)' }]} />
+              <View style={{ position: 'absolute', top: SP.m, left: SP.m, right: SP.m, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 7 }, BORDER(1)]}>
+                  <Avatar user={lead.user} />
+                  <View>
+                    <Text style={[T.monoB, { fontSize: 10 }]}>{lead.user}</Text>
+                    <Text style={[T.mono, { color: C.dim, fontSize: 8 }]}>{`${lead.city} · ${lead.time}`}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Feather name="message-square" size={16} color={C.ink} />
-                    <Text style={[T.monoB, { fontSize: 11 }]}>{p.comments}</Text>
-                  </View>
-                  <View style={{ flex: 1 }} />
-                  <Feather name="bookmark" size={16} color={C.ink} />
                 </View>
-                <Text style={[T.bodyB, { marginTop: 8 }]}>{p.caption}</Text>
+                <View style={[{ backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 7 }, BORDER(1)]}>
+                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`${lead.heat}% HOT`}</Text>
+                </View>
+              </View>
+              <View style={{ position: 'absolute', left: SP.m, right: SP.m, bottom: SP.m }}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: '#FFFFFF', letterSpacing: -1, lineHeight: rf(31), textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }}>{lead.fit}{'\n'}FIT CHECK</Text>
+                <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 10, marginTop: 6 }]}>{lead.caption}</Text>
               </View>
             </View>
+            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.ink }}>
+              <CommunityAction icon={liked[lead.id] ? 'heart' : 'heart'} label={`${lead.likes + (liked[lead.id] ? 1 : 0)}`} active={!!liked[lead.id]} onPress={() => toggleLike(lead.id)} />
+              <CommunityAction icon="message-square" label={`${lead.comments}`} />
+              <CommunityAction icon="bookmark" label={`${lead.saves}`} active={!!saved[lead.id]} onPress={() => toggleSave(lead.id)} />
+              <CommunityAction icon="send" label="SHARE" onPress={() => showToast('Shared', 'Fit link copied', 'send')} />
+            </View>
+          </Pressable>
+        </FadeInUp>
+
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+          <AsciiDivider />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 }}>TODAY'S FITS</Text>
+            <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{`${visiblePosts.length} POSTS`}</Text>
+          </View>
+          <AsciiDivider faint style={{ marginTop: 4 }} />
+        </View>
+
+        {rest.map((p, i) => (
+          <FadeInUp key={p.id} delay={i * 50}>
+            <CommunityPostCard
+              post={p}
+              index={i}
+              liked={!!liked[p.id]}
+              saved={!!saved[p.id]}
+              onLike={() => toggleLike(p.id)}
+              onSave={() => toggleSave(p.id)}
+              onShare={() => showToast('Shared', p.user, 'send')}
+            />
           </FadeInUp>
         ))}
+
+        <View style={{ marginTop: SP.xl }}>
+          <View style={{ paddingHorizontal: SP.l }}>
+            <AsciiDivider />
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, marginTop: 6 }}>RISING CREATORS</Text>
+            <AsciiDivider faint style={{ marginTop: 4 }} />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m, marginTop: SP.m }}>
+            {FEED_POSTS.map((p, i) => (
+              <Pressable key={p.id} onPress={() => showToast('Creator', p.user, 'user-plus')} style={[{ width: 118, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+                <View style={{ height: 112, backgroundColor: C.hairline }}>
+                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                </View>
+                <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.ink }}>
+                  <Text style={[T.monoB, { fontSize: 9 }]} numberOfLines={1}>{p.user}</Text>
+                  <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{`#${i + 1} · ${p.city}`}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
+function Avatar({ user, size = 30 }: { user: string; size?: number }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }}>
+      <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: Math.max(11, size * 0.36) }}>{user[1]?.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+function CommunityStat({ value, label }: { value: string; label: string }) {
+  return (
+    <View style={[{ flex: 1, backgroundColor: C.white, padding: SP.s }, BORDER(1)]}>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>{value}</Text>
+      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{label}</Text>
+    </View>
+  );
+}
+
+function CommunityAction({ icon, label, active, onPress }: { icon: keyof typeof Feather.glyphMap; label: string; active?: boolean; onPress?: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.ink, backgroundColor: active ? C.ink : C.white, gap: 3 }}>
+      <Feather name={icon} size={15} color={active ? C.white : C.ink} />
+      <Text style={[T.monoB, { fontSize: 8, color: active ? C.white : C.ink }]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare }: { post: typeof FEED_POSTS[number]; index: number; liked: boolean; saved: boolean; onLike: () => void; onSave: () => void; onShare: () => void }) {
+  return (
+    <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+      <View style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 10 }}>
+          <Avatar user={post.user} />
+          <View style={{ flex: 1 }}>
+            <Text style={[T.monoB, { fontSize: 11 }]}>{post.user}</Text>
+            <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{`${post.city} · ${post.time} · ${post.fit}`}</Text>
+          </View>
+          <View style={[{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}>
+            <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`#0${index + 2}`}</Text>
+          </View>
+        </View>
+
+        <View style={{ height: index % 2 === 0 ? 340 : 290, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.ink, backgroundColor: C.hairline }}>
+          <CachedImage source={{ uri: post.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <View style={{ position: 'absolute', top: SP.s, left: SP.s, flexDirection: 'row', gap: 6 }}>
+            {post.tags.slice(0, 2).map(tag => (
+              <View key={tag} style={[{ backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 4 }, BORDER(1)]}>
+                <Text style={[T.monoB, { fontSize: 8 }]}>{tag.toUpperCase()}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={{ position: 'absolute', right: SP.s, bottom: SP.s, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`${post.heat}% FIT SCORE`}</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: C.ink }}>
+          <CommunityAction icon="heart" label={`${post.likes + (liked ? 1 : 0)}`} active={liked} onPress={onLike} />
+          <CommunityAction icon="message-square" label={`${post.comments}`} />
+          <CommunityAction icon="bookmark" label={`${post.saves}`} active={saved} onPress={onSave} />
+          <CommunityAction icon="send" label="SEND" onPress={onShare} />
+        </View>
+
+        <View style={{ padding: SP.m }}>
+          <Text style={[T.bodyB, { fontSize: 14 }]}>{post.caption}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.s, marginTop: SP.m }}>
+            <View style={{ flex: 1, height: 1, backgroundColor: C.ink }} />
+            <Text style={[T.monoB, { color: C.dim, fontSize: 8 }]}>SHOP SIMILAR</Text>
+            <Feather name="arrow-right" size={12} color={C.dim} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 // ─── MOOD BOARD ────────────────────────────────────────────
+const MOOD_PINS = [
+  ...PRODUCTS.map((p, i) => ({
+    id: `prod-${p.id}`,
+    title: p.name,
+    source: p.brand,
+    img: p.img,
+    type: 'PRODUCT',
+    fit: i % 2 === 0 ? 'contain' : 'cover',
+  })),
+  ...COMMUNITY.map((p, i) => ({
+    id: `feed-${p.id}`,
+    title: ['Street texture', 'Soft color story', 'Date-night lines', 'Layered casual'][i] || 'Community fit',
+    source: p.user,
+    img: p.img,
+    type: 'FIT',
+    fit: 'cover',
+  })),
+];
+
+const INITIAL_MOOD_BOARDS = [
+  { id: 'summer', name: 'SUMMER FITS', pins: ['feed-cp1', 'prod-p5', 'prod-p6', 'feed-cp2', 'prod-p4', 'prod-p3'] },
+  { id: 'work', name: 'WORK OUTFITS', pins: ['prod-p1', 'feed-cp4', 'prod-p2', 'prod-p7'] },
+  { id: 'date', name: 'DATE NIGHT', pins: ['feed-cp3', 'prod-p5', 'prod-p6'] },
+];
+
 export function MoodBoardScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
-  const boards = [
-    { id: '1', name: 'SUMMER FITS', items: 6 },
-    { id: '2', name: 'WORK OUTFITS', items: 4 },
-    { id: '3', name: 'DATE NIGHT', items: 3 },
-  ];
+  const [boards, setBoards] = useState(INITIAL_MOOD_BOARDS);
+  const [activeId, setActiveId] = useState(INITIAL_MOOD_BOARDS[0].id);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
+  const activeBoard = boards.find(b => b.id === activeId) || boards[0];
+  const activePins = activeBoard.pins.map(id => MOOD_PINS.find(p => p.id === id)).filter(Boolean) as typeof MOOD_PINS;
+  const suggestions = MOOD_PINS.filter(p => !activeBoard.pins.includes(p.id)).slice(0, 8);
+  const isSaved = (pinId: string) => activeBoard.pins.includes(pinId);
+  const updateActivePins = (nextPins: string[]) => {
+    setBoards(prev => prev.map(b => b.id === activeBoard.id ? { ...b, pins: nextPins } : b));
+  };
+  const addPin = (pinId: string) => {
+    if (isSaved(pinId)) return;
+    updateActivePins([pinId, ...activeBoard.pins]);
+    showToast('Pinned', `${activeBoard.name}`, 'bookmark');
+  };
+  const removePin = (pinId: string) => {
+    updateActivePins(activeBoard.pins.filter(id => id !== pinId));
+    showToast('Removed', `${activeBoard.name}`, 'x');
+  };
+  const createBoard = () => {
+    const name = newBoardName.trim() || `BOARD ${boards.length + 1}`;
+    const id = `board-${Date.now()}`;
+    setBoards(prev => [{ id, name: name.toUpperCase(), pins: [] }, ...prev]);
+    setActiveId(id);
+    setNewBoardName('');
+    setCreateOpen(false);
+    showToast('Board created', name, 'plus');
+  };
+  const quickAdd = () => {
+    const next = suggestions[0];
+    if (!next) {
+      showToast('All set', 'This board has every available pin', 'check');
+      return;
+    }
+    addPin(next.id);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      <ScreenHeader title="Mood Board" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
-        <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> SAVED_BOARDS'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}MOOD BOARDS.</Text>
-          <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>Save and organize outfit combinations for any occasion.</Text>
+      <ScreenHeader
+        title="Mood Board"
+        onBack={() => nav.goBack()}
+        right={
+          <Pressable onPress={() => setCreateOpen(true)} style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+            <Feather name="plus" size={17} color={C.ink} />
+          </Pressable>
+        }
+      />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
+        <FadeInUp style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
+          <Text style={[T.monoB, { fontSize: 11, color: C.dim }]}>{'SAVED_BOARDS'}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, marginTop: 4, lineHeight: rf(34) }}>YOUR{'\n'}MOOD BOARDS.</Text>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <MoodStat value={`${boards.length}`} label="BOARDS" />
+            <MoodStat value={`${activeBoard.pins.length}`} label="PINS" />
+            <MoodStat value={`${suggestions.length}`} label="IDEAS" />
+          </View>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
-        {boards.map((b, i) => (
-          <FadeInUp key={b.id} delay={i * 50}>
-            <Pressable style={[{ marginTop: SP.m, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', height: 120 }}>
-                {PRODUCTS.slice(i * 2, i * 2 + 3).map((p, j) => (
-                  <View key={p.id} style={{ flex: 1, borderRightWidth: j < 2 ? 1 : 0, borderColor: C.ink, backgroundColor: C.hairline }}>
-                    <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.l }}>
+          {boards.map((b) => (
+            <Pressable key={b.id} onPress={() => setActiveId(b.id)} style={[{ width: 154, backgroundColor: activeId === b.id ? C.ink : C.white, overflow: 'hidden' }, BORDER(1)]}>
+              <View style={{ height: 88, flexDirection: 'row', backgroundColor: C.hairline }}>
+                {b.pins.slice(0, 3).map((pinId, i) => {
+                  const pin = MOOD_PINS.find(p => p.id === pinId);
+                  return (
+                    <View key={`${pinId}-${i}`} style={{ flex: 1, borderRightWidth: i < 2 ? 1 : 0, borderColor: activeId === b.id ? C.white : C.ink }}>
+                      {pin && <CachedImage source={{ uri: pin.img }} style={{ width: '100%', height: '100%' }} resizeMode={pin.fit as any} />}
+                    </View>
+                  );
+                })}
+                {!b.pins.length && (
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                    <Feather name="plus" size={18} color={activeId === b.id ? C.white : C.ink} />
                   </View>
-                ))}
+                )}
               </View>
-              <View style={{ padding: SP.m, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderColor: C.ink }}>
-                <View>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>{b.name}</Text>
-                  <Text style={[T.mono, { color: C.dim, marginTop: 2 }]}>{b.items} ITEMS</Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={C.ink} />
+              <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: activeId === b.id ? C.white : C.ink }}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: activeId === b.id ? C.white : C.ink }} numberOfLines={1}>{b.name}</Text>
+                <Text style={[T.mono, { color: activeId === b.id ? C.white : C.dim, opacity: activeId === b.id ? 0.75 : 1, fontSize: 8, marginTop: 2 }]}>{`${b.pins.length} PINS`}</Text>
               </View>
             </Pressable>
-          </FadeInUp>
-        ))}
-        <BrutalButton label="Create new board" icon="plus" variant="outline" block onPress={() => showToast('New Board', 'Coming soon', 'plus')} style={{ marginTop: SP.l }} />
+          ))}
+        </ScrollView>
+
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+          <AsciiDivider />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }} numberOfLines={1}>{activeBoard.name}</Text>
+              <Text style={[T.mono, { color: C.dim, marginTop: 2 }]}>{`${activeBoard.pins.length} saved pins`}</Text>
+            </View>
+            <Pressable onPress={quickAdd} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.ink }, BORDER(1)]}>
+              <Feather name="plus" size={12} color={C.white} />
+              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>PIN IDEA</Text>
+            </Pressable>
+          </View>
+          <AsciiDivider faint style={{ marginTop: 4 }} />
+        </View>
+
+        {activePins.length ? (
+          <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m, alignItems: 'flex-start' }}>
+            {[0, 1].map(col => (
+              <View key={col} style={{ flex: 1, gap: SP.s }}>
+                {activePins.filter((_, i) => i % 2 === col).map((pin, i) => (
+                  <MoodPin key={pin.id} pin={pin} tall={(i + col) % 2 === 0} saved onPress={() => removePin(pin.id)} />
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+            <View style={[{ height: 190, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, padding: SP.l }, BORDER(1)]}>
+              <Feather name="image" size={30} color={C.ink} />
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink, marginTop: SP.m }}>EMPTY BOARD</Text>
+              <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4 }]}>Pin ideas below to build this mood.</Text>
+            </View>
+          </View>
+        )}
+
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+          <AsciiDivider />
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, marginTop: 6 }}>MORE IDEAS</Text>
+          <AsciiDivider faint style={{ marginTop: 4 }} />
+        </View>
+        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m, alignItems: 'flex-start' }}>
+          {[0, 1].map(col => (
+            <View key={col} style={{ flex: 1, gap: SP.s }}>
+              {suggestions.filter((_, i) => i % 2 === col).map((pin, i) => (
+                <MoodPin key={pin.id} pin={pin} tall={(i + col) % 2 === 1} saved={false} onPress={() => addPin(pin.id)} />
+              ))}
+            </View>
+          ))}
+        </View>
       </ScrollView>
+
+      <Modal transparent visible={createOpen} animationType="none" onRequestClose={() => setCreateOpen(false)}>
+        <Pressable onPress={() => setCreateOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+          <MotiView
+            from={{ translateY: 360 }}
+            animate={{ translateY: 0 }}
+            transition={{ type: 'timing', duration: 280 }}
+            onStartShouldSetResponder={() => true}
+            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
+          >
+            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
+            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>NEW_BOARD</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>CREATE A BOARD</Text>
+            <View style={[{ marginTop: SP.l, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 12, backgroundColor: C.bg }, BORDER(1)]}>
+              <Feather name="edit-3" size={16} color={C.ink} />
+              <TextInput
+                value={newBoardName}
+                onChangeText={setNewBoardName}
+                placeholder="Board name"
+                placeholderTextColor={C.dim}
+                autoCapitalize="characters"
+                style={{ flex: 1, fontFamily: 'Inter_700Bold', fontSize: 14, color: C.ink, padding: 0 }}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+              <BrutalButton label="Cancel" icon="x" variant="outline" onPress={() => setCreateOpen(false)} style={{ flex: 1 }} />
+              <BrutalButton label="Create" iconRight="arrow-right" onPress={createBoard} style={{ flex: 1 }} />
+            </View>
+          </MotiView>
+        </Pressable>
+      </Modal>
     </View>
+  );
+}
+
+function MoodStat({ value, label }: { value: string; label: string }) {
+  return (
+    <View style={[{ flex: 1, backgroundColor: C.white, padding: SP.s }, BORDER(1)]}>
+      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>{value}</Text>
+      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{label}</Text>
+    </View>
+  );
+}
+
+function MoodPin({ pin, tall, saved, onPress }: { pin: typeof MOOD_PINS[number]; tall: boolean; saved: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+      <View style={{ height: tall ? 235 : 178, backgroundColor: C.hairline }}>
+        <CachedImage source={{ uri: pin.img }} style={{ width: '100%', height: '100%' }} resizeMode={pin.fit as any} />
+        <View style={{ position: 'absolute', top: 7, left: 7, backgroundColor: C.white, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.ink }}>
+          <Text style={[T.monoB, { fontSize: 8 }]}>{pin.type}</Text>
+        </View>
+        <View style={{ position: 'absolute', right: 7, bottom: 7, backgroundColor: saved ? C.ink : C.white, paddingHorizontal: 9, paddingVertical: 6, borderWidth: 1, borderColor: C.ink }}>
+          <Text style={[T.monoB, { fontSize: 8, color: saved ? C.white : C.ink }]}>{saved ? 'REMOVE' : 'PIN'}</Text>
+        </View>
+      </View>
+      <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.ink }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }} numberOfLines={2}>{pin.title}</Text>
+        <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 3 }]} numberOfLines={1}>{pin.source}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -439,30 +796,17 @@ export function LuckyDrawScreen() {
       <BrutalStatusBar />
       <ScreenHeader title="Lucky Draw" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
-        {/* HERO — asymmetric split banner */}
+        {/* HERO — clean, centered */}
         <FadeInUp>
-          <View style={[{ flexDirection: 'row', height: 130, overflow: 'hidden' }, BORDER(1)]}>
-            <View style={{ flex: 3, backgroundColor: C.ink, padding: SP.m, justifyContent: 'space-between' }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'> DRAW_042 · LIVE'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.white, letterSpacing: -1.5, lineHeight: rf(32) }}>PICK{'\n'}ONE.</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9 }]}>1 TAP · 1 REVEAL</Text>
-            </View>
-            <View style={{ flex: 2, backgroundColor: C.white, padding: SP.m, justifyContent: 'space-between', borderLeftWidth: 1, borderColor: C.ink }}>
-              <Text style={[T.monoB, { fontSize: 9 }]}>{'▲ ODDS'}</Text>
-              <View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink }}>1 in 3</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>OF A RARE DROP</Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 2 }}>
-                {[1,1,0].map((v,i) => <View key={i} style={{ flex: 1, height: 4, backgroundColor: v ? C.ink : C.hairline }} />)}
-              </View>
-            </View>
+          <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
+            <Ionicons name="gift" size={40} color={C.white} />
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 8, letterSpacing: -0.5 }}>PICK A CARD</Text>
+            <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.75, marginTop: 4, textAlign: 'center' }]}>1 free pick today · 1 in 3 chance to win big</Text>
           </View>
         </FadeInUp>
 
-        {/* ─── 3 scratch cards ─── */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> TAP_A_CARD_TO_REVEAL'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        {/* ─── 3 cards ─── */}
+        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>{played ? 'YOUR PICK' : 'TAP A CARD TO REVEAL'}</Text>
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.m }}>
           {cards.map((card, i) => {
             const isOpen = revealed === i;
@@ -480,7 +824,7 @@ export function LuckyDrawScreen() {
                     </MotiView>
                   ) : (
                     <View style={[{ height: 180, padding: SP.s, alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.white, opacity: played ? 0.3 : 1 }, BORDER(1)]}>
-                      <Text style={[T.monoB, { fontSize: 9 }]}>{`CARD_0${i + 1}`}</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>?</Text>
                       {/* Hatching pattern */}
                       <View style={{ flex: 1, alignSelf: 'stretch', overflow: 'hidden', marginVertical: 8 }}>
                         {[...Array(14)].map((_, j) => (
@@ -508,12 +852,11 @@ export function LuckyDrawScreen() {
         )}
 
         {/* ─── Grand prize banner ─── */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> MONTHLY_GRAND_PRIZE'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>GRAND PRIZE</Text>
         <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1 }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ APR.2026'}</Text>
+              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'APRIL 2026'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 6, letterSpacing: -0.8 }}>₹10,000{'\n'}GIFT CARD</Text>
               <Text style={[T.mono, { color: C.white, marginTop: 6, fontSize: 9 }]}>+ 5 RUNNER-UP SLOTS</Text>
             </View>
@@ -527,8 +870,7 @@ export function LuckyDrawScreen() {
         </View>
 
         {/* ─── Live winners ticker ─── */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> RECENT_WINS'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>RECENT WINNERS</Text>
         {RECENT_WINNERS.map((w, i) => (
           <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderColor: C.hairline }}>
             <View style={[{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
@@ -553,11 +895,11 @@ const INVITE_TIERS = [
   { name: 'DIAMOND', need: 50, reward: 'MYSTERY', unlocked: false },
 ];
 const INVITED = [
-  { user: '@sahil.m', status: 'JOINED', earn: '₹200', date: '2d' },
-  { user: '@kavya_r', status: 'JOINED', earn: '₹200', date: '5d' },
-  { user: '@rohan.x', status: 'JOINED', earn: '₹200', date: '1w' },
-  { user: '@nikita', status: 'PENDING', earn: '—', date: '3d' },
-  { user: '@aditya_j', status: 'JOINED', earn: '₹200', date: '2w' },
+  { user: 'Sahil M', status: 'JOINED', earn: '₹200', date: '2d' },
+  { user: 'Kavya R', status: 'JOINED', earn: '₹200', date: '5d' },
+  { user: 'Rohan X', status: 'JOINED', earn: '₹200', date: '1w' },
+  { user: 'Nikita', status: 'PENDING', earn: '—', date: '3d' },
+  { user: 'Aditya J', status: 'JOINED', earn: '₹200', date: '2w' },
 ];
 
 export function InviteFriendsScreen() {
@@ -614,7 +956,7 @@ export function InviteFriendsScreen() {
         </FadeInUp>
 
         {/* REFERRAL CODE — big brutalist block */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> YOUR_CODE'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'YOUR_CODE'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <FadeInUp delay={60}>
           <View style={[{ marginTop: SP.s, overflow: 'hidden' }, BORDER(1)]}>
@@ -639,7 +981,7 @@ export function InviteFriendsScreen() {
         </FadeInUp>
 
         {/* TIER PROGRESS BAR */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> TIER_PROGRESS'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'TIER_PROGRESS'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -677,13 +1019,13 @@ export function InviteFriendsScreen() {
         </View>
 
         {/* FRIENDS LIST */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{`> YOUR_INVITES (${INVITED.length})`}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{`YOUR_INVITES (${INVITED.length})`}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={{ marginTop: SP.s }}>
           {INVITED.map((f, i) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', padding: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
               <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: f.status === 'JOINED' ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={[T.monoB, { color: f.status === 'JOINED' ? C.white : C.ink, fontSize: 11 }]}>{f.user[1].toUpperCase()}</Text>
+                <Text style={[T.monoB, { color: f.status === 'JOINED' ? C.white : C.ink, fontSize: 11 }]}>{f.user[0].toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={[T.bodyB, { fontSize: 12 }]}>{f.user}</Text>
@@ -706,7 +1048,7 @@ export function InviteFriendsScreen() {
             style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'> SHARE_INVITE'}</Text>
+            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SHARE_INVITE'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>DROP YOUR CODE.</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Every sign-up drops ₹200 in your pocket.</Text>
 
@@ -793,25 +1135,21 @@ export function AppChallengesScreen() {
       <BrutalStatusBar />
       <ScreenHeader title="Quests" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
-        {/* XP + LEVEL hero */}
+        {/* LEVEL hero — clean badge + single progress bar */}
         <FadeInUp>
           <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ LVL'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(56), color: C.white, letterSpacing: -2, lineHeight: rf(56) }}>{level}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
+              <View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink }}>{level}</Text>
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'> TOTAL_XP'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, marginTop: 2 }}>{totalXP.toLocaleString()}</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6, marginTop: 2 }]}>{`NEXT LVL · ${500 - (totalXP % 500)} XP`}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.white }}>LEVEL {level}</Text>
+                <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 2 }]}>{`${500 - (totalXP % 500)} XP to level ${level + 1}`}</Text>
+                <View style={{ marginTop: 8, height: 8, flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.2)' }}>
+                  <View style={{ flex: Math.max(0.001, levelProg), backgroundColor: C.white }} />
+                  <View style={{ flex: Math.max(0.001, 1 - levelProg) }} />
+                </View>
               </View>
-            </View>
-            {/* Segmented level bar */}
-            <View style={{ marginTop: SP.m, flexDirection: 'row', gap: 2 }}>
-              {[...Array(20)].map((_, i) => (
-                <View key={i} style={{ flex: 1, height: 8, backgroundColor: i < levelProg * 20 ? C.white : 'transparent', borderWidth: 1, borderColor: C.white }} />
-              ))}
             </View>
           </View>
         </FadeInUp>
@@ -891,6 +1229,8 @@ export function AppChallengesScreen() {
 // ─── NEW ARRIVALS ──────────────────────────────────────────
 export function NewArrivalsScreen() {
   const nav = useNavigation<any>();
+  const { openZoom } = useZoom();
+  const zoomRefs = useRef<{ [k: string]: any }>({});
   const goToProduct = (p: any) => nav.navigate('ProductDetail', { product: p });
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -898,16 +1238,27 @@ export function NewArrivalsScreen() {
       <ScreenHeader title="New Arrivals" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> JUST_DROPPED'}</Text>
+          <Text style={[T.monoB, { fontSize: 11 }]}>{'JUST_DROPPED'}</Text>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>LATEST{'\n'}DROPS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
           {PRODUCTS.map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <View style={{ width: '47%' }}>
-                <ProductCard p={{ ...p, tag: 'NEW' }} onPress={() => goToProduct(p)} w={170} />
-              </View>
+              <Pressable onPress={() => openZoom(zoomRefs.current['na' + p.id], p.img, p)} style={{ width: '47%' }}>
+                <View ref={(el) => { zoomRefs.current['na' + p.id] = el; }} collapsable={false} style={[{ height: 210, overflow: 'hidden', backgroundColor: '#f3f3f3' }, BORDER(1)]}>
+                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                  <View style={[{ position: 'absolute', top: 8, left: 8, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, BORDER(1)]}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5 }}>NEW</Text>
+                  </View>
+                </View>
+                <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
+                <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
+                  <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
+                </View>
+              </Pressable>
             </FadeInUp>
           ))}
         </View>
@@ -925,7 +1276,7 @@ export function DiscoverBrandsScreen() {
       <ScreenHeader title="Brands" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> BRAND_ARMY'}</Text>
+          <Text style={[T.monoB, { fontSize: 11 }]}>{'BRAND_ARMY'}</Text>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DISCOVER{'\n'}BRANDS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
@@ -995,7 +1346,7 @@ export function ForHerScreen() {
               </View>
               <View>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2 }}>HER{'\n'}STYLE.</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'// BOLD · FEMININE · UNAPOLOGETIC'}</Text>
+                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'BOLD · FEMININE · UNAPOLOGETIC'}</Text>
               </View>
             </View>
           </View>
@@ -1004,7 +1355,7 @@ export function ForHerScreen() {
         {/* Intro */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{'> CURATED_FOR_HER'}</Text>
+            <Text style={[T.monoB, { fontSize: 11 }]}>{'CURATED_FOR_HER'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESSES, HEELS{'\n'}& EVERYTHING IN BETWEEN.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>From silk slips to block heels — the women's edit handpicked for the modern queen.</Text>
           </FadeInUp>
@@ -1057,7 +1408,7 @@ export function ForHerScreen() {
             <Image source={{ uri: HER_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l, backgroundColor: 'rgba(0,0,0,0.4)' }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'// FEMININE_ESSENTIALS'}</Text>
+              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'FEMININE_ESSENTIALS'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>SOFT POWER.</Text>
             </View>
           </View>
@@ -1132,7 +1483,7 @@ export function ForHimScreen() {
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2, textAlign: 'right' }}>HIS{'\n'}CODE.</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'// RAW · RUGGED · REFINED //'}</Text>
+                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'RAW · RUGGED · REFINED'}</Text>
               </View>
             </View>
           </View>
@@ -1141,7 +1492,7 @@ export function ForHimScreen() {
         {/* Intro */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{'> CURATED_FOR_HIM'}</Text>
+            <Text style={[T.monoB, { fontSize: 11 }]}>{'CURATED_FOR_HIM'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DENIM, SNEAKERS{'\n'}& STREET STAPLES.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>Workwear to streetwear — gear that moves with you. No filler, no frills.</Text>
           </FadeInUp>
@@ -1194,7 +1545,7 @@ export function ForHimScreen() {
             <Image source={{ uri: HIM_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'// STREET_UNIFORM'}</Text>
+              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'STREET_UNIFORM'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>BUILT DIFFERENT.</Text>
             </View>
           </View>
@@ -1235,7 +1586,7 @@ export function OccasionShoppingScreen() {
       <ScreenHeader title="Occasions" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'> SHOP_BY_OCCASION'}</Text>
+          <Text style={[T.monoB, { fontSize: 11 }]}>{'SHOP_BY_OCCASION'}</Text>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESS FOR{'\n'}THE MOMENT.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />

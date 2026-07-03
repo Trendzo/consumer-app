@@ -39,7 +39,7 @@ export function OrderSuccessScreen() {
 
       <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 450 }} style={{ marginTop: 24, alignItems: 'center' }}>
         <AsciiDivider />
-        <Text style={[T.monoB, { marginTop: 10 }]}>{`> ORDER #${lastOrder?.id || 'CX' + Math.floor(Math.random() * 90000)}`}</Text>
+        <Text style={[T.monoB, { marginTop: 10 }]}>{`ORDER #${lastOrder?.id || 'CX' + Math.floor(Math.random() * 90000)}`}</Text>
         <Text style={[T.body, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>{caption}</Text>
         <AsciiDivider faint style={{ marginTop: 10 }} />
       </MotiView>
@@ -120,7 +120,7 @@ export function OrderTrackingScreen() {
 
         {/* ═══ TIMELINE (always shown, steps vary by method) ═══ */}
         <View style={{ marginTop: SP.xl }}>
-          <Text style={[T.label]}>{'> TIMELINE'}</Text>
+          <Text style={[T.label]}>{'TIMELINE'}</Text>
           <AsciiDivider faint style={{ marginTop: 4 }} />
           <View style={{ marginTop: SP.m }}>
             {STEPS.map((step, i) => {
@@ -161,7 +161,7 @@ export function OrderTrackingScreen() {
 function ExpressHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · EXPRESS`}</Text>
+      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · EXPRESS`}</Text>
       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ARRIVING SOON</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>From NORTH. store · 2.4 km</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
@@ -177,7 +177,7 @@ function ExpressHeader({ order }: any) {
 function StandardHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · STANDARD`}</Text>
+      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · STANDARD`}</Text>
       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ON ITS WAY</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Tracked shipping · signature on delivery</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
@@ -193,7 +193,7 @@ function StandardHeader({ order }: any) {
 function TryBuyHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`> ORDER #${order?.id || 'CX48201'} · TRY & BUY`}</Text>
+      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · TRY & BUY`}</Text>
       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>TRIAL BOOKED</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Courier will wait 15 min · keep what fits</Text>
       <AsciiDivider style={{ marginTop: SP.m }} />
@@ -213,7 +213,7 @@ function PickupHeader({ order, store, active, stepCount }: any) {
   return (
     <View>
       <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-        <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{`> ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
+        <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{`ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.white, marginTop: 6, letterSpacing: -1, lineHeight: rf(34) }}>
           {ready ? 'READY AT STORE' : 'BEING PREPARED'}
         </Text>
@@ -233,7 +233,7 @@ function PickupHeader({ order, store, active, stepCount }: any) {
 
       {/* QR CODE block — key difference from delivery flows */}
       <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
-        <Text style={[T.monoB, { fontSize: 10 }]}>{'> SHOW_THIS_AT_COUNTER'}</Text>
+        <Text style={[T.monoB, { fontSize: 10 }]}>{'SHOW_THIS_AT_COUNTER'}</Text>
         <View style={[{ marginTop: SP.m, width: 180, height: 180, backgroundColor: C.white, padding: 8 }, BORDER(2)]}>
           <PseudoQR seed={code} />
         </View>
@@ -343,7 +343,7 @@ export function OrderHistoryScreen() {
         {/* Hero */}
         <FadeInUp>
           <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> ORDER_HISTORY · LIFETIME'}</Text>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'ORDER_HISTORY · LIFETIME'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.white, letterSpacing: -1.4, marginTop: 6, lineHeight: rf(38) }}>{'YOUR\nORDERS.'}</Text>
             <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 8 }}>Every order you've ever placed. Tap any one for details.</Text>
             <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m, flexWrap: 'wrap' }}>
@@ -360,7 +360,7 @@ export function OrderHistoryScreen() {
         {/* Filters */}
         <View style={{ marginTop: SP.l }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={[T.monoB, { fontSize: 10 }]}>{'> FILTER'}</Text>
+            <Text style={[T.monoB, { fontSize: 10 }]}>{'FILTER'}</Text>
             <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{filtered.length} RESULTS</Text>
           </View>
           <AsciiDivider faint style={{ marginTop: 4 }} />

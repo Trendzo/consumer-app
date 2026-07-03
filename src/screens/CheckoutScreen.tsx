@@ -154,7 +154,7 @@ export default function CheckoutScreen() {
             <AsciiDivider faint style={{ marginTop: 4 }} />
 
             {/* Deliver-to-you block (Express + Standard) — grouped and headlined as "the common two" */}
-            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{'> DELIVER_TO_YOU'}</Text>
+            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{'DELIVER_TO_YOU'}</Text>
             {METHODS.filter(m => m.id === 'express' || m.id === 'standard').map(m => {
               const on = method === m.id;
               const isExpress = m.id === 'express';
@@ -185,7 +185,7 @@ export default function CheckoutScreen() {
             })}
 
             {/* Other options block (Try & Buy + Pickup) */}
-            <Text style={[T.monoB, { marginTop: SP.l, fontSize: 10, color: C.dim }]}>{'> OTHER_OPTIONS'}</Text>
+            <Text style={[T.monoB, { marginTop: SP.l, fontSize: 10, color: C.dim }]}>{'OTHER_OPTIONS'}</Text>
             {METHODS.filter(m => m.id === 'tryandbuy' || m.id === 'pickup').map(m => {
               const on = method === m.id;
               return (
@@ -210,7 +210,7 @@ export default function CheckoutScreen() {
             {/* Store picker — only shown for pickup */}
             {method === 'pickup' && (
               <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 120 }}>
-                <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 10 }]}>{'> PICK_A_STORE'}</Text>
+                <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 10 }]}>{'PICK_A_STORE'}</Text>
                 <AsciiDivider faint style={{ marginTop: 4 }} />
                 {STORES.map(st => {
                   const on = store === st.id;
@@ -232,7 +232,7 @@ export default function CheckoutScreen() {
                 })}
 
                 {/* Pickup time slot */}
-                <Text style={[T.monoB, { marginTop: SP.l, fontSize: 10 }]}>{'> PICKUP_SLOT'}</Text>
+                <Text style={[T.monoB, { marginTop: SP.l, fontSize: 10 }]}>{'PICKUP_SLOT'}</Text>
                 <AsciiDivider faint style={{ marginTop: 4 }} />
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: SP.s }}>
                   {PICKUP_SLOTS.map(sl => {
@@ -261,7 +261,7 @@ export default function CheckoutScreen() {
             {method === 'tryandbuy' && (
               <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 120 }}>
                 <View style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.monoB, { fontSize: 10 }]}>{'> HOW_IT_WORKS'}</Text>
+                  <Text style={[T.monoB, { fontSize: 10 }]}>{'HOW_IT_WORKS'}</Text>
                   <AsciiDivider style={{ marginTop: 4 }} />
                   {[
                     { i: 1, t: 'We deliver to your door tomorrow', sub: 'Standard dispatch window' },
@@ -310,7 +310,7 @@ export default function CheckoutScreen() {
             <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ CONFIRM ORDER'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
             <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-              <Text style={[T.monoB, { fontSize: 10 }]}>{'> ORDER SUMMARY'}</Text>
+              <Text style={[T.monoB, { fontSize: 10 }]}>{'ORDER SUMMARY'}</Text>
               <AsciiDivider style={{ marginTop: 6 }} />
               <View style={s.row}><Text style={[T.body, { color: C.dim }]}>ITEMS ({cart.length || 1})</Text><Text style={T.bodyB}>₹{total}</Text></View>
               <View style={s.row}><Text style={[T.body, { color: C.dim }]}>{activeMethod.label}</Text><Text style={T.bodyB}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text></View>

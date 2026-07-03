@@ -1,17 +1,18 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, TextInput, DeviceEventEmitter } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolateColor, withTiming, runOnJS, SharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
+import { useZoom } from '../navigation/ZoomTransition';
 import {
-  PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG,
+  PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG, HERO_IMG_2,
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
   HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
 } from '../data/mockData';
@@ -20,7 +21,6 @@ import { useApp } from '../state/AppState';
 const HOME_HERO = require('../../assets/home.jpeg');
 const { width: W } = Dimensions.get('window');
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-const AnimatedImage = Animated.createAnimatedComponent(Image);
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 // Expanded product list for the Explore More infinite feed — fake 24 items from PRODUCTS
@@ -32,9 +32,8 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 export default function HomeScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { user, cartCount, night, toggleNight, gender, setGender, curveProgress, theme } = useApp();
+  const { user, cartCount, night, toggleNight, gender, setGender, curveProgress, theme, showConfirm } = useApp();
   const [refreshing, setRefreshing] = useState(false);
-  const [time, setTime] = useState({ h: 2, m: 47, s: 19 });
   // Gender-specific data — swaps when gender toggle changes
   const activeProducts = gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS;
   const activeCategories = gender === 'her' ? HER_CATEGORIES : HIM_CATEGORIES;
@@ -48,6 +47,8 @@ export default function HomeScreen() {
   // Gender → curvature: HIM = 0 (sharp brutalist), HER = 1 (rounded/soft).
   // curveProgress lives in AppState so the GenderSwitch drag can drive it
   // and every component in the app stays in sync during the gesture.
+  // Smoothly round the page as the HIM/HER bar slides — borderRadius tracks curveProgress
+  // live so cards/boxes curve in real time during the drag.
   const curveStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 18 }));
   const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
   // Fades out brutalist ASCII corner marks when curves are active
@@ -71,11 +72,38 @@ export default function HomeScreen() {
   const herHeroStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: (curveProgress.value - 1) * HERO_W }],
   }));
-  const himHeadlineStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
-  const herHeadlineStyle = useAnimatedStyle(() => ({ opacity: curveProgress.value }));
+  // Shared hero headline style — identical for the HIM and HER posters so the text
+  // sits in the same spot on each. The HIM headline lives on the base layer; the HER
+  // headline lives INSIDE the sliding HER poster, so it rides in with the image and
+  // physically covers the HIM headline as the poster sweeps across.
+  const heroHeadline = {
+    position: 'absolute' as const,
+    left: 18,
+    bottom: 96,
+    fontFamily: 'Inter_900Black' as const,
+    fontSize: rf(60),
+    color: '#FFFFFF',
+    lineHeight: rf(58),
+    letterSpacing: -2.5,
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 0,
+  };
+
+  // Play & Win opens by sliding the rest of the feed DOWN via a GPU transform (translateY)
+  // — no height change, no reflow, no lag. `playExpand` 0→1 drives both the card fan and
+  // this push-down, so they stay perfectly in sync.
+  const playExpand = useSharedValue(0);
+  const feedPushStyle = useAnimatedStyle(() => ({ transform: [{ translateY: playExpand.value * (OPEN_PH - CLOSED_PH) }] }));
 
   // ─── EXPLORE MORE state — infinite scroll + filters + sticky search bar ───
   const [exploreY, setExploreY] = useState(99999);
+  // The feed now lives inside the push-down wrapper, so the explore section's onLayout y
+  // is relative to that wrapper. Track the wrapper's own top and add it back so the
+  // sticky-search trigger still fires at the correct absolute scroll offset.
+  const [feedTop, setFeedTop] = useState(0);
+  const [exploreLocalY, setExploreLocalY] = useState(99999);
+  useEffect(() => { setExploreY(feedTop + exploreLocalY); }, [feedTop, exploreLocalY]);
   const [exploreFilter, setExploreFilter] = useState<'ALL' | 'HER' | 'HIM' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
   const [explorePage, setExplorePage] = useState(1);
   const [exploreQuery, setExploreQuery] = useState('');
@@ -101,22 +129,16 @@ export default function HomeScreen() {
     }
   });
 
-  useEffect(() => {
-    const t = setInterval(() => {
-      setTime(prev => {
-        let { h, m, s } = prev;
-        s -= 1;
-        if (s < 0) { s = 59; m -= 1; }
-        if (m < 0) { m = 59; h -= 1; }
-        if (h < 0) { h = 23; }
-        return { h, m, s };
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, []);
 
   const onRefresh = () => { setRefreshing(true); setTimeout(() => setRefreshing(false), 900); };
-  const goToProduct = (p: any) => nav.navigate('ProductDetail', { product: p });
+  const { openZoom } = useZoom();
+  const zoomRefs = useRef<Record<string, any>>({});
+  // Zoom the card image into the product page; falls back to plain navigate
+  const goToProduct = (p: any, key?: string) => {
+    const node = key ? zoomRefs.current[key] : null;
+    if (node) openZoom(node, p.img, p);
+    else nav.navigate('ProductDetail', { product: p });
+  };
 
   // Double-tap on Home tab scrolls back to the top of the page.
   useEffect(() => {
@@ -138,13 +160,19 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
       >
         {/* ═══════════ HEADER ═══════════ */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', paddingHorizontal: SP.l, marginBottom: SP.m }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: SP.l, marginBottom: SP.m }}>
           <View>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1 }}>TRENDZO</Text>
+            {/* Delivery location — tap to change (Myntra-style) */}
+            <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
+              <Feather name="map-pin" size={11} color={C.ink} />
+              <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>Deliver to</Text>
+              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, letterSpacing: -0.2 }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+              <Feather name="chevron-down" size={13} color={C.ink} />
+            </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <BrutalIconBtn icon={night ? 'sun' : 'moon'} onPress={toggleNight} />
-            <BrutalIconBtn icon="bell" onPress={() => nav.navigate('Notifications')} />
             <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
           </View>
         </View>
@@ -164,36 +192,9 @@ export default function HomeScreen() {
         {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════ */}
         <GenderSwitch gender={gender} onSwitch={setGender} />
 
-        {/* ═══════════ HERO ═══════════ */}
+        {/* ═══════════ BRAND BANNER — swipeable, auto-rotating brand posters ═══════════ */}
         <FadeInUp delay={50}>
-          <Animated.View
-            style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 380, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), curveStyle]}
-          >
-            {/* HIM base layer */}
-            <CachedImage source={{ uri: HIM_HERO }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-            {/* HER overlay — opacity tracks curveProgress so the drag drives the crossfade live */}
-            <AnimatedImage source={{ uri: HER_HERO }} style={[StyleSheet.absoluteFillObject as any, herHeroStyle]} resizeMode="cover" />
-            <View style={{ flex: 1, padding: 18, justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,0.25)' }}>
-              <Animated.View style={[{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1), curveSmStyle]}>
-                <Text style={[T.monoB, { fontSize: 10 }]}>60-MIN ETA</Text>
-              </Animated.View>
-              <View>
-                <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: rf(60), color: '#FFFFFF', lineHeight: rf(58), letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, himHeadlineStyle]}>{'HIS\nCODE.\nNO FILLER.'}</Animated.Text>
-                <Animated.Text style={[{ position: 'absolute', top: 0, left: 0, fontFamily: 'Inter_900Black', fontSize: rf(60), color: '#FFFFFF', lineHeight: rf(58), letterSpacing: -2.5, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }, herHeadlineStyle]}>{'HER\nSTYLE.\nHER RULES.'}</Animated.Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 10 }]}>{`// FROM YOUR BLOCK`}</Text>
-                <AnimatedPressable onPress={() => nav.navigate('Category', { id: 'all', label: 'All Drops' })} style={[{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: C.ink }, BORDER(1), curveSmStyle]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 12, letterSpacing: 0.5 }}>SHOP NOW ──▶</Text>
-                </AnimatedPressable>
-              </View>
-            </View>
-            {['┌','┐','└','┘'].map((ch, i) => (
-              <Animated.View key={i} style={[{ position: 'absolute', width: 14, height: 14, alignItems: 'center', justifyContent: 'center', ...[{top:-1,left:-1},{top:-1,right:-1},{bottom:-1,left:-1},{bottom:-1,right:-1}][i] }, fadeBrutalStyle]}>
-                <Text style={[T.monoB, { fontSize: 14 }]}>{ch}</Text>
-              </Animated.View>
-            ))}
-          </Animated.View>
+          <BrandBanner nav={nav} curveStyle={curveStyle} />
         </FadeInUp>
 
         {/*
@@ -246,59 +247,41 @@ export default function HomeScreen() {
         {/* Timer bar */}
         <Animated.View style={[{ marginHorizontal: SP.l }, flashColStyle]}>
           <Animated.View style={[{ backgroundColor: C.ink, padding: SP.s, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, curveSmStyle]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'// TIME-LOCKED · 50% OFF'}</Text>
-            <View style={{ flexDirection: 'row', gap: 2 }}>
-              {[String(time.h).padStart(2, '0'), String(time.m).padStart(2, '0'), String(time.s).padStart(2, '0')].map((n, i) => (
-                <Animated.View key={i} style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, curveSmStyle]}>
-                  <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 12, color: C.ink }}>{n}</Text>
-                </Animated.View>
-              ))}
-            </View>
+            <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'TIME-LOCKED · 50% OFF'}</Text>
+            <FlashTimer curveSmStyle={curveSmStyle} />
           </Animated.View>
         </Animated.View>
-        {/* Featured + Stack layout */}
-        <Animated.View style={[{ paddingHorizontal: SP.l, flexDirection: 'row' }, rowGapStyle]}>
-          {/* Big featured card */}
-          <AnimatedPressable onPress={() => goToProduct(activeProducts[0])} style={[{ flex: 2, height: 280, backgroundColor: C.hairline, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
-            <CachedImage source={{ uri: activeProducts[0].img }} style={{ width: '100%', height: '65%' }} resizeMode="contain" />
-            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between' }}>
-              <View style={{ backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 18 }]}>50%</Text>
-              </View>
-              <View style={{ backgroundColor: C.white, paddingHorizontal: 6, paddingVertical: 3, borderBottomWidth: 1, borderLeftWidth: 1, borderColor: C.ink }}>
-                <Text style={[T.monoB, { fontSize: 8 }]}>FEATURED</Text>
-              </View>
-            </View>
-            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.s, borderTopWidth: 1, borderColor: C.ink, backgroundColor: C.white }}>
-              <Text style={[T.monoB, { fontSize: 9 }]}>{activeProducts[0].brand}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }} numberOfLines={1}>{activeProducts[0].name}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>₹{activeProducts[0].price}</Text>
-                <Text style={[T.caption, { textDecorationLine: 'line-through', fontSize: 10 }]}>₹{activeProducts[0].original}</Text>
-              </View>
-              <View style={{ marginTop: 4, height: 4, backgroundColor: C.hairline }}><View style={{ width: '60%', height: '100%', backgroundColor: C.ink }} /></View>
-              <Text style={[T.mono, { fontSize: 8, color: C.dim }]}>60% CLAIMED</Text>
-            </View>
-          </AnimatedPressable>
-          {/* 3 stacked mini cards */}
-          <Animated.View style={[{ flex: 1 }, miniGapStyle]}>
-            {activeProducts.slice(1, 4).map((p, i) => (
-              <AnimatedPressable key={p.id} onPress={() => goToProduct(p)} style={[{ flex: 1, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveStyle]}>
-                <View style={{ width: 60, backgroundColor: C.hairline, borderRightWidth: 1, borderColor: C.ink }}>
+        {/* Horizontal deal carousel — equal cards, discount + claimed progress */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m, marginTop: SP.m }}>
+          {activeProducts.slice(0, 6).map((p, i) => {
+            const off = Math.round((1 - p.price / p.original) * 100);
+            const claimed = 42 + ((i * 17) % 52); // deterministic "X% claimed"
+            return (
+              <AnimatedPressable key={p.id} onPress={() => goToProduct(p, 'fl' + p.id)} style={[{ width: 152, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveStyle]}>
+                <Animated.View ref={(el) => { zoomRefs.current['fl' + p.id] = el; }} collapsable={false} style={{ height: 168, backgroundColor: C.hairline }}>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                </View>
-                <View style={{ flex: 1, padding: 6, justifyContent: 'center' }}>
-                  <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 10, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink }}>₹{p.price}</Text>
-                </View>
-                <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 4, paddingVertical: 2 }}>
-                  <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 7, color: C.white }}>{`-${Math.round((1 - p.price/p.original)*100)}%`}</Text>
+                  <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 4 }}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.3 }}>{`-${off}%`}</Text>
+                  </View>
+                </Animated.View>
+                <View style={{ padding: 8, borderTopWidth: 1, borderColor: C.ink }}>
+                  <Text style={[T.monoB, { fontSize: 8 }]} numberOfLines={1}>{p.brand}</Text>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 3 }}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink }}>₹{p.price}</Text>
+                    <Text style={[T.caption, { textDecorationLine: 'line-through', fontSize: 9 }]}>₹{p.original}</Text>
+                  </View>
+                  {/* claimed progress (flex-based to avoid % typing) */}
+                  <View style={{ marginTop: 7, height: 5, backgroundColor: C.hairline, flexDirection: 'row', overflow: 'hidden' }}>
+                    <View style={{ flex: claimed, backgroundColor: C.ink }} />
+                    <View style={{ flex: 100 - claimed }} />
+                  </View>
+                  <Text style={[T.mono, { fontSize: 7, color: C.dim, marginTop: 3 }]}>{`${claimed}% CLAIMED`}</Text>
                 </View>
               </AnimatedPressable>
-            ))}
-          </Animated.View>
-        </Animated.View>
+            );
+          })}
+        </ScrollView>
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -306,7 +289,8 @@ export default function HomeScreen() {
         ║  Tap to fan out in circle, drag to rotate     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <PlayWheelSection nav={nav} scrollRef={scrollRef} scrollY={scrollY} />
+        <PlayWheelSection nav={nav} expandP={playExpand} />
+        <Animated.View onLayout={(e) => setFeedTop(e.nativeEvent.layout.y)} style={feedPushStyle}>
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -318,19 +302,14 @@ export default function HomeScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: 0 }}>
           {activeProducts.slice(0, 6).map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <Pressable onPress={() => goToProduct(p)} style={{ width: 170, marginRight: SP.m }}>
-                <Animated.View style={[{ height: 230, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
+              <Pressable onPress={() => goToProduct(p, 't' + p.id)} style={{ width: 170, marginRight: SP.m }}>
+                <Animated.View ref={(el) => { zoomRefs.current['t' + p.id] = el; }} collapsable={false} style={[{ height: 230, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
                   {/* Giant rank number behind product */}
                   <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: rf(110), color: C.ink, opacity: 0.06 }}>{`0${i + 1}`}</Text>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                   {/* Rank badge — diagonal strip */}
                   <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1 }}>{`#0${i + 1}`}</Text>
-                  </View>
-                  {/* Fire indicator at bottom */}
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.75)', padding: 6, gap: 4, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 12 }}>🔥</Text>
-                    <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 9 }]}>{Math.floor(Math.random() * 500 + 100)} VIEWS</Text>
                   </View>
                 </Animated.View>
                 <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
@@ -393,14 +372,21 @@ export default function HomeScreen() {
         <SectionHead title="VIRTUAL" emphasis="TRY-ON" />
         <Animated.View style={[{ paddingHorizontal: SP.l }, miniGapStyle]}>
           {/* HERO banner — high-contrast attention grab */}
-          <AnimatedPressable onPress={() => nav.navigate('TryOn')} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+          <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+            {/* Info — explains what Virtual Try-On is */}
+            <Pressable
+              onPress={() => showConfirm({ title: 'Virtual Try-On', msg: 'See how an outfit looks on you before you buy.\n\n• AR Try-On — use your live camera\n• Photo Try-On — upload a photo\n\nSwap clothes in real time, then shop your favourites.', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'info' })}
+              hitSlop={12}
+              style={{ position: 'absolute', top: SP.m, right: SP.m, zIndex: 10, width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)', borderRadius: 13 }}
+            >
+              <Feather name="info" size={14} color={C.white} />
+            </Pressable>
             <View style={{ position: 'absolute', top: -24, right: -10 }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(140), color: 'rgba(255,255,255,0.06)', letterSpacing: -8 }}>FIT</Text>
             </View>
-            <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, padding: SP.m, justifyContent: 'center', gap: 16 }}>
               <View>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{'> NEW · AR POWERED'}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(34), letterSpacing: -1.5, lineHeight: rf(32), marginTop: 8 }}>TRY BEFORE{'\n'}YOU BUY.</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(34), letterSpacing: -1.5, lineHeight: rf(40) }}>TRY BEFORE{'\n'}YOU BUY.</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Animated.View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, curveSmStyle]}>
@@ -413,19 +399,19 @@ export default function HomeScreen() {
 
           {/* Two-up: AR Try-On + Photo Try-On */}
           <Animated.View style={[{ flexDirection: 'row' }, rowGapStyle]}>
-            <AnimatedPressable onPress={() => nav.navigate('TryOn', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
+            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
                 <Feather name="video" size={20} color={C.white} />
               </Animated.View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, marginTop: 10, letterSpacing: -0.5 }}>AR TRY-ON</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Live camera · body tracking</Text>
+              <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Live camera</Text>
             </AnimatedPressable>
-            <AnimatedPressable onPress={() => nav.navigate('TryOn', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
+            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
                 <Feather name="image" size={20} color={C.ink} />
               </Animated.View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, marginTop: 10, letterSpacing: -0.5 }}>PHOTO TRY-ON</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.7 }]}>Upload a pic · drop the fit</Text>
+              <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.7 }]}>Upload a pic</Text>
             </AnimatedPressable>
           </Animated.View>
 
@@ -436,7 +422,7 @@ export default function HomeScreen() {
             </Animated.View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SNAP TO FIND</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>AI-powered visual search · 98% accuracy</Text>
+              <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>AI-powered visual search</Text>
             </View>
             <Text style={[T.monoB, { fontSize: 18 }]}>──▶</Text>
           </AnimatedPressable>
@@ -452,39 +438,49 @@ export default function HomeScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: SP.s }}>
           {/* Left column — tall first */}
           <View style={{ flex: 1, gap: SP.s }}>
-            {activeProducts.filter((_,i) => i % 2 === 0).slice(0,3).map((p, i) => (
-              <FadeInUp key={p.id} delay={i * 40}>
-                <AnimatedPressable onPress={() => goToProduct(p)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '65%' }} resizeMode="contain" />
-                  <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
-                  </View>
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
-                    <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
-                  </View>
-                </AnimatedPressable>
-              </FadeInUp>
-            ))}
+            {activeProducts.filter((_,i) => i % 2 === 0).slice(0,3).map((p, i) => {
+              const zoomKey = 'na-l' + p.id;
+              return (
+                <FadeInUp key={p.id} delay={i * 40}>
+                  <AnimatedPressable onPress={() => goToProduct(p, zoomKey)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
+                    <Animated.View ref={(el) => { zoomRefs.current[zoomKey] = el; }} collapsable={false} style={{ width: '100%', height: '65%' }}>
+                      <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
+                      </View>
+                    </Animated.View>
+                    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
+                      <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
+                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
+                    </View>
+                  </AnimatedPressable>
+                </FadeInUp>
+              );
+            })}
           </View>
           {/* Right column — short first */}
           <View style={{ flex: 1, gap: SP.s, marginTop: 30 }}>
-            {activeProducts.filter((_,i) => i % 2 === 1).slice(0,3).map((p, i) => (
-              <FadeInUp key={p.id} delay={i * 40 + 60}>
-                <AnimatedPressable onPress={() => goToProduct(p)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '65%' }} resizeMode="contain" />
-                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>JUST IN</Text>
-                  </View>
-                  <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
-                    <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
-                  </View>
-                </AnimatedPressable>
-              </FadeInUp>
-            ))}
+            {activeProducts.filter((_,i) => i % 2 === 1).slice(0,3).map((p, i) => {
+              const zoomKey = 'na-r' + p.id;
+              return (
+                <FadeInUp key={p.id} delay={i * 40 + 60}>
+                  <AnimatedPressable onPress={() => goToProduct(p, zoomKey)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
+                    <Animated.View ref={(el) => { zoomRefs.current[zoomKey] = el; }} collapsable={false} style={{ width: '100%', height: '65%' }}>
+                      <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>JUST IN</Text>
+                      </View>
+                    </Animated.View>
+                    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
+                      <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
+                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
+                    </View>
+                  </AnimatedPressable>
+                </FadeInUp>
+              );
+            })}
           </View>
         </View>
 
@@ -541,7 +537,7 @@ export default function HomeScreen() {
                       </View>
                     </View>
                     <View>
-                      <Text style={[T.mono, { color: '#FFFFFF', fontSize: 9, opacity: 0.85, marginBottom: 2 }]}>{`// SHOP THE`}</Text>
+                      <Text style={[T.mono, { color: '#FFFFFF', fontSize: 9, opacity: 0.85, marginBottom: 2 }]}>{`SHOP THE`}</Text>
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: '#FFFFFF', letterSpacing: 0.3, lineHeight: rf(26) }}>{o.label.toUpperCase()}</Text>
                       <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <View style={{ width: 32, height: 2, backgroundColor: '#FFFFFF' }} />
@@ -572,22 +568,25 @@ export default function HomeScreen() {
           ].map((c, i) => (
             <Pressable key={c.code} onPress={() => nav.navigate('CouponWallet')}>
               <FadeInUp delay={i * 40}>
-                <Animated.View style={[{ flexDirection: 'row', width: 220, height: 80, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
-                  {/* Left side — dark */}
-                  <View style={{ width: 70, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, padding: 8 }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.white, textAlign: 'center' }}>{c.off}</Text>
+                <Animated.View style={[{ flexDirection: 'row', width: 240, height: 80, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+                  {/* Left — dark discount block. Fixed SQUARE (80×80) so every coupon matches,
+                      and the text auto-fits so ₹500 OFF / 50% OFF / FREE SHIP all look uniform. */}
+                  <View style={{ width: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, paddingHorizontal: 6 }}>
+                    <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 16, lineHeight: 18, color: C.white, textAlign: 'center' }}>{c.off}</Text>
                   </View>
-                  {/* Perforated divider */}
-                  <View style={{ width: 1, alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                    {[...Array(9)].map((_, j) => <View key={j} style={{ width: 1, height: 3, backgroundColor: C.ink }} />)}
-                  </View>
-                  {/* Right side — light */}
-                  <View style={{ flex: 1, padding: SP.s, backgroundColor: C.white, justifyContent: 'center' }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink, letterSpacing: 1 }}>{c.code}</Text>
-                    <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{c.min}</Text>
-                    <View style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Feather name="copy" size={10} color={C.ink} />
-                      <Text style={[T.monoB, { fontSize: 8 }]}>TAP TO COPY</Text>
+                  {/* Right — light body. Perforation lives INSIDE the white area with a gap from
+                      the black block, so the dashes never blend into the black box. */}
+                  <View style={{ flex: 1, flexDirection: 'row', backgroundColor: C.white }}>
+                    <View style={{ marginLeft: 8, marginVertical: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+                      {[...Array(7)].map((_, j) => <View key={j} style={{ width: 2, height: 4, backgroundColor: C.ink }} />)}
+                    </View>
+                    <View style={{ flex: 1, padding: SP.s, justifyContent: 'center' }}>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: 1 }}>{c.code}</Text>
+                      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{c.min}</Text>
+                      <View style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Feather name="copy" size={10} color={C.ink} />
+                        <Text style={[T.monoB, { fontSize: 8 }]}>TAP TO COPY</Text>
+                      </View>
                     </View>
                   </View>
                 </Animated.View>
@@ -712,7 +711,7 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         <View
-          onLayout={(e) => setExploreY(e.nativeEvent.layout.y)}
+          onLayout={(e) => setExploreLocalY(e.nativeEvent.layout.y)}
           style={{ marginTop: SP.xl }}
         >
           <SectionHead title="EXPLORE" emphasis="MORE" />
@@ -742,7 +741,7 @@ export default function HomeScreen() {
             return (
               <View>
                 <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.m, marginBottom: SP.s, justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{`> ${list.length} RESULTS · ${exploreFilter}`}</Text>
+                  <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{`${list.length} RESULTS · ${exploreFilter}`}</Text>
                   <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4 }, BORDER(1)]}>
                     <Feather name="sliders" size={10} color={C.ink} />
                     <Text style={[T.monoB, { fontSize: 9 }]}>POPULAR</Text>
@@ -752,17 +751,21 @@ export default function HomeScreen() {
                 {/* Staggered 2-col grid — brutalist cards */}
                 <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
                   {visible.map((p, i) => (
-                    <Pressable key={p.id + '-' + i} onPress={() => goToProduct(p)} style={{ width: '48.5%' }}>
+                    <Pressable key={p.id + '-' + i} onPress={() => goToProduct(p, 'f' + p.id + i)} style={{ width: '48.5%' }}>
                       <FadeInUp delay={(i % 4) * 50}>
                         <Animated.View style={[{ backgroundColor: C.white, overflow: 'hidden', height: 240 }, BORDER(1), curveStyle]}>
-                          <View style={{ flex: 1, backgroundColor: C.hairline }}>
+                          <Animated.View 
+                            ref={(el) => { zoomRefs.current['f' + p.id + i] = el; }} 
+                            collapsable={false}
+                            style={{ flex: 1, backgroundColor: C.hairline }}
+                          >
                             <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                             {p.tag && (
                               <View style={[{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }]}>
                                 <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{p.tag}</Text>
                               </View>
                             )}
-                          </View>
+                          </Animated.View>
                           <View style={{ padding: 8, borderTopWidth: 1, borderColor: C.ink }}>
                             <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
                             <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
@@ -802,10 +805,11 @@ export default function HomeScreen() {
         {/* ═══════════ FOOTER ═══════════ */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.huge }}>
           <AsciiDivider />
-          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 8, fontSize: 9 }]}>// END.STREAM · TRENDZO //</Text>
+          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 8, fontSize: 9 }]}>END.STREAM · TRENDZO</Text>
           <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>FROM YOUR BLOCK · IN 60 MINUTES</Text>
           <AsciiDivider faint style={{ marginTop: 8 }} />
         </View>
+        </Animated.View>
       </AnimatedScrollView>
 
       {/* STICKY SEARCH BAR — slides down from top (no fade) */}
@@ -833,6 +837,121 @@ export default function HomeScreen() {
   );
 }
 
+// ─── FLASH TIMER — isolated so the 1s countdown re-renders ONLY itself, not the whole
+//     HomeScreen (a per-second full re-render was hitching the Play & Win deck animation). ───
+function FlashTimer({ curveSmStyle }: { curveSmStyle: any }) {
+  const [time, setTime] = useState({ h: 2, m: 47, s: 19 });
+  // Tick only while the screen is focused — no per-second work when off-screen.
+  useFocusEffect(useCallback(() => {
+    const t = setInterval(() => {
+      setTime(prev => {
+        let { h, m, s } = prev;
+        s -= 1;
+        if (s < 0) { s = 59; m -= 1; }
+        if (m < 0) { m = 59; h -= 1; }
+        if (h < 0) { h = 23; }
+        return { h, m, s };
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, []));
+  return (
+    <View style={{ flexDirection: 'row', gap: 2 }}>
+      {[String(time.h).padStart(2, '0'), String(time.m).padStart(2, '0'), String(time.s).padStart(2, '0')].map((n, i) => (
+        <Animated.View key={i} style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, curveSmStyle]}>
+          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 12, color: C.ink }}>{n}</Text>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
+// ─── BRAND BANNER — swipeable, auto-rotating brand posters; tap opens that brand's store ───
+// Six DISTINCT fashion photos so every brand poster looks clearly different as it rotates.
+const POSTER_IMAGES = [
+  'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=900&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=900&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=900&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=900&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1445205170230-053b83016050?w=900&q=80&auto=format&fit=crop',
+  'https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?w=900&q=80&auto=format&fit=crop',
+];
+const BRAND_TAGLINES: Record<string, string> = {
+  NIKE: 'JUST\nDO IT.',
+  ADIDAS: 'IMPOSSIBLE\nIS NOTHING.',
+  ZARA: 'NEW IN,\nEVERY WEEK.',
+  'H&M': 'FASHION\nFOR EVERYONE.',
+  UNIQLO: 'MADE\nFOR ALL.',
+  PUMA: 'FOREVER\nFASTER.',
+};
+function BrandBanner({ nav, curveStyle }: { nav: any; curveStyle: any }) {
+  // Same image poster cards as before (same size + image); we overlay each brand's logo,
+  // a punchy heading + name, as a swipeable, auto-rotating carousel that opens the store.
+  const data = BRANDS.slice(0, 6).map((b, i) => ({ ...b, img: POSTER_IMAGES[i % POSTER_IMAGES.length], tagline: BRAND_TAGLINES[b.name] || 'SHOP THE\nLATEST DROP.' }));
+  const [index, setIndex] = useState(0);
+  const listRef = useRef<FlatList>(null);
+
+  // Auto-advance every 3.5s, looping back. Pauses while the user is swiping (otherwise the
+  // timer fires mid-swipe and yanks the poster back, so swipes look like they do nothing).
+  const timer = useRef<any>(null);
+  const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
+  const start = () => {
+    stop();
+    timer.current = setInterval(() => {
+      setIndex(prev => {
+        const next = (prev + 1) % data.length;
+        listRef.current?.scrollToOffset({ offset: next * W, animated: true });
+        return next;
+      });
+    }, 3500);
+  };
+  // Only auto-rotate while the Home screen is focused — when the user navigates away the
+  // timer (and its animated scrolling) stops, so it doesn't burn GPU / cause lag off-screen.
+  useFocusEffect(useCallback(() => { start(); return stop; }, [data.length]));
+
+  return (
+    <View style={{ marginTop: SP.l }}>
+      <FlatList
+        ref={listRef}
+        data={data}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(b) => b.id}
+        getItemLayout={(_, i) => ({ length: W, offset: W * i, index: i })}
+        onScrollBeginDrag={stop}
+        onMomentumScrollEnd={(e) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); }}
+        renderItem={({ item }) => (
+          <Pressable onPress={() => nav.navigate('Category', { id: 'brand-' + item.id, label: item.name })} style={{ width: W }}>
+            {/* Image poster (unchanged size/style) with the brand logo + name overlaid on top */}
+            <Animated.View style={[{ marginHorizontal: SP.l, height: 380, overflow: 'hidden', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+              <CachedImage source={{ uri: item.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+              <View style={[StyleSheet.absoluteFillObject as any, { backgroundColor: 'rgba(0,0,0,0.28)' }]} />
+              <View style={{ flex: 1, padding: 18, justifyContent: 'space-between' }}>
+                {/* Brand logo on a white chip — stays visible over any photo */}
+                <View style={{ alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#000' }}>
+                  <CachedImage source={{ uri: item.logo }} style={{ width: 70, height: 24 }} resizeMode="contain" />
+                </View>
+                <View>
+                  <Text style={[T.monoB, { color: '#fff', fontSize: 11, letterSpacing: 1, opacity: 0.95 }]}>{`${item.name}`}</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), lineHeight: rf(34), color: '#fff', letterSpacing: -1.2, marginTop: 4, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 }}>{item.tagline}</Text>
+                  <Text style={[T.monoB, { color: '#fff', fontSize: 10, marginTop: 8 }]}>TAP TO ENTER STORE ──▶</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </Pressable>
+        )}
+      />
+      {/* Page dots */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
+        {data.map((_, i) => (
+          <View key={i} style={{ width: i === index ? 18 : 6, height: 5, backgroundColor: i === index ? C.ink : C.faint }} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ─── PLAY & WIN — Tap to open circle, tap card to navigate ───
 const CIRCLE_R = 140;
 const PW = 82;
@@ -842,41 +961,25 @@ const CLOSED_PH = SECTION_HEAD_H + PH + 70;
 const OPEN_PH = SECTION_HEAD_H + CIRCLE_R * 2 + PH + 40;
 const GAME_MAP: any = { g1:'DailyReward', g2:'SpinWheel', g3:'LuckyDraw', g4:'StyleQuiz', g5:'InviteFriends', g6:'AppChallenges' };
 
-function PlayWheelSection({ nav, scrollRef, scrollY }: { nav: any; scrollRef: any; scrollY: SharedValue<number> }) {
-  const progress = useSharedValue(0);
+function PlayWheelSection({ nav, expandP }: { nav: any; expandP: SharedValue<number> }) {
   const closeRot = useSharedValue(0);
   const isOpen = useRef(false);
 
   const toggle = () => {
-    const halfExpand = (OPEN_PH - CLOSED_PH) / 2;
-    const currentY = scrollY?.value ?? 0;
     // Spin the close button forward on every toggle (open AND close).
     closeRot.value = withSpring(closeRot.value + 360, { damping: 14, stiffness: 90, mass: 0.9 });
-    if (!isOpen.current) {
-      isOpen.current = true;
-      progress.value = withSpring(1, { damping: 16, stiffness: 120, mass: 0.8 });
-      // Scroll down by half the expansion so the cards stay centered in viewport —
-      // visually content above slides up, content below slides down.
-      scrollRef.current?.scrollTo({ y: currentY + halfExpand, animated: true });
-    } else {
-      isOpen.current = false;
-      progress.value = withSpring(0, { damping: 16, stiffness: 120, mass: 0.8 });
-      scrollRef.current?.scrollTo({ y: Math.max(0, currentY - halfExpand), animated: true });
-    }
+    const next = !isOpen.current;
+    isOpen.current = next;
+    // Drives BOTH the card fan AND the parent's push-down of the feed below, entirely via
+    // GPU transforms (translateY) -> NOTHING re-lays-out, so no reflow = no lag/jitter.
+    // One crisp eased timing -> no spring tail (no "stopping"/hitch at the end).
+    expandP.value = withTiming(next ? 1 : 0, { duration: 340, easing: Easing.out(Easing.cubic) });
   };
 
-  const expand = (OPEN_PH - CLOSED_PH);
-  const containerStyle = useAnimatedStyle(() => {
-    const p = progress.value;
-    return {
-      height: CLOSED_PH + expand * p,
-    };
-  });
-
   return (
-    <Animated.View
-      style={[{ overflow: 'hidden' }, containerStyle]}
-    >
+    // FIXED height. The wheel fans out into the gap that opens BELOW it (the parent slides
+    // the rest of the feed down by the same amount). No height animation = no reflow.
+    <View style={{ height: CLOSED_PH }}>
       <SectionHead title="PLAY" emphasis="& WIN" />
       <View style={{ width: W, flex: 1, alignItems: 'center' }}>
         {GAMES.map((g, i) => (
@@ -884,7 +987,7 @@ function PlayWheelSection({ nav, scrollRef, scrollY }: { nav: any; scrollRef: an
             key={g.id}
             game={g}
             index={i}
-            progress={progress}
+            progress={expandP}
             onTap={() => {
               if (!isOpen.current) { toggle(); return; }
               nav.navigate(GAME_MAP[g.id] || 'DailyReward');
@@ -892,10 +995,10 @@ function PlayWheelSection({ nav, scrollRef, scrollY }: { nav: any; scrollRef: an
           />
         ))}
         {/* Close button */}
-        <PlayCloseBtn progress={progress} rotation={closeRot} onPress={toggle} />
+        <PlayCloseBtn progress={expandP} rotation={closeRot} onPress={toggle} />
       </View>
-      <PlayLabel progress={progress} />
-    </Animated.View>
+      <PlayLabel progress={expandP} />
+    </View>
   );
 }
 
@@ -918,13 +1021,16 @@ function PlayGameCard({ game, index, progress, onTap }: { game: any; index: numb
 
   // When closed: cards at top of the card area (top: 0)
   // When open: circle center at CIRCLE_R (so top card at 0, bottom card at 2*CIRCLE_R)
+  // NOTE: the vertical `top: CIRCLE_R * p` is folded into translateY below. `top` is a
+  // LAYOUT property — animating it per-frame relaid out every card (+ its children) on
+  // every spring frame and caused the open/close jitter. translateY is the exact same
+  // visual offset but GPU-only (no layout), so the animation is unchanged, just smooth.
   const animStyle = useAnimatedStyle(() => {
     const p = progress.value;
     return {
-      top: 0 + CIRCLE_R * p,
       transform: [
         { translateX: sX + (cX - sX) * p },
-        { translateY: sY + (cY - sY) * p },
+        { translateY: CIRCLE_R * p + sY + (cY - sY) * p },
         { rotate: `${sRot * (1 - p)}deg` },
         { scale: 1 + p * 0.15 },
       ],
@@ -938,28 +1044,24 @@ function PlayGameCard({ game, index, progress, onTap }: { game: any; index: numb
 
   return (
     <Animated.View style={[{
-      position: 'absolute', width: PW, height: PH,
+      position: 'absolute', top: 0, width: PW, height: PH,
       zIndex: total - Math.abs(Math.round(offset)),
     }, animStyle]}>
-      <AnimatedPressable onPress={onTap} style={[{ flex: 1, padding: 6, backgroundColor: bg, justifyContent: 'space-between', overflow: 'hidden' }, BORDER(1), cardCurve]}>
-        <Text style={[T.monoB, { fontSize: 6, color: dimC }]}>{`Q_0${index + 1}`}</Text>
-        <Ionicons name={game.icon as any} size={22} color={fg} style={{ alignSelf: 'center' }} />
+      <AnimatedPressable onPress={onTap} style={[{ flex: 1, padding: 6, backgroundColor: bg, justifyContent: 'center', alignItems: 'center', gap: 8, overflow: 'hidden' }, BORDER(1), cardCurve]}>
+        <Ionicons name={game.icon as any} size={24} color={fg} />
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: fg, textAlign: 'center', lineHeight: 11 }} numberOfLines={2}>{game.title.toUpperCase()}</Text>
-        <View style={{ borderTopWidth: 1, borderColor: fg, paddingTop: 2, alignItems: 'center' }}>
-          <Text style={[T.monoB, { fontSize: 7, color: fg }]}>{`▶ ${game.cta}`}</Text>
-        </View>
       </AnimatedPressable>
     </Animated.View>
   );
 }
 
 function PlayCloseBtn({ progress, rotation, onPress }: { progress: any; rotation: any; onPress: () => void }) {
+  // `top` folded into translateY (layout → GPU-only) to kill the per-frame relayout.
   const style = useAnimatedStyle(() => {
     const p = progress.value;
     return {
       opacity: p,
-      top: CIRCLE_R * p + PH / 2 - 20,
-      transform: [{ scale: 0.4 + p * 0.6 }],
+      transform: [{ translateY: CIRCLE_R * p }, { scale: 0.4 + p * 0.6 }],
     };
   });
   const iconStyle = useAnimatedStyle(() => ({
@@ -967,7 +1069,7 @@ function PlayCloseBtn({ progress, rotation, onPress }: { progress: any; rotation
   }));
   const btnCurve = useGenderCurve(20);
   return (
-    <Animated.View style={[{ position: 'absolute', width: 40, height: 40, zIndex: 200 }, style]}>
+    <Animated.View style={[{ position: 'absolute', top: PH / 2 - 20, width: 40, height: 40, zIndex: 200 }, style]}>
       <AnimatedPressable onPress={onPress} style={[{ flex: 1, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, btnCurve]}>
         <Animated.View style={iconStyle}>
           <Feather name="x" size={20} color={C.white} />
@@ -1117,7 +1219,7 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
 
       {/* Mode indicator */}
       <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>
-        {`// MODE: ${gender.toUpperCase()} · TAP OR DRAG`}
+        {`MODE: ${gender.toUpperCase()} · TAP OR DRAG`}
       </Text>
     </View>
   );

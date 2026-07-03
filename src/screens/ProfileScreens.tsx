@@ -23,7 +23,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
 }
 
 type HeroProps = {
-  code: string;           // e.g. "> ADDRESSES_v1"
+  code: string;           // e.g. "ADDRESSES_v1"
   title: string;          // big display copy (can contain \n)
   intro?: string;         // one-line subhead
   chips?: { label: string; solid?: boolean }[];
@@ -68,7 +68,7 @@ function SectionLabel({ label, right }: { label: string; right?: string }) {
   return (
     <View style={{ marginTop: SP.xl }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={[T.monoB, { fontSize: 10 }]}>{`> ${label.toUpperCase()}`}</Text>
+        <Text style={[T.monoB, { fontSize: 10 }]}>{`${label.toUpperCase()}`}</Text>
         {right && <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{right}</Text>}
       </View>
       <AsciiDivider faint style={{ marginTop: 4 }} />
@@ -92,7 +92,7 @@ export function SavedAddressesScreen() {
       <ScreenHeader title="Addresses" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> ADDRESSES · 2 SAVED'}
+          code={'ADDRESSES · 2 SAVED'}
           title={'YOUR\nADDRESSES.'}
           intro="Deliver to home, office, or anywhere else. One tap to switch."
           chips={[{ label: 'HOME · PRIMARY', solid: true }, { label: 'OFFICE' }]}
@@ -154,7 +154,7 @@ export function PaymentMethodsScreen() {
       <ScreenHeader title="Payment" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> PAYMENT_METHODS_v2'}
+          code={'PAYMENT_METHODS_v2'}
           title={'YOUR\nWALLETS.'}
           intro="UPI, cards, wallets. Pick your default — we remember for next time."
           chips={[{ label: 'SECURE' }, { label: '256-BIT' }, { label: 'PCI DSS' }]}
@@ -224,7 +224,7 @@ export function LoyaltyRewardsScreen() {
         <FadeInUp>
           <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> LOYALTY · TIER: ' + currentTier.name}</Text>
+              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'LOYALTY · TIER: ' + currentTier.name}</Text>
               <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{new Date().toLocaleDateString()}</Text>
             </View>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(72), color: C.white, letterSpacing: -3, marginTop: 6, lineHeight: rf(72) }}>{points.toLocaleString()}</Text>
@@ -318,7 +318,7 @@ export function GiftCardScreen() {
       <ScreenHeader title="Gift Card" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> GIFT_CARD · DIGITAL'}
+          code={'GIFT_CARD · DIGITAL'}
           title={'GIVE THE\nGIFT OF FIT.'}
           intro="Send a Trendzo gift card to anyone. Redeemable across the entire catalog."
           chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
@@ -328,7 +328,7 @@ export function GiftCardScreen() {
         <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink, minHeight: 180 }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO · GIFT CARD'}</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>//PREVIEW</Text>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>PREVIEW</Text>
           </View>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
           <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 8 }]}>TO: {toEmail || '—'}</Text>
@@ -367,7 +367,7 @@ export function ReferralRewardsScreen() {
       <ScreenHeader title="Refer & Earn" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> REFERRAL · ₹200 EACH'}
+          code={'REFERRAL · ₹200 EACH'}
           title={'SHARE THE\nDRIP.'}
           intro="Give ₹200, get ₹200 when your friend makes their first order."
           chips={[{ label: '7 INVITED' }, { label: '4 JOINED' }, { label: '₹800 EARNED', solid: true }]}
@@ -375,7 +375,7 @@ export function ReferralRewardsScreen() {
 
         <FadeInUp delay={60}>
           <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'> YOUR CODE'}</Text>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'YOUR CODE'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
             <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 6, fontSize: 10 }]}>TAP COPY TO SHARE</Text>
           </View>
@@ -459,7 +459,7 @@ export function NotificationSettingsScreen() {
       <ScreenHeader title="Notifications" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> PUSH_SETTINGS'}
+          code={'PUSH_SETTINGS'}
           title={'STAY IN\nTHE LOOP.'}
           intro="Control exactly what pings your phone. Turn off the noise, keep what matters."
           chips={[{ label: `${activeCount}/${total} ACTIVE`, solid: true }]}
@@ -514,7 +514,7 @@ export function LanguageScreen() {
       <ScreenHeader title="Language" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> LOCALE · 8 LANGUAGES'}
+          code={'LOCALE · 8 LANGUAGES'}
           title={'CHOOSE\nLANGUAGE.'}
           intro="Switch the app interface to your preferred language. Changes apply immediately."
           chips={[{ label: 'CURRENT: ' + (LANGUAGES.find(l => l.code === selected)?.label || 'English').toUpperCase(), solid: true }]}
@@ -579,7 +579,7 @@ export function CustomerSupportScreen() {
       <View style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 20 }}>
           <Hero
-            code={'> CX_BOT_v2 · 24×7'}
+            code={'CX_BOT_v2 · 24×7'}
             title={'WE GOT\nYOU.'}
             intro="Live chat with CX-Bot. Escalates to a human agent in seconds."
             chips={[{ label: 'ONLINE NOW', solid: true }, { label: 'AVG 2 MIN' }]}
@@ -642,7 +642,7 @@ export function StylePreferencesScreen() {
       <ScreenHeader title="Style Prefs" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> STYLE_DNA'}
+          code={'STYLE_DNA'}
           title={'YOUR\nAESTHETIC.'}
           intro="Pick your vibes, sizes, and colors. Your feed tunes itself to match."
           chips={[{ label: `${vibes.length} VIBES` }, { label: `${sizes.length} SIZES` }, { label: `${colors.length} COLORS` }]}
@@ -711,7 +711,7 @@ export function MeasurementScreen() {
       <ScreenHeader title="Measurements" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> BODY_SCAN · 8 POINTS'}
+          code={'BODY_SCAN · 8 POINTS'}
           title={'YOUR\nMEASUREMENTS.'}
           intro="Accurate sizing means fewer returns. Update anytime — we use this to recommend fits."
           chips={[{ label: 'MALE · 28Y' }, { label: 'SIZE M / L' }]}
@@ -776,7 +776,7 @@ export function FashionCalendarScreen() {
       <ScreenHeader title="Calendar" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> UPCOMING · 6 EVENTS'}
+          code={'UPCOMING · 6 EVENTS'}
           title={'FASHION\nCALENDAR.'}
           intro="Drops, sales, collabs — everything we've got lined up."
           chips={[{ label: 'APR—JUN 2026', solid: true }]}
@@ -834,7 +834,7 @@ export function SustainabilityScreen() {
       <ScreenHeader title="Eco" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> ECO_MODE · IMPACT_2026'}
+          code={'ECO_MODE · IMPACT_2026'}
           title={'FASHION\nFOR GOOD.'}
           intro="Our commitment to sustainable fashion and ethical production — measurable, not marketing."
           chips={[{ label: 'CARBON NEUTRAL', solid: true }, { label: 'B-CORP' }]}
@@ -954,7 +954,7 @@ export function OrderReturnScreen() {
       <ScreenHeader title="Returns" onBack={back} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> RETURN_FLOW · 7D'}
+          code={'RETURN_FLOW · 7D'}
           title={'EASY\nRETURNS.'}
           intro="7-day hassle-free returns. Pickup from your door. Refund in 3-5 days."
           chips={[{ label: `STEP ${stepIndex + 1}/3`, solid: true }, { label: 'FREE PICKUP' }]}
@@ -1032,7 +1032,7 @@ export function OrderReturnScreen() {
         {step === 'item' && selectedOrder && (
           <>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'> SELECTED ORDER'}</Text>
+              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'SELECTED ORDER'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, marginTop: 4 }}>{`#${selectedOrder.id}`}</Text>
               <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D LEFT IN WINDOW</Text>
             </View>
@@ -1063,7 +1063,7 @@ export function OrderReturnScreen() {
         {step === 'reason' && selectedOrder && selectedItem && (
           <>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'> RETURNING'}</Text>
+              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'RETURNING'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, marginTop: 4 }}>{selectedItem.name}</Text>
               <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
             </View>
@@ -1112,7 +1112,7 @@ export function ReviewsScreen() {
       <ScreenHeader title="Reviews" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'> YOUR_REVIEWS'}
+          code={'YOUR_REVIEWS'}
           title={'YOUR\nFEEDBACK.'}
           intro="The reviews you've left. Brands listen — your words help others shop better."
           chips={[{ label: `${MOCK_REVIEWS.length} POSTED`, solid: true }, { label: `AVG ${avg}★` }, { label: 'HELPFUL' }]}
@@ -1179,7 +1179,7 @@ export function StorePickupScreen() {
       <ScreenHeader title="Store Pickup" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         <Hero
-          code={'> PICKUP · ZERO_DELIVERY_FEE'}
+          code={'PICKUP · ZERO_DELIVERY_FEE'}
           title={'BUY ONLINE.\nPICK IT UP.'}
           intro="Skip delivery. Grab your order from your nearest store — usually ready in under an hour."
           chips={[{ label: 'FREE', solid: true }, { label: 'IN STORE' }, { label: '4 STORES' }]}
@@ -1250,7 +1250,7 @@ export function TryAndBuyScreen() {
       <ScreenHeader title="Try & Buy" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         <Hero
-          code={'> TRY_AT_HOME // FREE_RETURNS'}
+          code={'TRY_AT_HOME // FREE_RETURNS'}
           title={"TRY IT.\nKEEP IT.\nOR DON'T."}
           intro="Order up to 5 items. Courier waits 15 min at your door. Keep what fits — return the rest on the spot."
           chips={[{ label: '₹99', solid: true }, { label: '15 MIN TRIAL' }, { label: 'FREE RETURNS' }]}

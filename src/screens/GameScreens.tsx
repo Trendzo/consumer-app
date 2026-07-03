@@ -20,145 +20,114 @@ const DAY_LBL = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 export function DailyRewardScreen() {
   const nav = useNavigation<any>();
-  const [claimed, setClaimed] = useState([true, true, true, true, true, true, false]);
-  const today = 6;
-  const [revealAnim] = useState(new Animated.Value(0));
-  const [bonusWheel, setBonusWheel] = useState(false);
-  const totalClaimed = claimed.reduce((s, c, i) => s + (c ? WEEK_REWARDS[i] : 0), 0);
-  const streakDays = claimed.filter(Boolean).length;
-
-  const claim = () => {
+  const { showToast } = useApp();
+  const today = 4; // 0-indexed → day 5
+  const [claimed, setClaimed] = useState([true, true, true, true, false, false, false]);
+  const [reward, setReward] = useState<{ label: string; sub: string } | null>(null);
+  const DAYS = [
+    { d: 1, rw: '+10' }, { d: 2, rw: '+20' }, { d: 3, rw: '+30' }, { d: 4, rw: '₹50' },
+    { d: 5, rw: '+50' }, { d: 6, rw: '₹100' }, { d: 7, rw: '🎁' },
+  ];
+  const streak = claimed.filter(Boolean).length;
+  const points = 374;
+  const REWARD_POOL = [
+    { label: '₹100 OFF', sub: 'On your next order' },
+    { label: '50 POINTS', sub: 'Added to your wallet' },
+    { label: 'FREE SHIPPING', sub: 'Valid for 7 days' },
+    { label: '15% OFF', sub: 'Min order ₹999' },
+  ];
+  const claimToday = () => {
     if (claimed[today]) return;
-    Animated.sequence([
-      Animated.timing(revealAnim, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-    ]).start(() => {
-      const next = [...claimed];
-      next[today] = true;
-      setClaimed(next);
-      setTimeout(() => setBonusWheel(true), 300);
-    });
+    const next = [...claimed]; next[today] = true; setClaimed(next);
+    setReward(REWARD_POOL[today % REWARD_POOL.length]);
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      <ScreenHeader title="Daily Reward" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
-        {/* Header stats strip */}
-        <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
-          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.ink }]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ STREAK'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.white, marginTop: 2 }}>{streakDays}<Text style={{ fontSize: 14 }}>/7</Text></Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2 }]}>DAYS</Text>
+      {/* Header */}
+      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
+        <Pressable onPress={() => nav.goBack()} hitSlop={10}><Feather name="arrow-left" size={22} color={C.ink} /></Pressable>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 }}>DAILY REWARDS</Text>
+      </View>
+      <View style={{ height: 1, backgroundColor: C.ink }} />
+
+      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+        {/* Streak + points */}
+        <View style={{ flexDirection: 'row', gap: SP.s }}>
+          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{'◆ STREAK'}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 2 }}>{streak}<Text style={{ fontSize: 12 }}> DAYS</Text></Text>
           </View>
-          <View style={{ flex: 1, padding: SP.m }}>
-            <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{'▲ EARNED'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.ink, marginTop: 2 }}>+{totalClaimed}</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>POINTS THIS WEEK</Text>
+          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+            <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{'✦ POINTS'}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, marginTop: 2 }}>{points}</Text>
           </View>
         </View>
 
-        {/* Week ladder — 7 boxes */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> WEEKLY_BOARD'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
-        <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m }}>
-          {DAY_LBL.map((d, i) => {
+        {/* 7-day streak track */}
+        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>7-DAY STREAK</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: 4 }}>
+          {DAYS.map((day, i) => {
             const got = claimed[i];
             const isToday = i === today;
-            const isBig = i === 6;
             return (
-              <MotiView
-                key={d}
-                from={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: i * 60 }}
-                style={[{ flex: isBig ? 1.4 : 1, aspectRatio: isBig ? 0.55 : 0.5, alignItems: 'center', justifyContent: 'space-between', padding: 6, backgroundColor: got ? C.ink : isBig ? C.white : C.white }, BORDER(1)]}
-              >
-                <Text style={[T.monoB, { color: got ? C.white : C.dim, fontSize: 8 }]}>{d}</Text>
-                {got ? (
-                  <Feather name="check" size={isBig ? 22 : 16} color={C.white} />
-                ) : isToday ? (
-                  <MotiView
-                    from={{ scale: 1 }}
-                    animate={{ scale: 1.2 }}
-                    transition={{ loop: true, type: 'timing', duration: 800 }}
-                  >
-                    <Feather name="gift" size={18} color={C.ink} />
-                  </MotiView>
-                ) : isBig ? (
-                  <Ionicons name="trophy-outline" size={22} color={C.ink} />
-                ) : (
-                  <Feather name="lock" size={12} color={C.dim} />
-                )}
-                <Text style={{ fontFamily: 'Inter_900Black', color: got ? C.white : C.ink, fontSize: isBig ? 12 : 10 }}>+{WEEK_REWARDS[i]}</Text>
-              </MotiView>
+              <View key={i} style={[{ width: 70, paddingVertical: SP.m, alignItems: 'center', gap: 7, backgroundColor: got ? C.ink : C.white }, BORDER(isToday ? 2 : 1)]}>
+                <Text style={[T.monoB, { fontSize: 8, color: got ? C.white : C.dim }]}>DAY {day.d}</Text>
+                {got ? <Feather name="check" size={18} color={C.white} /> : isToday ? <Feather name="gift" size={18} color={C.ink} /> : <Feather name="lock" size={13} color={C.dim} />}
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: got ? C.white : C.ink }}>{day.rw}</Text>
+              </View>
             );
           })}
+        </ScrollView>
+
+        {/* Today's reward */}
+        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
+          <Text style={[T.monoB, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{`TODAY · DAY ${today + 1}`}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, marginTop: 4, letterSpacing: -0.5 }}>{claimed[today] ? 'CLAIMED ✓' : `${DAYS[today].rw} POINTS`}</Text>
+          <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 4 }]}>Come back daily — bigger rewards each day you keep the streak.</Text>
+          <Pressable onPress={claimToday} disabled={claimed[today]} style={[{ marginTop: SP.m, paddingVertical: 15, alignItems: 'center', backgroundColor: claimed[today] ? C.ink : C.white }, BORDER(1)]}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: claimed[today] ? C.white : C.ink, letterSpacing: 0.5 }}>{claimed[today] ? 'COME BACK TOMORROW' : 'CLAIM TODAY ──▶'}</Text>
+          </Pressable>
         </View>
 
-        {/* Today's reveal card */}
-        <View style={[{ marginTop: SP.xl, padding: SP.l, backgroundColor: claimed[today] ? C.ink : C.white, alignItems: 'center', overflow: 'hidden' }, BORDER(1)]}>
-          {!claimed[today] ? (
-            <>
-              <Text style={[T.monoB, { fontSize: 10 }]}>{'> TODAY · DAY 07 · JACKPOT'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.ink, marginTop: 8, letterSpacing: -3 }}>+100</Text>
-              <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>POINTS + BONUS SPIN</Text>
-              <AsciiDivider style={{ marginTop: 12, width: 160 }} />
-              <Pressable onPress={claim} style={[{ marginTop: 12, paddingHorizontal: 28, paddingVertical: 14, backgroundColor: C.ink }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 16, letterSpacing: 1 }}>◆ TAP TO CLAIM</Text>
-              </Pressable>
-            </>
-          ) : (
-            <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
-              <Ionicons name="trophy" size={48} color={C.white} style={{ alignSelf: 'center' }} />
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, marginTop: 8, textAlign: 'center' }}>+100 CLAIMED</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 10, textAlign: 'center', marginTop: 4 }]}>COMPLETE WEEK · BONUS ROLLING</Text>
+        {/* Countdown */}
+        <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+          <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>NEXT REWARD UNLOCKS IN</Text>
+          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(30), color: C.ink, letterSpacing: 3, marginTop: 6 }}>09:12:22</Text>
+        </View>
+
+        {/* Bonus spin */}
+        <Pressable onPress={() => nav.navigate('SpinWheel')} style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.white }, BORDER(1)]}>
+          <View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
+            <Feather name="rotate-cw" size={18} color={C.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>Free Spin & Win</Text>
+            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Spin the wheel · up to 80% off</Text>
+          </View>
+          <Feather name="arrow-right" size={18} color={C.ink} />
+        </Pressable>
+      </ScrollView>
+
+      {/* REWARD REVEAL MODAL — gift pops, then the prize reveals */}
+      <Modal visible={reward !== null} transparent animationType="fade" onRequestClose={() => setReward(null)}>
+        <Pressable onPress={() => setReward(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
+          <MotiView from={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'timing', duration: 220 }} onStartShouldSetResponder={() => true} style={[{ width: '100%', maxWidth: 360, backgroundColor: C.white, padding: SP.xl, alignItems: 'center' }, BORDER(2)]}>
+            <MotiView from={{ scale: 0, rotate: '-25deg' }} animate={{ scale: 1, rotate: '0deg' }} transition={{ type: 'spring', delay: 120, damping: 9 }}>
+              <Ionicons name="gift" size={80} color={C.ink} />
             </MotiView>
-          )}
-        </View>
-
-        {/* Bonus spin wheel — unlocks after claim */}
-        {claimed[today] && (
-          <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 200 }}>
-            <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> WEEK_COMPLETE_BONUS'}</Text>
-            <AsciiDivider style={{ marginTop: 4 }} />
-            <Pressable onPress={() => nav.navigate('SpinWheel')} style={[{ marginTop: SP.s, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-                <Feather name="rotate-cw" size={20} color={C.white} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14 }}>FREE SPIN UNLOCKED</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Spin & Win · up to 80% off</Text>
-              </View>
-              <Text style={[T.monoB, { fontSize: 14 }]}>{'──▶'}</Text>
+            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: SP.m }]}>YOU UNLOCKED</Text>
+            <MotiView from={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', delay: 380 }}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: C.ink, letterSpacing: -1, marginTop: 4, textAlign: 'center' }}>{reward?.label}</Text>
+            </MotiView>
+            <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>{reward?.sub}</Text>
+            <Pressable onPress={() => { showToast('Claimed', (reward?.label || '') + ' added to your account', 'gift'); setReward(null); }} style={[{ marginTop: SP.l, alignSelf: 'stretch', paddingVertical: 14, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, letterSpacing: 0.5 }}>AWESOME ──▶</Text>
             </Pressable>
           </MotiView>
-        )}
-
-        {/* Reset timer */}
-        <View style={[{ marginTop: SP.m, padding: SP.s, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-          <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>NEXT DAY RESETS IN</Text>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 18, color: C.ink, letterSpacing: 3, marginTop: 2 }}>14:27:43</Text>
-        </View>
-
-        {/* Streak perks ladder */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> STREAK_PERKS'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
-        <View style={[{ marginTop: SP.s, gap: 0, overflow: 'hidden' }, BORDER(1)]}>
-          {[
-            { d: 7, r: 'Bonus spin unlocked', done: true },
-            { d: 14, r: 'Mystery gift box', done: false },
-            { d: 30, r: 'Free ship for a month', done: false },
-            { d: 100, r: 'VIP tier + ₹1,000 credit', done: false },
-          ].map((p, i) => (
-            <View key={i} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.s, backgroundColor: p.done ? C.ink : C.white }, i > 0 && { borderTopWidth: 1, borderColor: C.ink }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: p.done ? C.white : C.ink, width: 60 }}>D{p.d}</Text>
-              <Text style={[T.body, { flex: 1, color: p.done ? C.white : C.ink }]}>{p.r}</Text>
-              {p.done ? <Feather name="check" size={14} color={C.white} /> : <Feather name="lock" size={14} color={C.dim} />}
-            </View>
-          ))}
-        </View>
-      </ScrollView>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -327,7 +296,7 @@ export function SpinWheelScreen() {
         {result && !spinning && (
           <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
             <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'> SPIN_RESULT'}</Text>
+              <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'SPIN_RESULT'}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.white, marginTop: 6, letterSpacing: -1 }}>{result}</Text>
             </View>
           </MotiView>
@@ -358,7 +327,7 @@ export function SpinWheelScreen() {
         </Pressable>
 
         {/* History */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> RECENT_SPINS'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'RECENT_SPINS'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={{ marginTop: SP.s }}>
           {history.map((h, i) => (
@@ -508,7 +477,7 @@ export function StyleQuizScreen() {
 
         {/* Prompt */}
         <MotiView key={step} from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }}>
-          <Text style={[T.monoB, { fontSize: 10, color: C.dim, marginTop: SP.l }]}>{`> QUESTION_${(step + 1).toString().padStart(2, '0')}`}</Text>
+          <Text style={[T.monoB, { fontSize: 10, color: C.dim, marginTop: SP.l }]}>{`QUESTION_${(step + 1).toString().padStart(2, '0')}`}</Text>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1, lineHeight: rf(34), marginTop: 4 }}>{q.prompt}</Text>
         </MotiView>
 
@@ -797,13 +766,13 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
         {/* Aesthetic description */}
         <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 300 }}>
           <View style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{'> ABOUT_YOUR_AESTHETIC'}</Text>
+            <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{'ABOUT_YOUR_AESTHETIC'}</Text>
             <Text style={[T.body, { marginTop: 6, fontSize: 13, lineHeight: 19 }]}>{AESTHETIC_DESC[winner] || 'You have a distinctive look that refuses categorization.'}</Text>
           </View>
         </MotiView>
 
         {/* Breakdown bars */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> FULL_BREAKDOWN'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'FULL_BREAKDOWN'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={{ marginTop: SP.s, gap: 10 }}>
           {sorted.map(([tag, count], i) => {
@@ -826,7 +795,7 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
         </View>
 
         {/* Unlocked badges */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> BADGES_UNLOCKED'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'BADGES_UNLOCKED'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s }}>
           {sorted.slice(0, 3).map(([tag], i) => (
@@ -868,7 +837,7 @@ export function NotificationsScreen() {
       <ScreenHeader title="Notifications" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <Text style={[T.mono, { color: C.dim }]}>{`> ${NOTIFS.length} UPDATES`}</Text>
+          <Text style={[T.mono, { color: C.dim }]}>{`${NOTIFS.length} UPDATES`}</Text>
           <AsciiDivider style={{ marginTop: 6 }} />
         </View>
         {NOTIFS.map((n, i) => (
@@ -1104,7 +1073,7 @@ export function TryOnScreen() {
               {generating && (
                 <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.white, letterSpacing: -0.5 }}>GENERATING...</Text>
-                  <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'// AI is dressing your photo\nCan take 15–60s'}</Text>
+                  <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'AI is dressing your photo\nCan take 15–60s'}</Text>
                 </View>
               )}
               <Pressable onPress={() => { setUploadedPhoto(null); setGeneratedPhoto(null); }} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
@@ -1170,7 +1139,7 @@ export function TryOnScreen() {
         </View>
 
         {/* Pick a fit strip */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'> SWAP FIT'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'SWAP FIT'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
           {picks.map(p => (
@@ -1184,7 +1153,7 @@ export function TryOnScreen() {
         </ScrollView>
 
         {/* How it works */}
-        <Text style={[T.monoB, { marginTop: SP.l, fontSize: 11 }]}>{'> HOW IT WORKS'}</Text>
+        <Text style={[T.monoB, { marginTop: SP.l, fontSize: 11 }]}>{'HOW IT WORKS'}</Text>
         <AsciiDivider style={{ marginTop: 4 }} />
         <View style={{ marginTop: SP.s, gap: 8 }}>
           {[
@@ -1217,7 +1186,7 @@ export function TryOnScreen() {
               </Pressable>
             </View>
             <AsciiDivider style={{ marginTop: 8 }} />
-            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{'> ERROR'}</Text>
+            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{'ERROR'}</Text>
             <TextInput
               value={errorMsg || ''}
               multiline
@@ -1225,7 +1194,7 @@ export function TryOnScreen() {
               selectTextOnFocus
               style={[{ marginTop: 6, padding: SP.s, minHeight: 60, fontFamily: 'SpaceMono_700Bold', fontSize: 12, color: C.ink, backgroundColor: '#FAFAFA' }, BORDER(1)]}
             />
-            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{`> LOG (${logLines.length})`}</Text>
+            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{`LOG (${logLines.length})`}</Text>
             <ScrollView style={[{ maxHeight: 260, marginTop: 6, backgroundColor: '#FAFAFA' }, BORDER(1)]}>
               <TextInput
                 value={logLines.join('\n') || '(no log yet)'}

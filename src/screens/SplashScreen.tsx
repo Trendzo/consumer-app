@@ -94,23 +94,6 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
             />
           </View>
 
-          <View style={styles.metaRow}>
-            <Text style={styles.metaMono}>{'> LOADING_ASSETS'}</Text>
-            <MotiText
-              from={{ opacity: 0.3 }}
-              animate={{ opacity: 1 }}
-              transition={{ loop: true, type: 'timing', duration: 600 }}
-              style={styles.metaMono}
-            >
-              ░▒▓█▓▒░
-            </MotiText>
-          </View>
-
-          <View style={[styles.metaRow, { marginTop: 6 }]}>
-            <Text style={[styles.metaMono, { opacity: 0.5 }]}>BUILD · 0413</Text>
-            <Text style={[styles.metaMono, { opacity: 0.5 }]}>NODE · IN-BLR-01</Text>
-            <Text style={[styles.metaMono, { opacity: 0.5 }]}>SECURE</Text>
-          </View>
         </MotiView>
       </View>
     </View>

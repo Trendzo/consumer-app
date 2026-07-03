@@ -8,6 +8,7 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
@@ -28,6 +29,10 @@ import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
 import CheckoutScreen from '../screens/CheckoutScreen';
+import ReviewOrderScreen from '../screens/ReviewOrderScreen';
+import TryOnPickerScreen from '../screens/TryOnPickerScreen';
+import AboutScreen from '../screens/AboutScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import { OrderSuccessScreen, OrderTrackingScreen, OrderHistoryScreen } from '../screens/OrderScreens';
 import { DailyRewardScreen, SpinWheelScreen, StyleQuizScreen, NotificationsScreen, TryOnScreen } from '../screens/GameScreens';
 import {
@@ -332,6 +337,7 @@ export default function RootNav() {
   }
 
   return (
+    <ZoomProvider navRef={navigationRef}>
     <View style={{ flex: 1, backgroundColor: night ? '#000' : '#fff' }} key={night ? 'dark' : 'light'}>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
@@ -348,11 +354,12 @@ export default function RootNav() {
           }}
         />
         <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+        <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
+        <Stack.Screen name="ReviewOrder" component={ReviewOrderScreen} />
         <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />
         <Stack.Screen name="OrderHistory" component={OrderHistoryScreen} />
@@ -361,6 +368,9 @@ export default function RootNav() {
         <Stack.Screen name="StyleQuiz" component={StyleQuizScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="TryOn" component={TryOnScreen} />
+        <Stack.Screen name="TryOnPicker" component={TryOnPickerScreen} />
+        <Stack.Screen name="About" component={AboutScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         {/* Profile sub-screens */}
         <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
         <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
@@ -397,5 +407,6 @@ export default function RootNav() {
     <BrutalToast />
     <BrutalConfirm />
     </View>
+    </ZoomProvider>
   );
 }

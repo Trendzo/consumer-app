@@ -3,7 +3,7 @@
 
 // Unsplash CDN — reliable, always-on. Used for hero / lifestyle imagery
 // where a real photo is wanted.
-const u = (id: string, w = 600) => `https://images.unsplash.com/${id}?w=${w}&q=80&auto=format&fit=crop`;
+const u = (id: string, w = 600) => `https://images.unsplash.com/${id}?w=${w}&q=72&fm=webp&fit=crop`;
 // Real product PNGs (transparent backgrounds) from pngimg.com — direct CDN
 // URLs that hotlink reliably. Format: `png('dress', 197)` →
 // https://pngimg.com/uploads/dress/dress_PNG197.png

@@ -176,7 +176,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           zIndex: 10,
         }}
       >
-        <Text style={styles.brand}>{`> TRENDZO`}</Text>
+        <Text style={styles.brand}>{`TRENDZO`}</Text>
         <Pressable onPress={onDone} hitSlop={16}>
           <Text style={styles.brand}>SKIP →</Text>
         </Pressable>

@@ -12,6 +12,7 @@ import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useGenderCurve } from '../components/Brutal';
+import { useZoomCard } from '../navigation/ZoomTransition';
 
 const { height, width } = Dimensions.get('window');
 
@@ -117,9 +118,8 @@ export default function ReelsScreen() {
         )}
       />
 
-      {/* TOP BAR */}
-      <View style={s.topBar}>
-        <Text style={[T.monoB, { color: '#fff', fontSize: 11 }]}>{'> TRENDZO / REELS'}</Text>
+      {/* TOP BAR — search only */}
+      <View style={[s.topBar, { justifyContent: 'flex-end' }]}>
         <Pressable onPress={openSearch} hitSlop={12}>
           <Feather name="search" size={20} color="#fff" />
         </Pressable>
@@ -178,6 +178,7 @@ function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
 function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
   const { night } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
+  const { ref: prodRef, open: openProd } = useZoomCard();
 
   const [saved, setSaved] = useState(false);
   const [shareCount, setShareCount] = useState(102);
@@ -307,17 +308,16 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* BOTTOM INFO */}
+      {/* BOTTOM INFO — username + bio only */}
       <View style={s.bottom}>
-        <Text style={[T.monoB, { color: '#fff', fontSize: 10 }]}>{`> REEL_${reel.id.toUpperCase()}`}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: rf(22), marginTop: 4 }}>{reel.user}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: rf(22) }}>{reel.user}</Text>
         <Text style={{ fontFamily: 'Inter_500Medium', color: '#fff', fontSize: 13, marginTop: 4 }}>{reel.title}</Text>
       </View>
 
       {/* PRODUCT TAG */}
       <Animated.View style={[s.prodTag, prodCurve]}>
-        <Pressable onPress={onProduct} style={{ flex: 1, flexDirection: 'row' }}>
-          <Image source={{ uri: reel.product.img }} style={s.prodTagImg} />
+        <Pressable onPress={() => reel.product?.img ? openProd(reel.product.img, reel.product) : onProduct()} style={{ flex: 1, flexDirection: 'row' }}>
+          <View ref={prodRef} collapsable={false}><Image source={{ uri: reel.product.img }} style={s.prodTagImg} /></View>
           <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
             <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
             <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>

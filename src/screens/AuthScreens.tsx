@@ -215,7 +215,7 @@ export function SignupScreen({ navigation }: any) {
 
       {/* Top bar — sharp, no grab handle */}
       <View style={signupStyles.topBar}>
-        <Text style={signupStyles.brand}>{'> TRENDZO'}</Text>
+        <Text style={signupStyles.brand}>{'TRENDZO'}</Text>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
           <Text style={signupStyles.close}>CLOSE  ✕</Text>
         </Pressable>

@@ -7,6 +7,7 @@ import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-
 import { Feather } from '@expo/vector-icons';
 import { C, T, BORDER, SP, ASCII, HAIRLINE, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
+import { useZoomCard } from '../navigation/ZoomTransition';
 
 // CachedImage — drop-in `<Image>` replacement backed by expo-image.
 // Aggressively caches to memory + disk so product PNGs load once over the
@@ -139,8 +140,15 @@ export function BrutalToast() {
 // Reads the shared curveProgress from AppState so dragging the gender switch
 // updates every brutalist component in real time.
 export function useGenderCurve(maxRadius = 14) {
-  const { curveProgress } = useApp();
-  return useAnimatedStyle(() => ({ borderRadius: curveProgress.value * maxRadius }));
+  // Used by the REUSABLE cards/boxes (ProductCard, BrutalBox, BrutalButton, …) that repeat
+  // dozens of times throughout the feed — almost all of them BELOW the fold while the
+  // gender bar (which lives at the top) is being dragged. Animating their borderRadius live
+  // meant ~40+ off-screen corners re-rasterising every frame for nothing → the drag lag.
+  // They settle to the right radius the moment `gender` commits; by the time you scroll to
+  // them they're already rounded, so you never see the difference. The on-screen rounding
+  // (hero / search / categories, via HomeScreen's curveStyle) still animates live & smooth.
+  const { gender } = useApp();
+  return { borderRadius: gender === 'her' ? maxRadius : 0 };
 }
 
 // ─── BRUTAL BOX — curve-aware bordered container ──────────────
@@ -260,7 +268,7 @@ type InputProps = {
 export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, autoCapitalize }: InputProps) {
   return (
     <View style={{ marginBottom: SP.l }}>
-      {label && <Text style={[T.label, { marginBottom: 6 }]}>{`> ${label.toUpperCase()}`}</Text>}
+      {label && <Text style={[T.label, { marginBottom: 6 }]}>{`${label.toUpperCase()}`}</Text>}
       <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 14 }, BORDER(1)]}>
         {icon && <Feather name={icon} size={16} color={C.ink} />}
         <TextInput
@@ -288,14 +296,15 @@ export function SectionHead({ title, emphasis, action, onAction }: { title: stri
   return (
     <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
       <AsciiDivider />
-      <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 6 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, flex: 1 }} numberOfLines={1}>
           {ASCII.caret} {title}
           {emphasis && <Text style={{ fontStyle: 'italic' }}> {emphasis}</Text>}
         </Text>
         {action && (
-          <Pressable onPress={onAction}>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{`[ ${action} ]`}</Text>
+          <Pressable onPress={onAction} hitSlop={8} style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 0.5 }}>{action}</Text>
+            <Feather name="arrow-right" size={11} color={C.white} />
           </Pressable>
         )}
       </View>
@@ -335,15 +344,18 @@ export function FadeInUp({ delay = 0, children, style }: { delay?: number; child
 // ─── PRODUCT MINI CARD ────────────────────────────────────
 export function ProductCard({ p, onPress, w = 160 }: { p: any; onPress?: () => void; w?: number }) {
   const scale = useRef(new Animated.Value(1)).current;
+  const { ref: imgRef, open } = useZoomCard();
+  // Tapping zooms the image into the product page (falls back to onPress if no image)
+  const handlePress = () => { if (p?.img) open(p.img, p); else onPress?.(); };
   return (
     <Animated.View style={{ transform: [{ scale }], width: w }}>
       <Pressable
         onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start()}
         onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }).start()}
-        onPress={onPress}
+        onPress={handlePress}
       >
-        <View style={[{ height: w * 1.25, overflow: 'hidden', backgroundColor: '#f3f3f3' }, BORDER(1)]}>
-          <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+        <View ref={imgRef} collapsable={false} style={[{ height: w * 1.25, overflow: 'hidden', backgroundColor: '#f3f3f3' }, BORDER(1)]}>
+          <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           {p.tag && (
             <View style={[{ position: 'absolute', top: 8, left: 8, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, BORDER(1)]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5 }}>{p.tag}</Text>

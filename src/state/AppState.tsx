@@ -18,9 +18,10 @@ type CartItem = Product & { qty: number; size: string; method: DeliveryMethod };
 
 type AppCtx = {
   // auth
-  user: { name: string; email: string } | null;
+  user: { name: string; email: string; phone?: string; address?: string } | null;
   signIn: (email: string, name?: string) => void;
   signOut: () => void;
+  updateUser: (patch: Partial<{ name: string; email: string; phone: string; address: string }>) => void;
   // onboarding
   onboarded: boolean;
   setOnboarded: (v: boolean) => void;
@@ -188,6 +189,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback((email: string, name = 'You') => setUser({ email, name }), []);
   const signOut = useCallback(() => setUser(null), []);
+  const updateUser = useCallback((patch: Partial<{ name: string; email: string; phone: string; address: string }>) =>
+    setUser(u => ({ name: 'You', email: 'guest@trendzo.app', ...(u || {}), ...patch })), []);
 
   const addToCart = useCallback((p: Product, size = 'M', method: DeliveryMethod = 'express') => {
     setCart(prev => {
@@ -228,7 +231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
 
   return (
-    <Ctx.Provider value={{ user, signIn, signOut, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
+    <Ctx.Provider value={{ user, signIn, signOut, updateUser, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
       {children}
     </Ctx.Provider>
   );

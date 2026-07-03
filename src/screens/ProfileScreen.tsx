@@ -17,59 +17,19 @@ const MENU_GROUPS = [
   {
     code: '01',
     title: 'ORDERS & DELIVERY',
-    intro: 'Track, return, pickup or try at home.',
+    intro: 'Track your orders and addresses.',
     items: [
       { icon: 'package', label: 'My orders', sub: '6 total · tap to view history', screen: 'OrderHistory' },
-      { icon: 'map-pin', label: 'Saved addresses', sub: '2 saved · HOME · OFFICE', screen: 'SavedAddresses' },
-      { icon: 'credit-card', label: 'Payment methods', sub: 'UPI · Cards · Wallets', screen: 'PaymentMethods' },
-      { icon: 'rotate-ccw', label: 'Returns & exchanges', sub: 'Easy 7-day returns · pickup from door', screen: 'OrderReturn' },
-      { icon: 'map', label: 'Store pickup', sub: '3 stores nearby · zero delivery fee', screen: 'StorePickup' },
-      { icon: 'home', label: 'Try & Buy', sub: 'Courier waits 15 min · pay for what fits', screen: 'TryAndBuy' },
     ],
   },
   {
     code: '02',
-    title: 'YOUR FIT · STYLE DNA',
-    intro: 'Personalize your feed, your fit, your vibe.',
-    items: [
-      { icon: 'sliders', label: 'Style preferences', sub: 'MINIMAL · STREET · +1 more', screen: 'StylePreferences' },
-      { icon: 'maximize', label: 'Body measurements', sub: 'H 175 · C 96 · W 82', screen: 'Measurement' },
-      { icon: 'camera', label: 'Virtual try-on', sub: 'AR mirror · works on photos too', screen: 'TryOn' },
-      { icon: 'help-circle', label: 'Style quiz', sub: 'Refresh your Style DNA in 60 sec', screen: 'StyleQuiz' },
-    ],
-  },
-  {
-    code: '03',
-    title: 'REWARDS & STREAKS',
-    intro: 'The more you shop, the more you earn.',
-    items: [
-      { icon: 'star', label: 'Loyalty points', sub: '1,240 pts · BRONZE tier', screen: 'LoyaltyRewards' },
-      { icon: 'gift', label: 'Daily reward', sub: 'Day 7 streak · keep it going', screen: 'DailyReward' },
-      { icon: 'rotate-cw', label: 'Spin & win', sub: '1 free spin today', screen: 'SpinWheel' },
-      { icon: 'users', label: 'Refer & earn', sub: '₹200 per friend · TRENDZO42', screen: 'ReferralRewards' },
-    ],
-  },
-  {
-    code: '04',
-    title: 'MORE FROM TRENDZO',
-    intro: 'Extras, insights, and the bigger picture.',
-    items: [
-      { icon: 'gift', label: 'Gift card', sub: 'Buy, send, redeem', screen: 'GiftCard' },
-      { icon: 'calendar', label: 'Fashion calendar', sub: 'Upcoming drops & sales', screen: 'FashionCalendar' },
-      { icon: 'wind', label: 'Sustainability', sub: 'Our eco-mode · carbon neutral', screen: 'Sustainability' },
-      { icon: 'message-square', label: 'Your reviews', sub: '6 posted · rank: HELPFUL', screen: 'Reviews' },
-    ],
-  },
-  {
-    code: '05',
     title: 'APP & ACCOUNT',
-    intro: 'Preferences, alerts, and the fine print.',
+    intro: 'Preferences and support.',
     items: [
-      { icon: 'bell', label: 'Notifications', sub: 'Tap to see inbox', screen: 'Notifications' },
       { icon: 'settings', label: 'Notification settings', sub: 'Push, email, deals', screen: 'NotificationSettings' },
-      { icon: 'globe', label: 'Language', sub: 'English · 8 languages', screen: 'Language' },
       { icon: 'message-square', label: 'Customer support', sub: '24×7 chat · CX-Bot v2', screen: 'CustomerSupport' },
-      { icon: 'info', label: 'About Trendzo', sub: 'build 1442' },
+      { icon: 'info', label: 'About Trendzo', sub: 'Delivery, returns, refunds & more', screen: 'About' },
     ],
   },
 ];
@@ -95,7 +55,7 @@ export default function ProfileScreen() {
         <FadeInUp>
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
             <BrutalBox solid padded maxRadius={20}>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.55 }]}>{`> TRENDZO`}</Text>
+              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.55 }]}>{`TRENDZO`}</Text>
 
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m, marginTop: SP.m }}>
                 <BrutalBox maxRadius={36} style={{ width: 72, height: 72, alignItems: 'center', justifyContent: 'center' }}>
@@ -115,7 +75,7 @@ export default function ProfileScreen() {
                     </BrutalBox>
                   </View>
                 </View>
-                <Pressable onPress={() => showToast('Edit profile', 'Coming soon', 'edit-2')}>
+                <Pressable onPress={() => nav.navigate('EditProfile')}>
                   <BrutalBox maxRadius={18} border={0} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
                     <Feather name="edit-2" size={14} color={C.ink} />
                   </BrutalBox>
@@ -148,63 +108,12 @@ export default function ProfileScreen() {
           </View>
         </FadeInUp>
 
-        {/* ─── QUICK ACTIONS — single curved container, internal dividers ─── */}
-        <FadeInUp delay={120}>
-          <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim, letterSpacing: 1 }]}>{`> QUICK ACCESS`}</Text>
-            <AsciiDivider faint style={{ marginTop: 4 }} />
-            <BrutalBox maxRadius={14} style={{ flexDirection: 'row', marginTop: 8 }}>
-              {QUICK.map((q, i) => (
-                <Pressable
-                  key={q.label}
-                  onPress={() => nav.navigate(q.screen)}
-                  style={[
-                    { flex: 1, paddingVertical: 14, alignItems: 'center' },
-                    i < QUICK.length - 1 && { borderRightWidth: 1, borderColor: C.ink },
-                  ]}
-                >
-                  <Feather name={q.icon as any} size={18} color={C.ink} />
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, marginTop: 6, letterSpacing: 0.5 }}>{q.label}</Text>
-                  <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 1 }]}>{q.sub}</Text>
-                </Pressable>
-              ))}
-            </BrutalBox>
-          </View>
-        </FadeInUp>
-
-        {/* ─── WALLET + REFERRAL HIGHLIGHT ─── */}
-        <FadeInUp delay={160}>
-          <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.m, gap: SP.s }}>
-            <Pressable onPress={() => nav.navigate('GiftCard')} style={{ flex: 1 }}>
-              <BrutalBox maxRadius={14} style={{ padding: SP.m }}>
-                <Feather name="gift" size={16} color={C.ink} />
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>₹750</Text>
-                <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>WALLET + GIFT CARD</Text>
-              </BrutalBox>
-            </Pressable>
-            <Pressable onPress={() => nav.navigate('ReferralRewards')} style={{ flex: 1 }}>
-              <BrutalBox solid maxRadius={14} style={{ padding: SP.m }}>
-                <Feather name="users" size={16} color={C.white} />
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.white, marginTop: 6, letterSpacing: -0.5 }}>₹200</Text>
-                <Text style={[T.mono, { fontSize: 9, color: C.white, opacity: 0.7, marginTop: 2 }]}>PER FRIEND REFERRED</Text>
-              </BrutalBox>
-            </Pressable>
-          </View>
-        </FadeInUp>
-
         {/* ─── MENU GROUPS ─── */}
         {MENU_GROUPS.map((g, gi) => (
           <FadeInUp key={g.title} delay={200 + gi * 40}>
             <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
-              <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[T.mono, { fontSize: 9, color: C.dim, letterSpacing: 1 }]}>{`// GROUP_${g.code}`}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5, marginTop: 2 }}>{g.title}</Text>
-                  <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{g.intro}</Text>
-                </View>
-                <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{`${g.items.length} ITEMS`}</Text>
-              </View>
-              <AsciiDivider style={{ marginTop: 8 }} />
+              <Text style={[T.label, { fontSize: 11, color: C.dim }]}>{g.title}</Text>
+              <AsciiDivider faint style={{ marginTop: 6 }} />
               <BrutalBox maxRadius={16} style={{ marginTop: 8 }}>
                 {g.items.map((it: any, i) => (
                   <Pressable
@@ -234,9 +143,8 @@ export default function ProfileScreen() {
         {/* ─── APPEARANCE ─── */}
         <FadeInUp delay={400}>
           <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
-            <Text style={[T.mono, { fontSize: 9, color: C.dim, letterSpacing: 1 }]}>{`// GROUP_06`}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5, marginTop: 2 }}>APPEARANCE</Text>
-            <AsciiDivider style={{ marginTop: 8 }} />
+            <Text style={[T.label, { fontSize: 11, color: C.dim }]}>APPEARANCE</Text>
+            <AsciiDivider faint style={{ marginTop: 6 }} />
             <Pressable onPress={toggleNight}>
               <BrutalBox maxRadius={16} style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', padding: SP.m, backgroundColor: C.white }}>
                 <BrutalBox maxRadius={18} solid={night} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
@@ -272,9 +180,6 @@ export default function ProfileScreen() {
           ) : (
             <BrutalButton label="Log in / Sign up" icon="log-in" block onPress={() => nav.navigate('Login')} />
           )}
-          <View style={{ marginTop: SP.l, alignItems: 'center' }}>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, textAlign: 'center' }]}>{'// TRENDZO · BUILT FOR GEN-Z'}</Text>
-          </View>
         </View>
       </ScrollView>
     </View>
