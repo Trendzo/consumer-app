@@ -43,3 +43,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# secrets (scrubbed from history 2026-06)
+credentials.json
+release.keystore
