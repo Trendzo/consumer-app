@@ -6,6 +6,7 @@ import { MotiView } from 'moti';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import { listOrders, type OrderListRow } from '../services/orders';
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
@@ -327,13 +328,43 @@ const HISTORY: {
 
 type StatusFilter = 'ALL' | 'DELIVERED' | 'RETURNED' | 'CANCELLED';
 
+// Map a backend order row to the history-card display shape. The list row is slim
+// (no line items), so we show the store as the summary line.
+const fmtOrderDate = (iso?: string) => {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(); }
+  catch { return ''; }
+};
+const mapOrderStatus = (s: string): 'DELIVERED' | 'CANCELLED' | 'RETURNED' | 'SHIPPED' =>
+  s === 'delivered' ? 'DELIVERED' : s === 'cancelled' ? 'CANCELLED' : s === 'returned' ? 'RETURNED' : 'SHIPPED';
+const mapOrderMethod = (m?: string): 'express' | 'standard' | 'pickup' | 'tryandbuy' =>
+  m === 'standard' ? 'standard' : m === 'pickup' ? 'pickup' : m === 'try_and_buy' ? 'tryandbuy' : 'express';
+function mapOrderRow(o: OrderListRow): typeof HISTORY[number] {
+  return {
+    id: o.id,
+    date: fmtOrderDate(o.placedAt),
+    items: [{ name: o.storeName || 'Order', brand: '', qty: 1 }],
+    total: Math.round((o.grandTotalPaise ?? 0) / 100),
+    status: mapOrderStatus(o.status),
+    method: mapOrderMethod(o.deliveryMethod),
+  };
+}
+
 export function OrderHistoryScreen() {
   const nav = useNavigation<any>();
-  const { night } = useApp();
+  const { night, token } = useApp();
   const [filter, setFilter] = useState<StatusFilter>('ALL');
+  // Real orders when logged in; mock HISTORY as the fallback.
+  const [orders, setOrders] = useState(HISTORY);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    listOrders().then((rows) => { if (!cancelled && rows.length) setOrders(rows.map(mapOrderRow)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [token]);
 
-  const filtered = HISTORY.filter(o => filter === 'ALL' || o.status === filter);
-  const totalSpent = HISTORY.filter(o => o.status === 'DELIVERED').reduce((s, o) => s + o.total, 0);
+  const filtered = orders.filter(o => filter === 'ALL' || o.status === filter);
+  const totalSpent = orders.filter(o => o.status === 'DELIVERED').reduce((s, o) => s + o.total, 0);
 
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
@@ -348,7 +379,7 @@ export function OrderHistoryScreen() {
             <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 8 }}>Every order you've ever placed. Tap any one for details.</Text>
             <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m, flexWrap: 'wrap' }}>
               <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: C.ink }}>{HISTORY.length} ORDERS</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: C.ink }}>{orders.length} ORDERS</Text>
               </View>
               <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.white }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: C.white }}>₹{totalSpent.toLocaleString()} SPENT</Text>

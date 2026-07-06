@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -6,11 +6,9 @@ import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-
-const ADDRESSES = [
-  { id: 'a1', label: 'HOME', name: 'You', addr: 'D-204, Block A, Andheri West, Mumbai 400058', phone: '+91 98xxx xxx21' },
-  { id: 'a2', label: 'OFFICE', name: 'You', addr: '12th Floor, Bandra Kurla Complex, Mumbai 400051', phone: '+91 98xxx xxx21' },
-];
+import { priceCart, toRupees, type CartPricing } from '../services/pricing';
+import { placeOrder as placeOrderApi, newIdempotencyKey } from '../services/orders';
+import { listAddresses, formatAddress, type Address } from '../services/addresses';
 const PAYMENTS = [
   { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
   { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: '•••• 4242' },
@@ -31,33 +29,86 @@ function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
 
 export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
-  const { cart, cartTotal, placeOrder, showToast } = useApp();
+  const { cart, cartTotal, placeOrder, showToast, token, user } = useApp();
   const items = cart;
 
-  const [addrId, setAddrId] = useState('a1');
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [addrId, setAddrId] = useState<string | null>(null);
   const [addrOpen, setAddrOpen] = useState(false);
   const [coupon, setCoupon] = useState(false);
   const [useReward, setUseReward] = useState(false);
   const [tryBuy, setTryBuy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [payId, setPayId] = useState('upi');
+  const [pricing, setPricing] = useState<CartPricing | null>(null);
+  const [placing, setPlacing] = useState(false);
 
-  const addr = ADDRESSES.find((a) => a.id === addrId)!;
+  // Load saved addresses; preselect the default.
+  useEffect(() => {
+    listAddresses().then((list) => {
+      setAddresses(list);
+      setAddrId((cur) => cur ?? (list.find((a) => a.isDefault)?.id ?? list[0]?.id ?? null));
+    }).catch(() => {});
+  }, []);
+
+  // Real server totals for the cart (guest-ok); falls back to local math.
+  const allPriceable = items.length > 0 && items.every((it) => !!it.variantId);
+  useEffect(() => {
+    if (!allPriceable) { setPricing(null); return; }
+    let cancelled = false;
+    priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })))
+      .then((p) => { if (!cancelled) setPricing(p); }).catch(() => { if (!cancelled) setPricing(null); });
+    return () => { cancelled = true; };
+  }, [items, allPriceable]);
+
+  const addr = addresses.find((a) => a.id === addrId) || null;
   const pay = PAYMENTS.find((p) => p.id === payId)!;
 
-  const subtotal = cartTotal || items.reduce((s, it) => s + it.price * it.qty, 0);
+  const agg = pricing?.aggregate;
   const mrpSavings = items.reduce((s, it) => s + Math.max(0, it.original - it.price) * it.qty, 0);
+  const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : (cartTotal || items.reduce((s, it) => s + it.price * it.qty, 0));
   const couponOff = coupon ? 50 : 0;
   const rewardOff = useReward ? Math.min(REWARD_BALANCE, Math.max(0, subtotal - couponOff)) : 0;
-  const deliveryFee = 99; // Express delivery — paid
-  const tryBuyFee = tryBuy ? 99 : 0; // Try & Buy add-on (toggle)
-  const total = Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
-  const totalSavings = mrpSavings + couponOff + rewardOff;
+  const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : 99;
+  const taxAmt = agg ? toRupees(agg.taxPaise) : 0;
+  const tryBuyFee = tryBuy ? 99 : 0;
+  const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
+  const totalSavings = mrpSavings + (agg ? toRupees(agg.discountPaise) : couponOff + rewardOff);
 
-  const placeIt = () => {
-    placeOrder({ method: tryBuy ? 'tryandbuy' : 'express' });
-    setPayOpen(false);
-    setTimeout(() => nav.navigate('OrderSuccess'), 240);
+  // Real order placement: price the cart → one order per store (idempotency-keyed) →
+  // record the real order id for the success/tracking screens. Needs login + address.
+  const placeIt = async () => {
+    if (placing) return;
+    if (!token) { setPayOpen(false); showToast('Sign in to order', 'Please log in first', 'lock'); return; }
+    if (!addr) { setPayOpen(false); showToast('Add an address', 'Add a delivery address', 'map-pin'); nav.navigate('SavedAddresses'); return; }
+    if (!allPriceable || items.length === 0) { setPayOpen(false); showToast('Cart issue', "Some items can't be checked out", 'x'); return; }
+    const method: 'express' | 'try_and_buy' = tryBuy ? 'try_and_buy' : 'express';
+    if (method === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
+    setPlacing(true);
+    try {
+      const priced = pricing ?? await priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })));
+      const key = newIdempotencyKey();
+      let firstOrderId = '';
+      for (const store of priced.stores) {
+        const res = await placeOrderApi({
+          storeId: store.storeId,
+          items: store.lines.map((l) => ({ variantId: l.variantId, qty: l.qty })),
+          deliveryMethod: method,
+          paymentMethod: payId as any,
+          addressId: addr.id,
+          idempotencyKey: `${key}_${store.storeId}`,
+        });
+        firstOrderId = firstOrderId || res.orderId;
+      }
+      const count = items.reduce((s, it) => s + it.qty, 0);
+      setPayOpen(false);
+      placeOrder({ method: tryBuy ? 'tryandbuy' : 'express', id: firstOrderId, total, items: count });
+      setTimeout(() => nav.navigate('OrderSuccess'), 200);
+    } catch (e: any) {
+      showToast('Order failed', e?.message || 'Please try again', 'x');
+    } finally {
+      setPlacing(false);
+    }
   };
 
   const Row = ({ k, v, neg, bold }: { k: string; v: string; neg?: boolean; bold?: boolean }) => (
@@ -94,32 +145,36 @@ export default function ReviewOrderScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: C.ink }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{addr.label}</Text>
+                    <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{addr?.label || 'ADDRESS'}</Text>
                   </View>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink }}>{addr.name}</Text>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink }}>{user?.name || 'You'}</Text>
                 </View>
                 <Pressable onPress={() => setAddrOpen((v) => !v)} hitSlop={8}>
                   <Text style={[T.monoB, { fontSize: 10 }]}>{addrOpen ? 'CLOSE' : 'CHANGE'}</Text>
                 </Pressable>
               </View>
-              <Text style={[T.body, { color: C.inkSoft, marginTop: 6 }]}>{addr.addr}</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>{addr.phone}</Text>
+              <Text style={[T.body, { color: C.inkSoft, marginTop: 6 }]}>{addr ? formatAddress(addr) : 'No delivery address — tap CHANGE to add one'}</Text>
+              {!!user?.phone && <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>{user.phone}</Text>}
             </View>
             {/* Inline address picker */}
             {addrOpen && (
               <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 200 }} style={{ marginTop: SP.s, gap: SP.s }}>
-                {ADDRESSES.map((a) => {
+                {addresses.map((a) => {
                   const sel = a.id === addrId;
                   return (
                     <Pressable key={a.id} onPress={() => { setAddrId(a.id); setAddrOpen(false); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
                       <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: sel ? C.white : C.ink }}>{a.label}</Text>
-                        <Text style={[T.mono, { fontSize: 9, color: sel ? C.white : C.dim, marginTop: 2 }]} numberOfLines={1}>{a.addr}</Text>
+                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: sel ? C.white : C.ink }}>{a.label || 'ADDRESS'}</Text>
+                        <Text style={[T.mono, { fontSize: 9, color: sel ? C.white : C.dim, marginTop: 2 }]} numberOfLines={1}>{formatAddress(a)}</Text>
                       </View>
                     </Pressable>
                   );
                 })}
+                <Pressable onPress={() => { setAddrOpen(false); nav.navigate('SavedAddresses'); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                  <Feather name="plus" size={16} color={C.ink} />
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }}>{addresses.length ? 'ADD ANOTHER ADDRESS' : 'ADD A DELIVERY ADDRESS'}</Text>
+                </Pressable>
               </MotiView>
             )}
 
@@ -192,7 +247,8 @@ export default function ReviewOrderScreen() {
               {mrpSavings > 0 && <Row k="Discount on MRP" v={`− ₹${mrpSavings}`} neg />}
               {couponOff > 0 && <Row k="Coupon (TRENDZO50)" v={`− ₹${couponOff}`} neg />}
               {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
-              <Row k="Delivery (Express)" v={`₹${deliveryFee}`} />
+              <Row k={deliveryFee === 0 ? 'Delivery' : 'Delivery'} v={deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`} />
+              {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
               {tryBuyFee > 0 && <Row k="Try & Buy" v={`₹${tryBuyFee}`} />}
               <View style={{ height: 1, backgroundColor: C.ink, marginVertical: 4 }} />
               <Row k="Total amount" v={`₹${total}`} bold />

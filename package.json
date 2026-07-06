@@ -16,6 +16,7 @@
     "@expo-google-fonts/space-mono": "^0.4.2",
     "@expo/vector-icons": "^15.0.3",
     "@gradio/client": "^2.2.0",
+    "@msg91comm/sendotp-react-native": "^2.1.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.9",
     "@react-navigation/native": "^7.2.2",

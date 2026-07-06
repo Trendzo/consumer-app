@@ -264,12 +264,19 @@ type InputProps = {
   icon?: keyof typeof Feather.glyphMap;
   keyboardType?: any;
   autoCapitalize?: any;
+  maxLength?: number;
+  autoFocus?: boolean;
+  editable?: boolean;
+  returnKeyType?: any;
+  onSubmitEditing?: () => void;
+  error?: string;
+  inputStyle?: TextStyle;
 };
-export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, autoCapitalize }: InputProps) {
+export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, autoCapitalize, maxLength, autoFocus, editable = true, returnKeyType, onSubmitEditing, error, inputStyle }: InputProps) {
   return (
     <View style={{ marginBottom: SP.l }}>
       {label && <Text style={[T.label, { marginBottom: 6 }]}>{`${label.toUpperCase()}`}</Text>}
-      <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 14 }, BORDER(1)]}>
+      <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 14, opacity: editable ? 1 : 0.5 }, BORDER(error ? 2 : 1), error ? { borderColor: '#c1121f' } : null]}>
         {icon && <Feather name={icon} size={16} color={C.ink} />}
         <TextInput
           value={value}
@@ -279,9 +286,15 @@ export function BrutalInput({ value, onChangeText, placeholder, label, secureTex
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
-          style={{ flex: 1, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink, padding: 0 }}
+          maxLength={maxLength}
+          autoFocus={autoFocus}
+          editable={editable}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          style={[{ flex: 1, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
         />
       </View>
+      {error ? <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: '#c1121f', marginTop: 5, letterSpacing: 0.5 }}>{error}</Text> : null}
     </View>
   );
 }

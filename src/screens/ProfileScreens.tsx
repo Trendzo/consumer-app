@@ -1,12 +1,15 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, Pressable, TextInput, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, BrutalBox, FadeInUp, BrutalInput, Chip } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import {
+  listAddresses, createAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
+} from '../services/addresses';
 
 // ═══════════════════════════════════════════════════════════
 // SHARED PRIMITIVES — unique hero per screen, shared shell
@@ -79,59 +82,120 @@ function SectionLabel({ label, right }: { label: string; right?: string }) {
 // ═══════════════════════════════════════════════════════════
 // SAVED ADDRESSES
 // ═══════════════════════════════════════════════════════════
-const ADDRESSES = [
-  { id: '1', label: 'HOME', name: 'Chandresh', address: '42, Lajpat Nagar, New Delhi 110024', phone: '+91 98765 43210', primary: true },
-  { id: '2', label: 'OFFICE', name: 'Chandresh', address: '12th Floor, WeWork, Connaught Place, New Delhi 110001', phone: '+91 98765 43210' },
-];
+// lat/lng feed delivery routing + GST place-of-supply; without a map picker we approximate
+// to a city centroid. Swap for a real map/geocode pin later.
+const DEFAULT_COORDS = { lat: 19.076, lng: 72.8777 };
+const EMPTY_ADDR_FORM = { label: '', line1: '', line2: '', city: '', pincode: '', stateCode: '' };
 
 export function SavedAddressesScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
+  const { showToast, showConfirm } = useApp();
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_ADDR_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    listAddresses().then(setAddresses).catch(() => setAddresses([])).finally(() => setLoading(false));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const onDelete = (a: Address) => showConfirm({
+    title: 'Delete address?', msg: formatAddress(a), confirmLabel: 'Delete', cancelLabel: 'Keep', danger: true, icon: 'trash-2',
+    onConfirm: () => removeAddress(a.id)
+      .then(() => { showToast('Deleted', a.label || 'Address removed', 'trash-2'); load(); })
+      .catch((e: any) => showToast('Could not delete', e?.message || 'Try again', 'x')),
+  });
+  const onSetDefault = (a: Address) => setDefaultAddress(a.id)
+    .then(() => { showToast('Default set', a.label || formatAddress(a), 'check'); load(); })
+    .catch((e: any) => showToast('Failed', e?.message || 'Try again', 'x'));
+
+  const canSave = !!form.line1.trim() && !!form.city.trim() && /^\d{6}$/.test(form.pincode.trim()) && form.stateCode.trim().length === 2;
+  const onSave = () => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    createAddress({
+      label: form.label.trim() || null,
+      line1: form.line1.trim(), line2: form.line2.trim() || null,
+      city: form.city.trim(), pincode: form.pincode.trim(), stateCode: form.stateCode.trim().toUpperCase(),
+      lat: DEFAULT_COORDS.lat, lng: DEFAULT_COORDS.lng,
+    })
+      .then(() => { setFormOpen(false); setForm(EMPTY_ADDR_FORM); showToast('Address added', 'Saved to your account', 'check'); load(); })
+      .catch((e: any) => showToast('Could not save', e?.message || 'Check details / sign in', 'x'))
+      .finally(() => setSaving(false));
+  };
+
   return (
     <PageShell>
       <ScreenHeader title="Addresses" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'ADDRESSES · 2 SAVED'}
+          code={`ADDRESSES · ${addresses.length} SAVED`}
           title={'YOUR\nADDRESSES.'}
           intro="Deliver to home, office, or anywhere else. One tap to switch."
-          chips={[{ label: 'HOME · PRIMARY', solid: true }, { label: 'OFFICE' }]}
+          chips={[{ label: 'DELIVERY' }]}
         />
 
-        <SectionLabel label="SAVED" right={`${ADDRESSES.length} ENTRIES`} />
-        {ADDRESSES.map((a, i) => (
+        <SectionLabel label="SAVED" right={`${addresses.length} ENTRIES`} />
+        {loading && addresses.length === 0 && <Text style={[T.mono, { color: C.dim, marginTop: SP.m }]}>Loading…</Text>}
+        {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
+        {addresses.map((a, i) => (
           <FadeInUp key={a.id} delay={i * 60}>
             <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
                 <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.ink }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{a.label}</Text>
+                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{a.label || 'ADDRESS'}</Text>
                 </View>
-                {a.primary && (
+                {a.isDefault ? (
                   <View style={[{ paddingHorizontal: 6, paddingVertical: 3, marginLeft: 6 }, BORDER(1)]}>
                     <Text style={[T.monoB, { fontSize: 8 }]}>DEFAULT</Text>
                   </View>
+                ) : (
+                  <Pressable onPress={() => onSetDefault(a)} style={{ marginLeft: 6 }}>
+                    <Text style={[T.mono, { fontSize: 9, color: C.dim, textDecorationLine: 'underline' }]}>Set default</Text>
+                  </Pressable>
                 )}
                 <View style={{ flex: 1 }} />
-                <Pressable onPress={() => showToast('Edit', 'Coming soon', 'edit-2')} style={{ padding: 6 }}>
-                  <Feather name="edit-2" size={13} color={C.ink} />
-                </Pressable>
-                <Pressable onPress={() => showToast('Delete', 'Coming soon', 'trash-2')} style={{ padding: 6, marginLeft: 4 }}>
+                <Pressable onPress={() => onDelete(a)} style={{ padding: 6, marginLeft: 4 }}>
                   <Feather name="trash-2" size={13} color={C.ink} />
                 </Pressable>
               </View>
               <View style={{ padding: SP.m }}>
-                <Text style={[T.bodyB]}>{a.name}</Text>
-                <Text style={[T.body, { color: C.dim, marginTop: 4, lineHeight: 18 }]}>{a.address}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <Feather name="phone" size={11} color={C.dim} />
-                  <Text style={[T.mono, { color: C.dim }]}>{a.phone}</Text>
-                </View>
+                <Text style={[T.body, { color: C.dim, lineHeight: 18 }]}>{formatAddress(a)}</Text>
+                <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>{a.stateCode} · {a.pincode}</Text>
               </View>
             </View>
           </FadeInUp>
         ))}
-        <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => showToast('Add address', 'Coming soon', 'plus')} style={{ marginTop: SP.l }} />
+        <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
       </ScrollView>
+
+      <Modal transparent visible={formOpen} animationType="slide" onRequestClose={() => setFormOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={[{ backgroundColor: C.bg, padding: SP.l, paddingBottom: 40 }, BORDER(1)]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP.m }}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink }}>NEW ADDRESS</Text>
+              <Pressable onPress={() => setFormOpen(false)} hitSlop={10}><Feather name="x" size={22} color={C.ink} /></Pressable>
+            </View>
+            <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
+            <BrutalInput label="Address line 1" value={form.line1} onChangeText={(v: string) => setForm(f => ({ ...f, line1: v }))} placeholder="Flat, building, street" />
+            <BrutalInput label="Address line 2" value={form.line2} onChangeText={(v: string) => setForm(f => ({ ...f, line2: v }))} placeholder="Area, landmark (optional)" />
+            <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
+            <View style={{ flexDirection: 'row', gap: SP.m }}>
+              <View style={{ flex: 1 }}>
+                <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
+              </View>
+              <View style={{ width: 110 }}>
+                <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
+              </View>
+            </View>
+            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
+            <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
+          </View>
+        </View>
+      </Modal>
     </PageShell>
   );
 }

@@ -10,6 +10,11 @@ import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, ProductCard, Fa
 import { useApp } from '../state/AppState';
 import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
+import type { Product } from '../data/mockData';
+import {
+  getProductDetail, listReviews, listProducts, isBackendListingId,
+  type ProductDetailData, type Review,
+} from '../services/catalog';
 
 const { width, height: SCREEN_H } = Dimensions.get('window');
 const PRODUCT_ZOOM_MS = 440;
@@ -17,6 +22,11 @@ const PRODUCT_CONTENT_FADE_MS = 260;
 const PRODUCT_ZOOM_EASING = Easing.inOut(Easing.cubic);
 const CARD_REVEAL_MS = 180;
 const CTA_CROSSFADE_DISTANCE = 44;
+
+const fmtReviewDate = (iso: string) => {
+  try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+  catch { return ''; }
+};
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL'];
 const COLORS = ['#000000', '#666666', '#bdbdbd', '#FFFFFF'];
@@ -32,7 +42,22 @@ export default function ProductDetailScreen() {
   const route = useRoute<any>();
   const product = route.params?.product || PRODUCTS[0];
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, night, theme, showToast, showConfirm } = useApp();
+  const { addToCart, night, theme, showToast, showConfirm, gender } = useApp();
+  // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
+  // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
+  // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
+  const listingId = String(product?.id ?? '').replace(/-\d+$/, '');
+  const [detail, setDetail] = useState<ProductDetailData | null>(null);
+  const [reviews, setReviews] = useState<Review[] | null>(null);
+  const [similar, setSimilar] = useState<Product[] | null>(null);
+  useEffect(() => {
+    if (!isBackendListingId(listingId)) return;
+    let cancelled = false;
+    getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
+    listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
+    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [listingId, gender]);
   const { openZoom } = useZoom();
   const zoomRefs = useRef<{ [k: string]: any }>({});
   const closeStarted = useRef(false);
@@ -166,8 +191,35 @@ export default function ProductDetailScreen() {
   const discount = Math.round((1 - product.price / product.original) * 100);
   const couponPrice = Math.round(product.price * 0.9); // extra 10% off with coupon
 
+  // Backend-or-mock display data for gallery / colours / sizes / reviews / similar.
+  const galleryImgs = React.useMemo(() => {
+    const g = detail?.gallery?.filter(Boolean) ?? [];
+    return g.length ? g : [product.img];
+  }, [detail, product.img]);
+  const colorSwatches = (detail?.swatches ?? []).map((sw) => sw.hex).filter(Boolean) as string[];
+  const colors = colorSwatches.length ? colorSwatches : COLORS;
+  const sizes = detail?.sizes && detail.sizes.length ? detail.sizes : SIZES;
+  // Products that come in a single size (bags, watches, "One Size") auto-select it.
+  useEffect(() => {
+    if (detail && detail.sizes.length === 1) setSize(detail.sizes[0]);
+  }, [detail]);
+  const reviewsCount = detail?.ratingCount ?? product.reviews ?? 128;
+  const reviewList = reviews && reviews.length
+    ? reviews.map((r) => ({ id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body, date: fmtReviewDate(r.createdAt) }))
+    : REVIEWS;
+  const similarList = (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id);
+
+  // Resolve the selected size (+ colour) to a real backend variant id so the cart can be
+  // priced/checked-out server-side. Undefined for mock products (falls back to local math).
+  const variantFor = (sz: string): string | undefined => {
+    if (!detail) return undefined;
+    const selColor = detail.swatches[colorIdx]?.name;
+    return (detail.variants.find((v) => v.size === sz && (!selColor || v.color === selColor))
+      ?? detail.variants.find((v) => v.size === sz))?.id;
+  };
+
   const doAdd = (sz: string) => {
-    addToCart(product, sz);
+    addToCart(product, sz, undefined, variantFor(sz));
     showToast('Added to bag', `${product.name} · Size ${sz}`, 'shopping-bag', {
       label: 'View bag',
       onPress: () => nav.navigate('Tabs', { screen: 'CartTab' }),
@@ -177,7 +229,7 @@ export default function ProductDetailScreen() {
   };
   // Buy now → straight to the single-page Review Order (no multi-step checkout)
   const doBuy = (sz: string) => {
-    addToCart(product, sz);
+    addToCart(product, sz, undefined, variantFor(sz));
     setTimeout(() => nav.navigate('ReviewOrder'), 60);
   };
   // Require a size first — otherwise pop the "select a size" sheet from the bottom
@@ -235,14 +287,14 @@ export default function ProductDetailScreen() {
               setImgIdx(idx);
             }}
           >
-            {(ready ? [0, 1, 2, 3] : [0]).map(i => (
+            {(ready ? galleryImgs : galleryImgs.slice(0, 1)).map((uri, i) => (
               <View key={i} style={{ width, height: width * 1.2, alignItems: 'center', justifyContent: 'center' }}>
-                <CachedImage transition={0} source={{ uri: product.img }} style={{ width: '100%', height: '100%', transform: [{ scale: i === 0 ? 1 : i === 1 ? 1.1 : i === 2 ? 0.95 : 1.05 }] }} resizeMode="contain" />
+                <CachedImage transition={0} source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
               </View>
             ))}
           </ScrollView>
           <View style={s.imgDots}>
-            {[0, 1, 2, 3].map(i => (
+            {galleryImgs.map((_, i) => (
               <Pressable
                 key={i}
                 onPress={() => {
@@ -293,7 +345,7 @@ export default function ProductDetailScreen() {
           {/* COLOR */}
           <Text style={[T.label, { marginTop: SP.l }]}>{'COLOR'}</Text>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-            {COLORS.map((c, i) => (
+            {colors.map((c, i) => (
               <Pressable key={i} onPress={() => setColorIdx(i)} style={[{ width: 36, height: 36, backgroundColor: c, padding: 3 }, i === colorIdx ? BORDER(2) : BORDER(1)]}>
                 {i === colorIdx && <View style={{ flex: 1, borderWidth: 1, borderColor: c === '#000000' ? C.white : C.ink }} />}
               </Pressable>
@@ -307,9 +359,9 @@ export default function ProductDetailScreen() {
               <Text style={[T.monoB, { fontSize: 10 }]}>{'[ SIZE GUIDE ]'}</Text>
             </Pressable>
           </View>
-          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-            {SIZES.map(sz => (
-              <Pressable key={sz} onPress={() => setSize(sz)} style={[{ width: 48, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
+            {sizes.map(sz => (
+              <Pressable key={sz} onPress={() => setSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: size === sz ? C.white : C.ink, letterSpacing: 0.5 }}>{sz}</Text>
               </Pressable>
             ))}
@@ -399,7 +451,7 @@ export default function ProductDetailScreen() {
           <Text style={[T.h2, { marginTop: SP.xl }]}>{`▌ YOU MAY ALSO LIKE`}</Text>
           <AsciiDivider faint style={{ marginTop: 4 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
-            {PRODUCTS.filter(p => p.id !== product.id).slice(0, 5).map(p => (
+            {similarList.slice(0, 5).map(p => (
               <ProductCard key={p.id} p={p} onPress={() => nav.push('ProductDetail', { product: p })} />
             ))}
           </ScrollView>
@@ -407,13 +459,13 @@ export default function ProductDetailScreen() {
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
             <Text style={T.h2}>{`▌ RATINGS & REVIEWS`}</Text>
-            <Pressable onPress={() => showToast('Reviews', `Showing all ${product.reviews || 128} reviews`, 'star')} hitSlop={8}>
+            <Pressable onPress={() => showToast('Reviews', `Showing all ${reviewsCount} reviews`, 'star')} hitSlop={8}>
               <Text style={[T.monoB, { fontSize: 10 }]}>VIEW ALL ──▶</Text>
             </Pressable>
           </View>
           <AsciiDivider faint style={{ marginTop: 4 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
-            {REVIEWS.map(r => (
+            {reviewList.map(r => (
               <View key={r.id} style={[{ width: 260, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={[T.monoB, { fontSize: 11 }]}>{r.user}</Text>
@@ -441,7 +493,7 @@ export default function ProductDetailScreen() {
             </View>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
-            {ready && PRODUCTS.filter(p => p.id !== product.id).slice(0, 6).map(p => (
+            {ready && similarList.slice(0, 6).map(p => (
               <View key={p.id} style={{ width: 150 }}>
                 <Pressable onPress={() => openZoom(zoomRefs.current['sim' + p.id], p.img, p)}>
                   <View ref={(el) => { zoomRefs.current['sim' + p.id] = el; }} collapsable={false} style={[{ height: 170, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
@@ -464,7 +516,7 @@ export default function ProductDetailScreen() {
           <Text style={T.h2}>{`▌ MORE TO LOVE`}</Text>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
-          {gridReady && [...PRODUCTS, ...PRODUCTS, ...PRODUCTS, ...PRODUCTS].filter(p => p.id !== product.id).slice(0, 16).map((p, i) => (
+          {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
             <Pressable key={p.id + '-' + i} onPress={() => openZoom(zoomRefs.current['grid' + p.id + '-' + i], p.img, p)} style={{ width: (width - SP.l * 2 - SP.s) / 2, marginBottom: SP.m }}>
               <View ref={(el) => { zoomRefs.current['grid' + p.id + '-' + i] = el; }} collapsable={false} style={[{ height: 200, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
                 <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
@@ -550,8 +602,8 @@ export default function ProductDetailScreen() {
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 2 }}>Pick your size</Text>
             <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Choose a size to continue</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.l }}>
-              {SIZES.map((sz) => (
-                <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ width: 56, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+              {sizes.map((sz) => (
+                <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 56, paddingHorizontal: 10, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, letterSpacing: 0.5 }}>{sz}</Text>
                 </Pressable>
               ))}

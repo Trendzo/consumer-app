@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, StatusBar, StyleSheet, Image, Keyboard } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,8 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { AsciiDivider, Chip, CachedImage } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
+import type { Product } from '../data/mockData';
+import { listProducts } from '../services/catalog';
 import { useApp } from '../state/AppState';
 
 const RECENT = ['oversized blazer', 'cropped cargo', 'silk dress', 'sneakers'];
@@ -31,14 +33,30 @@ function ResultCard({ p }: { p: any }) {
 export default function SearchScreen() {
   const nav = useNavigation<any>();
   const [q, setQ] = useState('');
-  const { night, theme } = useApp();
+  const { night, theme, gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<{ [k: string]: any }>({});
 
-  const results = useMemo(
-    () => q ? PRODUCTS.filter(p => p.name.toLowerCase().includes(q.toLowerCase()) || p.brand.toLowerCase().includes(q.toLowerCase())) : [],
-    [q]
-  );
+  // Backend search (name ILIKE, gender-scoped), debounced 300ms. Falls back to a
+  // local mock filter if the request fails.
+  const [results, setResults] = useState<Product[]>([]);
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    const term = q.trim();
+    if (!term) { setResults([]); setSearching(false); return; }
+    setSearching(true);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      listProducts({ search: term, gender, limit: 30 })
+        .then((r) => { if (!cancelled) setResults(r); })
+        .catch(() => {
+          if (!cancelled) setResults(PRODUCTS.filter(p =>
+            p.name.toLowerCase().includes(term.toLowerCase()) || p.brand.toLowerCase().includes(term.toLowerCase())));
+        })
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [q, gender]);
 
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
@@ -107,9 +125,9 @@ export default function SearchScreen() {
           </>
         ) : (
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-            <Text style={[T.mono, { color: C.dim }]}>{`${results.length} RESULTS FOR "${q.toUpperCase()}"`}</Text>
+            <Text style={[T.mono, { color: C.dim }]}>{searching ? `SEARCHING "${q.toUpperCase()}"…` : `${results.length} RESULTS FOR "${q.toUpperCase()}"`}</Text>
             <AsciiDivider style={{ marginTop: 6 }} />
-            {results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
+            {!searching && results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
               {results.map((p, i) => (
                 <MotiView key={p.id} from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 50 }} style={{ width: '47.5%' }}>

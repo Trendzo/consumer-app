@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Image, Dimensions, Modal, FlatList } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -11,6 +11,8 @@ import { ScreenHeader, AsciiDivider, BrutalStatusBar, CachedImage, FadeInUp, Bru
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { PRODUCTS, HERO_IMG, HERO_IMG_2 } from '../data/mockData';
+import type { Product } from '../data/mockData';
+import { listProducts, isBackendCategoryId } from '../services/catalog';
 
 const { width: W, height: H } = Dimensions.get('window');
 const FILTERS = ['ALL', 'NEW IN', 'TOPS', 'BOTTOMS', 'DRESSES', 'SHOES', 'BAGS'];
@@ -34,7 +36,7 @@ export default function CategoryScreen() {
   }, [isFlash]));
   const playRight = () => { if (flashFocused.current) { rightCart.current?.reset?.(); rightCart.current?.play?.(); } };
   const playLeft = () => { if (flashFocused.current) { leftCart.current?.reset?.(); leftCart.current?.play?.(); } };
-  const { night, toggleNight } = useApp();
+  const { night, toggleNight, gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<Record<string, any>>({});
   const [filter, setFilter] = useState('ALL');
@@ -45,6 +47,18 @@ export default function CategoryScreen() {
   const [sheet, setSheet] = useState<null | 'sort' | 'gender' | 'filter'>(null);
   const [shown, setShown] = useState(false); // drives the slide up / down
   const insets = useSafeAreaInsets();
+  // Live products for this category from the backend. A real category tile passes
+  // a `cat_…` id → filter by it; home-rail pseudo ids ('flash'/'trending'/'all')
+  // → gender-only browse. Falls back to mock until loaded / on failure.
+  const catId = route.params?.id as string | undefined;
+  const [apiProducts, setApiProducts] = useState<Product[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listProducts({ gender, categoryId: isBackendCategoryId(catId) ? catId : undefined, limit: 60 })
+      .then((list) => { if (!cancelled) setApiProducts(list); })
+      .catch(() => { /* keep mock fallback */ });
+    return () => { cancelled = true; };
+  }, [catId, gender]);
   // Remember the last-opened sheet so the CLOSING fade keeps showing the same content
   // (otherwise `sheet` becomes null and the ternaries flash the FILTER sheet mid-close).
   const lastSheet = useRef<'sort' | 'gender' | 'filter'>('sort');
@@ -54,9 +68,13 @@ export default function CategoryScreen() {
   const openSheet = (s: 'sort' | 'gender' | 'filter') => { setSheet(s); setShown(true); };
   const closeSheet = () => { setShown(false); setTimeout(() => setSheet(null), 280); };
 
-  // Inflate catalog & generate deterministic "random-ish" extras
+  // Inflate catalog & generate deterministic "random-ish" extras. Uses the live
+  // backend products for this category when available, else the mock catalog.
   const data = useMemo(() => {
-    return [...PRODUCTS, ...PRODUCTS, ...PRODUCTS].map((p, i) => ({
+    const source = (apiProducts && apiProducts.length)
+      ? apiProducts
+      : [...PRODUCTS, ...PRODUCTS, ...PRODUCTS];
+    return source.map((p, i) => ({
       ...p,
       id: p.id + '-' + i,
       rating: Number(((p.rating || 4.2) + ((i * 7) % 10) / 20).toFixed(1)),
@@ -64,7 +82,7 @@ export default function CategoryScreen() {
       discount: Math.round((1 - p.price / p.original) * 100),
       stock: 5 + ((i * 11) % 60),
     }));
-  }, []);
+  }, [apiProducts]);
 
   // Sort based on selected SORT
   const sorted = useMemo(() => {

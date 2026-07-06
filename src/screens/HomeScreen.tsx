@@ -16,6 +16,8 @@ import {
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
   HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
 } from '../data/mockData';
+import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
+import { listCategories, listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
 import { useApp } from '../state/AppState';
 
 const HOME_HERO = require('../../assets/home.jpeg');
@@ -34,11 +36,41 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, cartCount, night, toggleNight, gender, setGender, curveProgress, theme, showConfirm } = useApp();
   const [refreshing, setRefreshing] = useState(false);
-  // Gender-specific data — swaps when gender toggle changes
-  const activeProducts = gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS;
-  const activeCategories = gender === 'her' ? HER_CATEGORIES : HIM_CATEGORIES;
-  const activeBundles = gender === 'her' ? HER_BUNDLES : HIM_BUNDLES;
-  const activeOccasions = gender === 'her' ? HER_OCCASIONS : HIM_OCCASIONS;
+  const [reloadKey, setReloadKey] = useState(0);
+  // Live catalog from the backend (gender-aware). `null` = not loaded yet or the
+  // fetch failed; the selectors below fall back to the mock arrays so the home is
+  // never blank (the backend is a free tier that cold-starts slowly).
+  const [apiCategories, setApiCategories] = useState<Category[] | null>(null);
+  const [apiProducts, setApiProducts] = useState<Product[] | null>(null);
+  const [apiBrands, setApiBrands] = useState<Brand[] | null>(null);
+  const [apiBundles, setApiBundles] = useState<Bundle[] | null>(null);
+  const [apiOccasions, setApiOccasions] = useState<Occasion[] | null>(null);
+
+  // Refetch the whole home catalog whenever HER/HIM flips or the user pulls to
+  // refresh. Each slice sets independently so one slow/failed endpoint doesn't
+  // blank the others; failures leave state null → mock fallback.
+  useEffect(() => {
+    let cancelled = false;
+    const load = <T,>(p: Promise<T>, set: (v: T) => void) =>
+      p.then((v) => { if (!cancelled) set(v); }).catch(() => { /* keep mock fallback */ });
+    void Promise.allSettled([
+      load(listCategories(gender), setApiCategories),
+      load(listProducts({ gender, limit: 50 }), setApiProducts),
+      load(listBrands(), setApiBrands),
+      load(listBundles(gender), setApiBundles),
+      load(listOccasions(gender), setApiOccasions),
+    ]).then(() => { if (!cancelled) setRefreshing(false); });
+    return () => { cancelled = true; };
+  }, [gender, reloadKey]);
+
+  // Gender-specific data — backend when available, else the mock arrays.
+  const has = <T,>(a: T[] | null): a is T[] => !!a && a.length > 0;
+  const activeProducts = has(apiProducts) ? apiProducts : (gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS);
+  const activeCategories = has(apiCategories) ? apiCategories : (gender === 'her' ? HER_CATEGORIES : HIM_CATEGORIES);
+  const activeBundles = has(apiBundles) ? apiBundles : (gender === 'her' ? HER_BUNDLES : HIM_BUNDLES);
+  const activeOccasions = has(apiOccasions) ? apiOccasions : (gender === 'her' ? HER_OCCASIONS : HIM_OCCASIONS);
+  const activeBrands = has(apiBrands) ? apiBrands : BRANDS;
+  const exploreProducts = has(apiProducts) ? apiProducts : EXPLORE_PRODUCTS;
   const activeHero = gender === 'her' ? HER_HERO : HIM_HERO;
   const brandPage = useRef(0);
   const brandRef = useRef<FlatList>(null);
@@ -130,7 +162,7 @@ export default function HomeScreen() {
   });
 
 
-  const onRefresh = () => { setRefreshing(true); setTimeout(() => setRefreshing(false), 900); };
+  const onRefresh = () => { setRefreshing(true); setReloadKey((k) => k + 1); };
   const { openZoom } = useZoom();
   const zoomRefs = useRef<Record<string, any>>({});
   // Zoom the card image into the product page; falls back to plain navigate
@@ -340,7 +372,7 @@ export default function HomeScreen() {
               renderItem={({ item: page }) => (
                 <View style={{ width: W - SP.l * 2 }}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                    {BRANDS.slice(page * 12, page * 12 + 12).map((b, i) => {
+                    {activeBrands.slice(page * 12, page * 12 + 12).map((b, i) => {
                       const cardW = (W - SP.l * 2) / 4;
                       return (
                         <Pressable key={b.id} onPress={() => nav.navigate('Category', { id: 'brand-' + b.id, label: b.name })} style={{ width: cardW, height: cardW, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderRightWidth: (i % 4 < 3) ? 1 : 0, borderBottomWidth: i < 8 ? 1 : 0, borderColor: C.ink, backgroundColor: C.white }}>
@@ -732,7 +764,7 @@ export default function HomeScreen() {
 
           {/* Result count + sort */}
           {(() => {
-            const list = EXPLORE_PRODUCTS.filter(p => {
+            const list = exploreProducts.filter(p => {
               if (exploreQuery && !p.name.toLowerCase().includes(exploreQuery.toLowerCase()) && !p.brand.toLowerCase().includes(exploreQuery.toLowerCase())) return false;
               if (exploreFilter === 'ALL' || exploreFilter === 'HER' || exploreFilter === 'HIM') return true;
               return p.category === exploreFilter;

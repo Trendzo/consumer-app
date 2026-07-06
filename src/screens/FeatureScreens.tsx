@@ -13,6 +13,7 @@ import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, Pr
 import { PRODUCTS, BRANDS, OCCASIONS, COMMUNITY, BUNDLES, CATEGORIES } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useZoom } from '../navigation/ZoomTransition';
+import { listCoupons } from '../services/promotions';
 
 // ─── IMAGE SEARCH ──────────────────────────────────────────
 // Stubbed but feels real: the user picks a source, watches a fake scan on a
@@ -259,6 +260,13 @@ const COUPONS = [
 export function CouponWalletScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
+  // Live coupons from the public /promotions/active; mock as the initial/fallback set.
+  const [coupons, setCoupons] = useState(COUPONS);
+  useEffect(() => {
+    let cancelled = false;
+    listCoupons().then((c) => { if (!cancelled && c.length) setCoupons(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
@@ -269,7 +277,7 @@ export function CouponWalletScreen() {
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}COUPONS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
-        {COUPONS.map((c, i) => (
+        {coupons.map((c, i) => (
           <FadeInUp key={c.id} delay={i * 50}>
             <View style={[{ marginTop: SP.m, flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
               <View style={{ width: 90, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, padding: SP.s }}>

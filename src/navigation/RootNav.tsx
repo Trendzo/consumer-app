@@ -21,6 +21,8 @@ import { useApp } from '../state/AppState';
 import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import { LoginScreen, SignupScreen, EmailLoginScreen } from '../screens/AuthScreens';
+import PhoneAuthScreen from '../screens/PhoneAuthScreen';
+import CompleteProfileScreen from '../screens/CompleteProfileScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ReelsScreen from '../screens/ReelsScreen';
 import CartScreen from '../screens/CartScreen';
@@ -278,8 +280,31 @@ type Phase = 'splash' | 'onboarding' | 'main';
 
 export default function RootNav() {
   const [phase, setPhase] = useState<Phase>('splash');
-  const { onboarded, setOnboarded, night } = useApp();
+  // splashDone: the splash animation has finished. We still wait on
+  // authHydrated before routing so a persisted session isn't missed.
+  const [splashDone, setSplashDone] = useState(false);
+  // pendingLogin: once we land on 'main' as a guest, auto-present the Login
+  // screen over the tabs (so "Start Browsing" / back returns to the tabs).
+  const [pendingLogin, setPendingLogin] = useState(false);
+  const { onboarded, setOnboarded, token, authHydrated, night } = useApp();
   const lastBackRef = React.useRef(0);
+
+  // Decide where a new launch goes once the splash is done AND the persisted
+  // session/onboarding flags have been read from disk:
+  //   • logged in            → straight to the app (skip onboarding + login)
+  //   • onboarded, guest      → login (onboarding only shows once)
+  //   • brand new             → onboarding → login
+  useEffect(() => {
+    if (phase !== 'splash' || !splashDone || !authHydrated) return;
+    if (token) {
+      setPhase('main');
+    } else if (onboarded) {
+      setPendingLogin(true);
+      setPhase('main');
+    } else {
+      setPhase('onboarding');
+    }
+  }, [phase, splashDone, authHydrated, token, onboarded]);
 
   // Android hardware back: route → Home tab → "press again to exit"
   useEffect(() => {
@@ -322,7 +347,7 @@ export default function RootNav() {
   if (phase === 'splash') {
     return (
       <View style={{ flex: 1 }}>
-        <SplashScreen onDone={() => setPhase(onboarded ? 'main' : 'onboarding')} />
+        <SplashScreen onDone={() => setSplashDone(true)} />
         <NightOverlay />
       </View>
     );
@@ -330,7 +355,7 @@ export default function RootNav() {
   if (phase === 'onboarding') {
     return (
       <View style={{ flex: 1 }}>
-        <OnboardingScreen onDone={() => { setOnboarded(true); setPhase('main'); }} />
+        <OnboardingScreen onDone={() => { setOnboarded(true); setPendingLogin(true); setPhase('main'); }} />
         <NightOverlay />
       </View>
     );
@@ -339,10 +364,20 @@ export default function RootNav() {
   return (
     <ZoomProvider navRef={navigationRef}>
     <View style={{ flex: 1, backgroundColor: night ? '#000' : '#fff' }} key={night ? 'dark' : 'light'}>
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={() => {
+        // Guest launch: present Login over the tabs. Reset the flag so it only
+        // fires once (the user can dismiss it to browse as a guest).
+        if (pendingLogin && navigationRef.isReady()) {
+          navigationRef.navigate('Login');
+          setPendingLogin(false);
+        }
+      }}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
-        <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'fade_from_bottom', presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'none', presentation: 'fullScreenModal' }} />
         <Stack.Screen
           name="Signup"
           component={SignupScreen}
@@ -354,6 +389,8 @@ export default function RootNav() {
           }}
         />
         <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
+        <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} options={{ animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
             <Stack.Screen name="Category" component={CategoryScreen} />

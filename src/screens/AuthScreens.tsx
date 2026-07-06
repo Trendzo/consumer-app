@@ -71,6 +71,11 @@ export function LoginScreen({ navigation }: any) {
           Shopping from <Text style={landingStyles.shopFromUnderline}>India</Text>
         </Text>
 
+        {/* Primary, real auth path: phone OTP (signup + login in one). */}
+        <Pressable onPress={() => navigation.navigate('PhoneAuth')} style={landingStyles.phoneBtn}>
+          <Text style={landingStyles.phoneText}>CONTINUE WITH PHONE</Text>
+        </Pressable>
+
         <Pressable
           onPress={() => navigation.navigate('Signup')}
           style={landingStyles.signupBtn}
@@ -122,6 +127,21 @@ const landingStyles = StyleSheet.create({
   },
   shopFromUnderline: {
     textDecorationLine: 'underline',
+  },
+  phoneBtn: {
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: '#000',
+    marginBottom: SP.s,
+  },
+  phoneText: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 16,
+    color: '#fff',
+    letterSpacing: 1,
   },
   signupBtn: {
     height: 64,

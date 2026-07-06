@@ -12,22 +12,36 @@ import {
   HERO_IMG, HERO_IMG_2, COUPON_IMG,
 } from '../data/mockData';
 import { setNight as applyNight, setGenderCurve, subscribeTheme, LIGHT, DARK, Palette } from '../theme/brutal';
+import { setAuthToken } from '../services/api';
+import type { Session, Consumer } from '../services/auth';
+import { getServerCart, putServerCart } from '../services/cart';
+import { priceCart } from '../services/pricing';
+
+const TOKEN_KEY = '@closetx/token';
+const USER_KEY = '@closetx/user';
+const ONBOARDED_KEY = '@closetx/onboarded';
 
 export type DeliveryMethod = 'express' | 'standard' | 'pickup';
-type CartItem = Product & { qty: number; size: string; method: DeliveryMethod };
+type CartItem = Product & { qty: number; size: string; method: DeliveryMethod; variantId?: string };
 
 type AppCtx = {
   // auth
-  user: { name: string; email: string; phone?: string; address?: string } | null;
+  user: { id?: string; name: string; email: string; phone?: string; address?: string; referralCode?: string; genderPreference?: 'her' | 'him' | 'unisex' | null; profileComplete?: boolean } | null;
   signIn: (email: string, name?: string) => void;
   signOut: () => void;
   updateUser: (patch: Partial<{ name: string; email: string; phone: string; address: string }>) => void;
+  // real backend session (phone-OTP). token is the JWT sent as Bearer on API calls.
+  token: string | null;
+  signInWithSession: (session: Session) => Promise<void>;
+  applyConsumer: (consumer: Consumer) => Promise<void>;
+  // true once the persisted session (if any) has been read from disk
+  authHydrated: boolean;
   // onboarding
   onboarded: boolean;
   setOnboarded: (v: boolean) => void;
   // cart
   cart: CartItem[];
-  addToCart: (p: Product, size?: string, method?: DeliveryMethod) => void;
+  addToCart: (p: Product, size?: string, method?: DeliveryMethod, variantId?: string) => void;
   removeFromCart: (id: string) => void;
   updateQty: (id: string, qty: number) => void;
   updateMethod: (id: string, method: DeliveryMethod) => void;
@@ -40,7 +54,7 @@ type AppCtx = {
   isFavorite: (id: string) => boolean;
   // last order
   lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
-  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null }) => void;
+  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => void;
   // night mode
   night: boolean;
   toggleNight: () => void;
@@ -72,7 +86,15 @@ const Ctx = createContext<AppCtx | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppCtx['user']>(null);
-  const [onboarded, setOnboarded] = useState(false);
+  const [token, setTokenState] = useState<string | null>(null);
+  const [authHydrated, setAuthHydrated] = useState(false);
+  const [onboarded, setOnboardedState] = useState(false);
+  // Persist the onboarding flag so a returning user never sees onboarding
+  // again — it's meant for brand-new users only.
+  const setOnboarded = useCallback((v: boolean) => {
+    setOnboardedState(v);
+    AsyncStorage.setItem(ONBOARDED_KEY, v ? '1' : '0').catch(() => {});
+  }, []);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<Product[]>([]);
   const [lastOrder, setLastOrder] = useState<AppCtx['lastOrder']>(null);
@@ -108,6 +130,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ].filter(Boolean);
     ExpoImage.prefetch(urls, 'memory-disk').catch(() => { /* ignore */ });
   }, []);
+  // Hydrate the persisted session (token + consumer) once on cold start so the
+  // user stays signed in across launches. setAuthToken makes the token visible
+  // to the fetch client (services/api.ts) for Bearer auth.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [t, u, ob] = await Promise.all([
+          AsyncStorage.getItem(TOKEN_KEY),
+          AsyncStorage.getItem(USER_KEY),
+          AsyncStorage.getItem(ONBOARDED_KEY),
+        ]);
+        if (cancelled) return;
+        if (ob === '1') setOnboardedState(true);
+        if (t) {
+          setAuthToken(t);
+          setTokenState(t);
+          if (u) { try { setUser(JSON.parse(u)); } catch { /* ignore corrupt cache */ } }
+        }
+      } finally {
+        if (!cancelled) setAuthHydrated(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const [gender, setGenderRaw] = useState<'her' | 'him'>('him');
   const [toast, setToast] = useState<AppCtx['toast']>(null);
   const toastTimer = React.useRef<any>(null);
@@ -187,17 +235,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Legacy in-memory sign-in used by the mock email/password + social screens.
+  // No token, no persistence — kept because the backend doesn't serve those paths.
   const signIn = useCallback((email: string, name = 'You') => setUser({ email, name }), []);
-  const signOut = useCallback(() => setUser(null), []);
-  const updateUser = useCallback((patch: Partial<{ name: string; email: string; phone: string; address: string }>) =>
-    setUser(u => ({ name: 'You', email: 'guest@trendzo.app', ...(u || {}), ...patch })), []);
 
-  const addToCart = useCallback((p: Product, size = 'M', method: DeliveryMethod = 'express') => {
+  // Map a backend Consumer onto the app's `user` shape. name/email may be null
+  // until the profile is completed, so fall back to sensible placeholders.
+  const consumerToUser = (c: Consumer): NonNullable<AppCtx['user']> => ({
+    id: c.id,
+    name: c.name || 'You',
+    email: c.email || '',
+    phone: c.phone,
+    referralCode: c.referralCode || undefined,
+    genderPreference: c.genderPreference,
+    profileComplete: c.profileComplete,
+  });
+
+  // Real phone-OTP login: persist token + consumer and expose the token to the
+  // fetch client for Bearer auth.
+  const signInWithSession = useCallback(async (session: Session) => {
+    const u = consumerToUser(session.consumer);
+    setAuthToken(session.token);
+    setTokenState(session.token);
+    setUser(u);
+    await Promise.all([
+      AsyncStorage.setItem(TOKEN_KEY, session.token),
+      AsyncStorage.setItem(USER_KEY, JSON.stringify(u)),
+    ]).catch(() => {});
+  }, []);
+
+  // Refresh the persisted user after a profile update (PATCH /me).
+  const applyConsumer = useCallback(async (c: Consumer) => {
+    const u = consumerToUser(c);
+    setUser(u);
+    await AsyncStorage.setItem(USER_KEY, JSON.stringify(u)).catch(() => {});
+  }, []);
+
+  const signOut = useCallback(() => {
+    setUser(null);
+    setTokenState(null);
+    setAuthToken(null);
+    AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]).catch(() => {});
+  }, []);
+  const updateUser = useCallback((patch: Partial<{ name: string; email: string; phone: string; address: string }>) =>
+    setUser(u => {
+      const next = { name: 'You', email: 'guest@trendzo.app', ...(u || {}), ...patch };
+      // Keep the persisted copy in sync when there's an authenticated session.
+      AsyncStorage.getItem(TOKEN_KEY).then(t => { if (t) AsyncStorage.setItem(USER_KEY, JSON.stringify(next)); }).catch(() => {});
+      return next;
+    }), []);
+
+  const addToCart = useCallback((p: Product, size = 'M', method: DeliveryMethod = 'express', variantId?: string) => {
     setCart(prev => {
-      // Merge only when same product + same size + same delivery method (otherwise keep separate lines)
-      const existing = prev.find(it => it.id === p.id && it.size === size && it.method === method);
-      if (existing) return prev.map(it => (it.id === p.id && it.size === size && it.method === method ? { ...it, qty: it.qty + 1 } : it));
-      return [...prev, { ...p, qty: 1, size, method }];
+      // Merge when it's the same delivery method AND (same variant if we have a variant id,
+      // otherwise same product + size). Keeps separate lines for different sizes/variants.
+      const sameLine = (it: CartItem) =>
+        it.method === method && (variantId ? it.variantId === variantId : (it.id === p.id && it.size === size));
+      if (prev.some(sameLine)) return prev.map(it => (sameLine(it) ? { ...it, qty: it.qty + 1 } : it));
+      return [...prev, { ...p, qty: 1, size, method, variantId }];
     });
   }, []);
   const removeFromCart = useCallback((id: string) => setCart(prev => prev.filter(it => it.id !== id)), []);
@@ -209,16 +304,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const clearCart = useCallback(() => setCart([]), []);
 
+  // ── Server cart sync (logged-in only) ─────────────────────────────────────────
+  // The local cart stays UI-authoritative; the server is a cross-device mirror. On
+  // login we push a guest cart up (it wins) or, if the local cart is empty, rebuild
+  // it from the server (display data re-resolved via /pricing/cart). Every change is
+  // debounce-synced. All failures are swallowed (offline / guest safe).
+  const cartRef = useRef(cart);
+  useEffect(() => { cartRef.current = cart; }, [cart]);
+  const cartHydratedRef = useRef(false);
+  const skipCartSyncRef = useRef(false);
+  useEffect(() => {
+    if (!authHydrated) return;
+    if (!token) { cartHydratedRef.current = false; return; }
+    if (cartHydratedRef.current) return;
+    cartHydratedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const localItems = cartRef.current
+          .filter(it => it.variantId)
+          .map(it => ({ variantId: it.variantId as string, qty: it.qty }));
+        if (localItems.length > 0) {
+          await putServerCart(localItems); // guest cart survives login (local wins)
+          return;
+        }
+        const server = await getServerCart();
+        if (cancelled || !server.items?.length) return;
+        const priced = await priceCart(server.items);
+        const rebuilt: CartItem[] = priced.stores.flatMap(s => s.lines.map(l => ({
+          id: l.listingId, brand: '', name: l.name,
+          price: Math.round(l.unitPricePaise / 100), original: Math.round(l.unitPricePaise / 100),
+          rating: 0, colors: ['#eeeeee', '#e5e5e5'] as [string, string],
+          img: l.imageUrl ?? '', category: '',
+          qty: l.qty, size: l.attributesLabel || '', method: 'express' as DeliveryMethod, variantId: l.variantId,
+        })));
+        if (!cancelled && rebuilt.length) { skipCartSyncRef.current = true; setCart(rebuilt); }
+      } catch { /* offline / not authed — keep the local cart */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token, authHydrated]);
+  useEffect(() => {
+    if (!token || !cartHydratedRef.current) return;
+    if (skipCartSyncRef.current) { skipCartSyncRef.current = false; return; }
+    const items = cart.filter(it => it.variantId).map(it => ({ variantId: it.variantId as string, qty: it.qty }));
+    const t = setTimeout(() => { putServerCart(items).catch(() => {}); }, 500);
+    return () => clearTimeout(t);
+  }, [cart, token]);
+
   const toggleFavorite = useCallback((p: Product) => {
     setFavorites(prev => (prev.find(f => f.id === p.id) ? prev.filter(f => f.id !== p.id) : [...prev, p]));
   }, []);
   const isFavorite = useCallback((id: string) => favorites.some(f => f.id === id), [favorites]);
 
-  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string } | null }) => {
-    const total = cart.reduce((s, it) => s + it.price * it.qty, 0);
-    const items = cart.reduce((s, it) => s + it.qty, 0);
+  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => {
+    // Real order id/total come from the backend when available; fall back to a local
+    // synthesised order for the mock (guest) path so the success/tracking UI still works.
+    const total = info?.total ?? cart.reduce((s, it) => s + it.price * it.qty, 0);
+    const items = info?.items ?? cart.reduce((s, it) => s + it.qty, 0);
     setLastOrder({
-      id: 'CX' + Math.floor(Math.random() * 90000 + 10000),
+      id: info?.id ?? ('CX' + Math.floor(Math.random() * 90000 + 10000)),
       total,
       items,
       method: info?.method || 'express',
@@ -231,7 +375,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
 
   return (
-    <Ctx.Provider value={{ user, signIn, signOut, updateUser, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
+    <Ctx.Provider value={{ user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer, authHydrated, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
       {children}
     </Ctx.Provider>
   );

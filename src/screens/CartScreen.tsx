@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
+import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 
 const TAB_BAR_HEIGHT = 72;
 
@@ -25,6 +26,18 @@ export default function CartScreen() {
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
   const [applied, setApplied] = useState(0);
+  // Real server-computed totals when every line carries a backend variant id (guest-ok via
+  // /pricing/cart). Falls back to the local math below for mock items or on failure.
+  const [pricing, setPricing] = useState<CartPricing | null>(null);
+  const allPriceable = cart.length > 0 && cart.every(it => !!it.variantId);
+  useEffect(() => {
+    if (!allPriceable) { setPricing(null); return; }
+    let cancelled = false;
+    const items = cart.map(it => ({ variantId: it.variantId as string, qty: it.qty }));
+    priceCart(items).then(p => { if (!cancelled) setPricing(p); }).catch(() => { if (!cancelled) setPricing(null); });
+    return () => { cancelled = true; };
+  }, [cart, allPriceable]);
+  const agg = pricing?.aggregate;
 
   const apply = () => {
     if (coupon.toUpperCase() === 'NEWVIBE') {
@@ -51,13 +64,10 @@ export default function CartScreen() {
   const allFees = METHOD_ORDER.reduce((s, m) => s + bucketFee(m), 0);
   const total = Math.max(0, cartTotal - applied) + allFees;
 
-  const checkoutBucket = (m: DeliveryMethod) => {
-    // Per-bucket coupon share: discount applied proportional to this bucket's subtotal.
-    const sub = bucketSubtotal(m);
-    const fee = bucketFee(m);
-    const couponShare = cartTotal > 0 ? Math.round((sub / cartTotal) * applied) : 0;
-    const bucketTotal = Math.max(0, sub - couponShare) + fee;
-    nav.navigate('Checkout', { total: bucketTotal, preMethod: m });
+  const checkoutBucket = (_m: DeliveryMethod) => {
+    // Route to the single-page Review Order, which prices the whole cart server-side
+    // and places one real order per store (see ReviewOrderScreen).
+    nav.navigate('ReviewOrder');
   };
 
   return (
@@ -213,16 +223,29 @@ export default function CartScreen() {
             {/* GRAND SUMMARY */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
               <AsciiDivider faint />
-              <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
-              {METHOD_ORDER.map(m => buckets[m].length > 0 && bucketFee(m) > 0 ? (
-                <View key={m} style={s.sumRow}>
-                  <Text style={[T.body, { color: C.dim }]}>{METHOD_META[m].label.split('·')[0].trim()} · {METHOD_META[m].time}</Text>
-                  <Text style={[T.bodyB]}>₹{bucketFee(m)}</Text>
-                </View>
-              ) : null)}
-              {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>COUPON</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
-              <AsciiDivider />
-              <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{total}</Text></View>
+              {agg ? (
+                <>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{toRupees(agg.itemsSubtotalPaise)}</Text></View>
+                  {agg.discountPaise > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DISCOUNT</Text><Text style={[T.bodyB]}>−₹{toRupees(agg.discountPaise)}</Text></View>}
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DELIVERY</Text><Text style={[T.bodyB]}>{agg.deliveryFeePaise === 0 ? 'FREE' : `₹${toRupees(agg.deliveryFeePaise)}`}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>TAX · GST</Text><Text style={[T.bodyB]}>₹{toRupees(agg.taxPaise)}</Text></View>
+                  <AsciiDivider />
+                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{toRupees(agg.grandTotalPaise)}</Text></View>
+                </>
+              ) : (
+                <>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
+                  {METHOD_ORDER.map(m => buckets[m].length > 0 && bucketFee(m) > 0 ? (
+                    <View key={m} style={s.sumRow}>
+                      <Text style={[T.body, { color: C.dim }]}>{METHOD_META[m].label.split('·')[0].trim()} · {METHOD_META[m].time}</Text>
+                      <Text style={[T.bodyB]}>₹{bucketFee(m)}</Text>
+                    </View>
+                  ) : null)}
+                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>COUPON</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
+                  <AsciiDivider />
+                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{total}</Text></View>
+                </>
+              )}
             </View>
 
             {/* YOU MIGHT ALSO LIKE */}
