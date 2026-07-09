@@ -27,7 +27,7 @@ function OtpBoxes({
 }: {
   value: string;
   onChange: (v: string) => void;
-  onComplete?: () => void;
+  onComplete?: (code: string) => void;
   error?: string;
 }) {
   const inputRef = useRef<TextInput | null>(null);
@@ -41,7 +41,10 @@ function OtpBoxes({
     onChange(next);
     if (next.length >= OTP_LEN) {
       inputRef.current?.blur();
-      onComplete?.();
+      // Pass the completed code through — onComplete fires in the SAME tick as the
+      // state update, so a handler reading `value`/`otp` state would see the stale
+      // pre-completion value.
+      onComplete?.(next);
     }
   };
 
@@ -79,7 +82,7 @@ function OtpBoxes({
           maxLength={OTP_LEN}
           autoFocus
           returnKeyType="go"
-          onSubmitEditing={() => { if (value.length >= OTP_LEN) onComplete?.(); }}
+          onSubmitEditing={() => { if (value.length >= OTP_LEN) onComplete?.(value); }}
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
           caretHidden
@@ -148,10 +151,12 @@ export function PhoneAuthScreen({ navigation }: any) {
     }
   };
 
-  const handleVerify = async () => {
+  const handleVerify = async (submitted?: string) => {
     setOtpErr(undefined);
-    const code = otp.replace(/\D/g, '');
-    if (code.length < 4 || !reqId) {
+    // Prefer the code handed in by onComplete — reading `otp` state here races the
+    // auto-submit that fires in the same tick as the final keystroke.
+    const code = (submitted ?? otp).replace(/\D/g, '');
+    if (code.length < OTP_LEN || !reqId) {
       setOtpErr('Enter the code we sent you');
       return;
     }
@@ -245,7 +250,7 @@ export function PhoneAuthScreen({ navigation }: any) {
               <BrutalButton
                 label={verifying ? 'Verifying…' : 'Verify & continue'}
                 iconRight="arrow-right"
-                onPress={handleVerify}
+                onPress={() => handleVerify()}
                 disabled={verifying}
                 block
               />
