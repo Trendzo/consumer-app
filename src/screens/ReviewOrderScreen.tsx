@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Modal } from 'react-native';
+import { View, Text, ScrollView, Pressable, Modal, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
@@ -11,12 +11,11 @@ import { placeGroupOrder as placeGroupOrderApi, verifyPayment, reportPaymentFail
 import { openRazorpayCheckout } from '../services/razorpay-checkout';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 const PAYMENTS = [
-  { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
-  { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: '•••• 4242' },
+  { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'Pay by any UPI app' },
+  { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: 'Visa · Mastercard · Rupay' },
   { id: 'cod', icon: 'dollar-sign', label: 'Cash on Delivery', sub: 'Pay when it arrives' },
-  { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: '₹1,240 balance' },
+  { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: 'wallet' }, // sub replaced with live balance at render
 ];
-const REWARD_BALANCE = 240; // MyTrendz reward points (₹1 = 1 pt)
 
 // Small monochrome on/off switch
 function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
@@ -30,14 +29,19 @@ function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
 
 export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
-  const { cart, cartTotal, placeOrder, showToast, token, user } = useApp();
+  const { cart, cartTotal, placeOrder, showToast, token, user, wallet, loyalty } = useApp();
   const items = cart;
+
+  const walletBalancePaise = wallet?.balancePaise ?? 0;
+  const pointsBalance = loyalty?.balancePoints ?? 0;
 
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addrId, setAddrId] = useState<string | null>(null);
   const [addrOpen, setAddrOpen] = useState(false);
-  const [coupon, setCoupon] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [couponCode, setCouponCode] = useState<string | null>(null); // applied code
   const [useReward, setUseReward] = useState(false);
+  const [useWallet, setUseWallet] = useState(false);
   const [tryBuy, setTryBuy] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [payId, setPayId] = useState('upi');
@@ -52,15 +56,34 @@ export default function ReviewOrderScreen() {
     }).catch(() => {});
   }, []);
 
-  // Real server totals for the cart (guest-ok); falls back to local math.
+  // Real server totals for the cart (guest-ok); falls back to local math. Re-prices
+  // whenever the coupon / points / wallet inputs change — the backend applies them
+  // ONCE across the whole multi-store cart and is the single source of truth.
   const allPriceable = items.length > 0 && items.every((it) => !!it.variantId);
   useEffect(() => {
     if (!allPriceable) { setPricing(null); return; }
     let cancelled = false;
-    priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })))
+    priceCart(
+      items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
+      couponCode ?? undefined,
+      { pointsToRedeem: useReward ? pointsBalance : 0, applyWallet: useWallet },
+    )
       .then((p) => { if (!cancelled) setPricing(p); }).catch(() => { if (!cancelled) setPricing(null); });
     return () => { cancelled = true; };
-  }, [items, allPriceable]);
+  }, [items, allPriceable, couponCode, useReward, useWallet, pointsBalance]);
+
+  // Coupon feedback — the backend echoes unusable codes in rejectedCodes.
+  const couponRejected = couponCode ? (pricing?.rejectedCodes ?? []).find((r) => r.code.toUpperCase() === couponCode.toUpperCase()) : undefined;
+  const couponPaise = pricing?.aggregate?.couponPaise ?? 0;
+  const couponOk = !!couponCode && !couponRejected && couponPaise > 0;
+
+  // Auto-clear a coupon the server rejected so the user can retype.
+  useEffect(() => {
+    if (couponCode && couponRejected) {
+      showToast('Coupon not applied', couponRejected.reason || 'This code cannot be used on this cart', 'x');
+      setCouponCode(null);
+    }
+  }, [couponCode, couponRejected, showToast]);
 
   const addr = addresses.find((a) => a.id === addrId) || null;
   const pay = PAYMENTS.find((p) => p.id === payId)!;
@@ -68,12 +91,16 @@ export default function ReviewOrderScreen() {
   const agg = pricing?.aggregate;
   const mrpSavings = items.reduce((s, it) => s + Math.max(0, it.original - it.price) * it.qty, 0);
   const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : (cartTotal || items.reduce((s, it) => s + it.price * it.qty, 0));
-  const couponOff = coupon ? 50 : 0;
-  const rewardOff = useReward ? Math.min(REWARD_BALANCE, Math.max(0, subtotal - couponOff)) : 0;
+  // All discounts come from the server aggregate now (applied cart-wide, split per store).
+  const couponOff = agg ? toRupees(agg.couponPaise) : 0;
+  const promoOff = agg ? toRupees(agg.mrpPromoPaise) : 0;
+  const rewardOff = agg ? toRupees(agg.pointsRedeemedPaise) : 0;
+  const walletOff = agg ? toRupees(agg.walletAppliedPaise) : 0;
   const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : 99;
   const taxAmt = agg ? toRupees(agg.taxPaise) : 0;
   const tryBuyFee = tryBuy ? 99 : 0;
   const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
+  const payNow = agg ? toRupees(agg.amountDuePaise) : total; // after wallet partial tender
   const totalSavings = mrpSavings + (agg ? toRupees(agg.discountPaise) : couponOff + rewardOff);
 
   // Real order placement: ONE group-checkout call — the server buckets the cart by
@@ -93,6 +120,9 @@ export default function ReviewOrderScreen() {
         deliveryMethod: method,
         paymentMethod: payId as any,
         addressId: addr.id,
+        ...(couponOk && couponCode ? { couponCode } : {}),
+        ...(useReward && pointsBalance > 0 ? { pointsToRedeem: pointsBalance } : {}),
+        ...(useWallet ? { applyWallet: true } : {}),
         idempotencyKey: newIdempotencyKey(),
       });
 
@@ -239,40 +269,78 @@ export default function ReviewOrderScreen() {
               ))}
             </View>
 
-            {/* COUPON */}
-            <Pressable onPress={() => setCoupon((v) => !v)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <Feather name="tag" size={16} color={C.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB, { fontSize: 13 }]}>{coupon ? 'TRENDZO50 applied' : 'Apply coupon'}</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>{coupon ? 'You saved ₹50' : 'Save ₹50 with TRENDZO50'}</Text>
+            {/* COUPON — real code entry, validated server-side (applied cart-wide) */}
+            <View style={[{ padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather name="tag" size={16} color={C.ink} />
+                {couponOk ? (
+                  <View style={{ flex: 1 }}>
+                    <Text style={[T.bodyB, { fontSize: 13 }]}>{couponCode} applied</Text>
+                    <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>{`You saved ₹${couponOff}`}</Text>
+                  </View>
+                ) : (
+                  <TextInput
+                    value={couponInput}
+                    onChangeText={(t) => setCouponInput(t.toUpperCase())}
+                    placeholder="Enter coupon code"
+                    placeholderTextColor={C.dim}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    style={{ flex: 1, fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, paddingVertical: 2 }}
+                  />
+                )}
+                <Pressable
+                  onPress={() => {
+                    if (couponOk) { setCouponCode(null); setCouponInput(''); return; }
+                    const code = couponInput.trim().toUpperCase();
+                    if (code) setCouponCode(code);
+                  }}
+                  style={[{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: couponOk ? C.ink : C.white }, BORDER(1)]}
+                >
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: couponOk ? C.white : C.ink }}>{couponOk ? 'REMOVE' : 'APPLY'}</Text>
+                </Pressable>
               </View>
-              <View style={[{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: coupon ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: coupon ? C.white : C.ink }}>{coupon ? 'REMOVE' : 'APPLY'}</Text>
-              </View>
-            </Pressable>
-
-            {/* MYTRENDZ REWARDS */}
-            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <Feather name="award" size={16} color={C.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB, { fontSize: 13 }]}>MyTrendz Rewards</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>{`Use ${REWARD_BALANCE} pts · saves ₹${REWARD_BALANCE}`}</Text>
-              </View>
-              <Toggle on={useReward} onPress={() => setUseReward((v) => !v)} />
             </View>
+
+            {/* MYTRENDZ REWARDS — redeem loyalty points (server caps to headroom) */}
+            {pointsBalance > 0 && (
+              <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                <Feather name="award" size={16} color={C.ink} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[T.bodyB, { fontSize: 13 }]}>MyTrendz Rewards</Text>
+                  <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>{useReward && rewardOff > 0 ? `Saved ₹${rewardOff}` : `You have ${pointsBalance.toLocaleString('en-IN')} pts · ₹1 = 1 pt`}</Text>
+                </View>
+                <Toggle on={useReward} onPress={() => setUseReward((v) => !v)} />
+              </View>
+            )}
+
+            {/* TRENDZO WALLET — apply balance as partial tender */}
+            {walletBalancePaise > 0 && (
+              <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                <Feather name="package" size={16} color={C.ink} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[T.bodyB, { fontSize: 13 }]}>Trendzo Wallet</Text>
+                  <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>{useWallet && walletOff > 0 ? `Applied ₹${walletOff}` : `Balance ₹${(walletBalancePaise / 100).toLocaleString('en-IN')}`}</Text>
+                </View>
+                <Toggle on={useWallet} onPress={() => setUseWallet((v) => !v)} />
+              </View>
+            )}
 
             {/* PRICE DETAILS */}
             <Text style={[T.label, { marginTop: SP.xl, marginBottom: 4 }]}>PRICE DETAILS</Text>
             <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
               <Row k="Item total" v={`₹${subtotal + mrpSavings}`} />
               {mrpSavings > 0 && <Row k="Discount on MRP" v={`− ₹${mrpSavings}`} neg />}
-              {couponOff > 0 && <Row k="Coupon (TRENDZO50)" v={`− ₹${couponOff}`} neg />}
+              {promoOff > 0 && <Row k="Store offer" v={`− ₹${promoOff}`} neg />}
+              {couponOff > 0 && <Row k={`Coupon${couponCode ? ` (${couponCode})` : ''}`} v={`− ₹${couponOff}`} neg />}
               {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
-              <Row k={deliveryFee === 0 ? 'Delivery' : 'Delivery'} v={deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`} />
+              <Row k="Delivery" v={deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`} />
               {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
               {tryBuyFee > 0 && <Row k="Try & Buy" v={`₹${tryBuyFee}`} />}
               <View style={{ height: 1, backgroundColor: C.ink, marginVertical: 4 }} />
               <Row k="Total amount" v={`₹${total}`} bold />
+              {walletOff > 0 && <Row k="Wallet applied" v={`− ₹${walletOff}`} neg />}
+              {walletOff > 0 && <Row k="To pay now" v={`₹${payNow}`} bold />}
             </View>
 
             {/* SAVINGS BANNER */}
@@ -286,8 +354,8 @@ export default function ReviewOrderScreen() {
           {/* STICKY CONFIRM & PAY */}
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.ink, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }}>
             <View>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink }}>₹{total}</Text>
-              {totalSavings > 0 && <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>saved ₹{totalSavings}</Text>}
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink }}>₹{payNow}</Text>
+              {walletOff > 0 ? <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>₹{walletOff} from wallet</Text> : totalSavings > 0 ? <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>saved ₹{totalSavings}</Text> : null}
             </View>
             <Pressable onPress={() => setPayOpen(true)} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15, backgroundColor: C.ink }, BORDER(1)]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, letterSpacing: 0.5 }}>CONFIRM & PAY</Text>
@@ -319,7 +387,7 @@ export default function ReviewOrderScreen() {
                     <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: sel ? C.white : C.ink }}>{p.label}</Text>
-                      <Text style={[T.mono, { fontSize: 9, color: sel ? C.white : C.dim, marginTop: 2 }]}>{p.sub}</Text>
+                      <Text style={[T.mono, { fontSize: 9, color: sel ? C.white : C.dim, marginTop: 2 }]}>{p.sub === 'wallet' ? `Balance ₹${(walletBalancePaise / 100).toLocaleString('en-IN')}` : p.sub}</Text>
                     </View>
                     <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
                   </Pressable>
@@ -328,7 +396,7 @@ export default function ReviewOrderScreen() {
             </View>
 
             <Pressable onPress={placeIt} style={[{ marginTop: SP.l, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, letterSpacing: 0.5 }}>{pay.id === 'cod' ? `PLACE ORDER · ₹${total}` : `PAY ₹${total}`}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, letterSpacing: 0.5 }}>{pay.id === 'cod' ? `PLACE ORDER · ₹${payNow}` : `PAY ₹${payNow}`}</Text>
               <Feather name="arrow-right" size={17} color={C.white} />
             </Pressable>
           </MotiView>

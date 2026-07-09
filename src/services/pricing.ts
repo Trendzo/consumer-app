@@ -28,9 +28,17 @@ export type CartPricing = {
   aggregate: {
     itemsSubtotalPaise: number;
     discountPaise: number;
+    /** Split of discountPaise for honest line items. */
+    mrpPromoPaise: number;
+    couponPaise: number;
+    pointsRedeemedPaise: number;
     deliveryFeePaise: number;
     taxPaise: number;
     grandTotalPaise: number;
+    /** Wallet is a partial tender ON TOP of grandTotal, not a discount. */
+    walletAppliedPaise: number;
+    /** grandTotalPaise − walletAppliedPaise → what UPI/card/COD collects. */
+    amountDuePaise: number;
     loyaltyEarnedPoints: number;
     defaultDeliveryMethod: string;
   };

@@ -15,6 +15,9 @@ import { getLoyalty, type LoyaltyTxn } from '../services/loyalty';
 import { getWallet, type WalletTxn } from '../services/wallet';
 import { redeemGiftCard, listGiftCards, type GiftCard } from '../services/giftCards';
 import { getReferral, redeemReferral, type Referral } from '../services/referrals';
+import { listOrders, getOrder, type OrderListRow, type OrderDetailItem } from '../services/orders';
+import { listReturns, createReturn, type ReturnRow, type ReasonCategory } from '../services/returns';
+import { listIssues, getIssue, createIssue, addIssueMessage, type IssueRow, type IssueDetail } from '../services/issues';
 
 // ═══════════════════════════════════════════════════════════
 // SHARED PRIMITIVES — unique hero per screen, shared shell
@@ -782,69 +785,205 @@ export function LanguageScreen() {
 // ═══════════════════════════════════════════════════════════
 // CUSTOMER SUPPORT
 // ═══════════════════════════════════════════════════════════
+const ISSUE_STATUS_LABEL: Record<string, string> = {
+  open: 'OPEN', requested_evidence: 'NEEDS INFO', decided: 'RESOLVED', escalated: 'ESCALATED',
+};
+const ISSUE_KINDS: { kind: 'query' | 'complaint' | 'dispute'; label: string; hint: string }[] = [
+  { kind: 'query', label: 'Question', hint: 'Ask about an order' },
+  { kind: 'complaint', label: 'Complaint', hint: 'Something went wrong' },
+  { kind: 'dispute', label: 'Dispute', hint: 'Charge / refund issue' },
+];
+
 export function CustomerSupportScreen() {
   const nav = useNavigation<any>();
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<{ from: 'bot' | 'user'; text: string }[]>([
-    { from: 'bot', text: "Hey! I'm CX-Bot. How can I help you today?" },
-  ]);
-  const quick = ['Track order', 'Return item', 'Payment issue', 'Size help'];
+  const { showToast, user } = useApp();
+  const [view, setView] = useState<'list' | 'new' | 'thread'>('list');
 
-  const send = (text?: string) => {
-    const msg = (text ?? message).trim();
-    if (!msg) return;
-    setMessages(prev => [
-      ...prev,
-      { from: 'user', text: msg },
-      { from: 'bot', text: "Got it! Let me look into that. A human agent will follow up shortly." },
-    ]);
-    setMessage('');
+  // list
+  const [tickets, setTickets] = useState<IssueRow[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(true);
+  const loadTickets = useCallback(() => {
+    setLoadingTickets(true);
+    listIssues().then(setTickets).catch(() => {}).finally(() => setLoadingTickets(false));
+  }, []);
+  useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  // thread
+  const [active, setActive] = useState<IssueDetail | null>(null);
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+  const openThread = (id: string) => {
+    setView('thread'); setActive(null); setLoadingThread(true);
+    getIssue(id).then(setActive).catch((e: any) => showToast('Could not open ticket', e?.message || 'Try again', 'x')).finally(() => setLoadingThread(false));
+  };
+  const sendReply = () => {
+    if (!active || !reply.trim() || sending) return;
+    const body = reply.trim();
+    setSending(true);
+    addIssueMessage(active.id, { body })
+      .then(() => { setReply(''); return getIssue(active.id).then(setActive); })
+      .catch((e: any) => showToast('Message failed', e?.message || 'Try again', 'x'))
+      .finally(() => setSending(false));
+  };
+
+  // new ticket
+  const [orders, setOrders] = useState<OrderListRow[]>([]);
+  const [nOrderId, setNOrderId] = useState<string | null>(null);
+  const [nKind, setNKind] = useState<'query' | 'complaint' | 'dispute'>('query');
+  const [nSubject, setNSubject] = useState('');
+  const [nDesc, setNDesc] = useState('');
+  const [creating, setCreating] = useState(false);
+  const startNew = () => {
+    setNOrderId(null); setNKind('query'); setNSubject(''); setNDesc(''); setView('new');
+    listOrders().then(setOrders).catch(() => {});
+  };
+  const submitNew = () => {
+    if (creating) return;
+    if (!nOrderId) { showToast('Pick an order', 'Choose which order this is about', 'x'); return; }
+    if (!nSubject.trim() || !nDesc.trim()) { showToast('Add details', 'Subject and description are required', 'x'); return; }
+    setCreating(true);
+    createIssue({ kind: nKind, orderId: nOrderId, subject: nSubject.trim(), description: nDesc.trim() })
+      .then((r) => { showToast('Ticket created', 'Our team will respond soon', 'check'); loadTickets(); openThread(r.issueId); })
+      .catch((e: any) => showToast('Could not create ticket', e?.message || 'Try again', 'x'))
+      .finally(() => setCreating(false));
+  };
+
+  const back = () => {
+    if (view === 'thread' || view === 'new') { setView('list'); loadTickets(); return; }
+    nav.goBack();
   };
 
   return (
     <PageShell>
-      <ScreenHeader title="Support" onBack={() => nav.goBack()} />
+      <ScreenHeader title="Support" onBack={back} />
       <View style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 20 }}>
-          <Hero
-            code={'CX_BOT_v2 · 24×7'}
-            title={'WE GOT\nYOU.'}
-            intro="Live chat with CX-Bot. Escalates to a human agent in seconds."
-            chips={[{ label: 'ONLINE NOW', solid: true }, { label: 'AVG 2 MIN' }]}
-          />
-
-          <SectionLabel label="QUICK HELP" />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {quick.map(q => (
-              <Pressable key={q} onPress={() => send(q)} style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink }}>{q}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <SectionLabel label="CONVERSATION" />
-          {messages.map((m, i) => (
-            <FadeInUp key={i} delay={i * 40}>
-              <View style={{ marginTop: SP.s, alignItems: m.from === 'bot' ? 'flex-start' : 'flex-end' }}>
-                {m.from === 'bot' && <Text style={[T.mono, { color: C.dim, fontSize: 9, marginBottom: 4 }]}>CX-BOT</Text>}
-                {m.from === 'user' && <Text style={[T.mono, { color: C.dim, fontSize: 9, marginBottom: 4 }]}>YOU</Text>}
-                <View style={[{ padding: SP.m, maxWidth: '85%', backgroundColor: m.from === 'bot' ? C.white : C.ink }, BORDER(1)]}>
-                  <Text style={[T.body, { color: m.from === 'bot' ? C.ink : C.white }]}>{m.text}</Text>
-                </View>
+        {/* ═══ TICKET LIST ═══ */}
+        {view === 'list' && (
+          <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 40 }}>
+            <Hero
+              code={'SUPPORT · TICKETS'}
+              title={'WE GOT\nYOU.'}
+              intro="Open a ticket about any order. Our team replies right here — track every conversation."
+              chips={[{ label: 'HUMAN SUPPORT', solid: true }, { label: 'ORDER-LINKED' }]}
+            />
+            <BrutalButton label="New ticket" icon="plus" block onPress={startNew} style={{ marginTop: SP.l }} />
+            <SectionLabel label="YOUR TICKETS" right={loadingTickets ? '…' : `${tickets.length}`} />
+            {loadingTickets && <Text style={[T.mono, { fontSize: 11, color: C.dim, marginTop: 8 }]}>LOADING…</Text>}
+            {!loadingTickets && tickets.length === 0 && (
+              <View style={[{ marginTop: SP.s, padding: SP.l, alignItems: 'center' }, BORDER(1)]}>
+                <Feather name="message-circle" size={22} color={C.dim} />
+                <Text style={[T.monoB, { fontSize: 11, marginTop: 8 }]}>NO TICKETS YET</Text>
+                <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 4, textAlign: 'center' }]}>Need help with an order? Open a ticket above.</Text>
               </View>
-            </FadeInUp>
-          ))}
-        </ScrollView>
-        <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.s, borderTopWidth: 1, borderColor: C.ink, backgroundColor: C.white }}>
-          <TextInput
-            value={message}
-            onChangeText={setMessage}
-            placeholder="Type your message..."
-            placeholderTextColor={C.dim}
-            style={[{ flex: 1, padding: SP.m, fontFamily: 'Inter_400Regular', fontSize: 14, color: C.ink }, BORDER(1)]}
-          />
-          <BrutalButton label="Send" icon="send" small onPress={() => send()} />
-        </View>
+            )}
+            {tickets.map((t, i) => (
+              <FadeInUp key={t.id} delay={i * 40}>
+                <Pressable onPress={() => openThread(t.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink }} numberOfLines={1}>{t.subject}</Text>
+                      <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{t.kind.toUpperCase()} · {new Date(t.lastMessageAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</Text>
+                    </View>
+                    <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: t.status === 'decided' ? C.ink : C.white }, BORDER(1)]}>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5, color: t.status === 'decided' ? C.white : C.ink }}>{ISSUE_STATUS_LABEL[t.status] || t.status.toUpperCase()}</Text>
+                    </View>
+                    <Feather name="chevron-right" size={16} color={C.ink} style={{ marginLeft: 8 }} />
+                  </View>
+                </Pressable>
+              </FadeInUp>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* ═══ NEW TICKET ═══ */}
+        {view === 'new' && (
+          <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+            <SectionLabel label="WHAT IS THIS ABOUT?" />
+            <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
+              {ISSUE_KINDS.map((k) => {
+                const on = nKind === k.kind;
+                return (
+                  <Pressable key={k.kind} onPress={() => setNKind(k.kind)} style={[{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: on ? C.white : C.ink }}>{k.label}</Text>
+                    <Text style={[T.mono, { fontSize: 8, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3, textAlign: 'center' }]}>{k.hint}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <SectionLabel label="WHICH ORDER?" right={`${orders.length}`} />
+            {orders.length === 0 && <Text style={[T.mono, { fontSize: 10, color: C.dim, marginTop: 8 }]}>No orders found — a ticket must be linked to an order.</Text>}
+            {orders.map((o) => {
+              const on = nOrderId === o.id;
+              return (
+                <Pressable key={o.id} onPress={() => setNOrderId(o.id)} style={[{ marginTop: SP.s, padding: SP.m, flexDirection: 'row', alignItems: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                  <Feather name={on ? 'check-circle' : 'circle'} size={16} color={on ? C.white : C.dim} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: on ? C.white : C.ink }} numberOfLines={1}>{o.storeName}</Text>
+                    <Text style={[T.mono, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{o.status.toUpperCase()}{o.grandTotalPaise != null ? ` · ₹${(o.grandTotalPaise / 100).toFixed(0)}` : ''}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            <SectionLabel label="SUBJECT" />
+            <TextInput value={nSubject} onChangeText={setNSubject} placeholder="Short summary" placeholderTextColor={C.dim} style={[{ marginTop: 6, paddingHorizontal: SP.m, paddingVertical: 12, fontFamily: 'Inter_700Bold', fontSize: 14, color: C.ink, backgroundColor: C.white }, BORDER(1)]} />
+
+            <SectionLabel label="DESCRIPTION" />
+            <TextInput value={nDesc} onChangeText={setNDesc} placeholder="Tell us what happened…" placeholderTextColor={C.dim} multiline style={[{ marginTop: 6, paddingHorizontal: SP.m, paddingVertical: 12, fontFamily: 'Inter_400Regular', fontSize: 13, color: C.ink, backgroundColor: C.white, minHeight: 96, textAlignVertical: 'top' }, BORDER(1)]} />
+
+            <BrutalButton label={creating ? 'Creating…' : 'Create ticket'} icon="send" block disabled={creating} onPress={submitNew} style={{ marginTop: SP.xl }} />
+          </ScrollView>
+        )}
+
+        {/* ═══ THREAD ═══ */}
+        {view === 'thread' && (
+          <>
+            <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 20 }}>
+              {loadingThread && <Text style={[T.mono, { fontSize: 11, color: C.dim }]}>LOADING…</Text>}
+              {active && (
+                <>
+                  <View style={[{ padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{active.kind.toUpperCase()}</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5, color: C.white }}>{ISSUE_STATUS_LABEL[active.status] || active.status.toUpperCase()}</Text>
+                    </View>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, marginTop: 6 }}>{active.subject}</Text>
+                    <Text style={[T.body, { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 6 }]}>{active.description}</Text>
+                    {active.decision && <Text style={[T.mono, { fontSize: 10, color: C.white, marginTop: 8 }]}>DECISION: {active.decision.toUpperCase()}{active.decisionNote ? ` — ${active.decisionNote}` : ''}</Text>}
+                  </View>
+
+                  <SectionLabel label="CONVERSATION" right={`${active.messages.length}`} />
+                  {active.messages.map((m, i) => {
+                    const mine = m.senderType === 'consumer';
+                    return (
+                      <FadeInUp key={m.id} delay={i * 30}>
+                        <View style={{ marginTop: SP.s, alignItems: mine ? 'flex-end' : 'flex-start' }}>
+                          <Text style={[T.mono, { color: C.dim, fontSize: 9, marginBottom: 4 }]}>{mine ? 'YOU' : m.senderType.toUpperCase()}</Text>
+                          <View style={[{ padding: SP.m, maxWidth: '85%', backgroundColor: mine ? C.ink : C.white }, BORDER(1)]}>
+                            <Text style={[T.body, { color: mine ? C.white : C.ink, fontSize: 13 }]}>{m.body}</Text>
+                          </View>
+                        </View>
+                      </FadeInUp>
+                    );
+                  })}
+                  {active.messages.length === 0 && <Text style={[T.mono, { fontSize: 10, color: C.dim, marginTop: 8 }]}>No replies yet — our team will respond soon.</Text>}
+                </>
+              )}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.s, borderTopWidth: 1, borderColor: C.ink, backgroundColor: C.white }}>
+              <TextInput
+                value={reply}
+                onChangeText={setReply}
+                placeholder="Type your message…"
+                placeholderTextColor={C.dim}
+                style={[{ flex: 1, padding: SP.m, fontFamily: 'Inter_400Regular', fontSize: 14, color: C.ink }, BORDER(1)]}
+              />
+              <BrutalButton label={sending ? '…' : 'Send'} icon="send" small disabled={sending || !reply.trim()} onPress={sendReply} />
+            </View>
+          </>
+        )}
       </View>
     </PageShell>
   );
@@ -1103,220 +1242,304 @@ export function SustainabilityScreen() {
 // ═══════════════════════════════════════════════════════════
 // ORDER RETURN
 // ═══════════════════════════════════════════════════════════
-const RETURNABLE_ORDERS = [
-  {
-    id: 'CX10442', date: '02 APR 2026', daysLeft: 3,
-    items: [
-      { id: 'i1', name: 'Oversized Wool Coat', brand: 'NORTH.', price: 4990 },
-      { id: 'i2', name: 'Slim Fit Jeans', brand: 'YORK', price: 1500 },
-    ],
-  },
-  {
-    id: 'CX10388', date: '18 MAR 2026', daysLeft: 1,
-    items: [
-      { id: 'i3', name: 'Cotton Tee · Ecru', brand: 'AZUKI', price: 990 },
-    ],
-  },
-  {
-    id: 'CX10188', date: '25 JAN 2026', daysLeft: 0,
-    items: [
-      { id: 'i4', name: 'Leather Sneakers', brand: 'YORK', price: 4490 },
-    ],
-  },
+const RETURN_REASONS: { label: string; icon: string; category: ReasonCategory }[] = [
+  { label: "Doesn't fit", icon: 'maximize', category: 'doesnt_fit' },
+  { label: 'Damaged / defective', icon: 'alert-triangle', category: 'damaged' },
+  { label: 'Wrong item sent', icon: 'shuffle', category: 'wrong_item' },
+  { label: 'Not as described', icon: 'x-circle', category: 'not_as_described' },
+  { label: 'Other reason', icon: 'more-horizontal', category: 'other' },
 ];
+
+// 7-day post-delivery return window → whole days remaining (0 = closed).
+function returnDaysLeft(deliveredAt?: string | null): number {
+  if (!deliveredAt) return 0;
+  const elapsed = (Date.now() - new Date(deliveredAt).getTime()) / 86400000;
+  return Math.max(0, Math.ceil(7 - elapsed));
+}
+
+const DECISION_LABEL: Record<string, string> = {
+  pending: 'UNDER REVIEW', accepted: 'ACCEPTED', rejected: 'REJECTED', rejected_at_door: 'REJECTED AT DOOR',
+};
+const PICKUP_LABEL: Record<string, string> = {
+  pending: 'PICKUP PENDING', assigned: 'PARTNER ASSIGNED', collected: 'COLLECTED', delivered_to_store: 'BACK AT STORE', cancelled: 'CANCELLED',
+};
 
 type ReturnStep = 'order' | 'item' | 'reason';
 
 export function OrderReturnScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
+  const [tab, setTab] = useState<'new' | 'my'>('new');
+
+  // data
+  const [orders, setOrders] = useState<OrderListRow[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [returns, setReturns] = useState<ReturnRow[]>([]);
+  const [loadingReturns, setLoadingReturns] = useState(true);
+
+  // new-return wizard
   const [step, setStep] = useState<ReturnStep>('order');
-  const [orderId, setOrderId] = useState<string | null>(null);
+  const [order, setOrder] = useState<OrderListRow | null>(null);
+  const [items, setItems] = useState<OrderDetailItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
   const [itemId, setItemId] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState<ReasonCategory | null>(null);
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const reasons = [
-    { label: 'Wrong size', icon: 'maximize' },
-    { label: 'Defective item', icon: 'alert-triangle' },
-    { label: 'Not as described', icon: 'x-circle' },
-    { label: 'Changed my mind', icon: 'rotate-ccw' },
-    { label: 'Better price elsewhere', icon: 'tag' },
-  ];
+  const loadOrders = useCallback(() => {
+    setLoadingOrders(true);
+    listOrders()
+      .then((rows) => setOrders(rows.filter((o) => o.status === 'delivered')))
+      .catch(() => {})
+      .finally(() => setLoadingOrders(false));
+  }, []);
+  const loadReturns = useCallback(() => {
+    setLoadingReturns(true);
+    listReturns().then(setReturns).catch(() => {}).finally(() => setLoadingReturns(false));
+  }, []);
+  useEffect(() => { loadOrders(); loadReturns(); }, [loadOrders, loadReturns]);
 
-  const selectedOrder = RETURNABLE_ORDERS.find(o => o.id === orderId);
-  const selectedItem = selectedOrder?.items.find(i => i.id === itemId);
+  const selectedItem = items.find((i) => i.id === itemId) || null;
 
-  const pickOrder = (id: string) => {
-    const o = RETURNABLE_ORDERS.find(x => x.id === id)!;
-    if (o.daysLeft <= 0) {
-      showToast('Return window closed', '7-day window has ended', 'alert-triangle');
-      return;
-    }
-    setOrderId(id);
-    setItemId(null);
-    setStep('item');
-  };
-
-  const pickItem = (id: string) => {
-    setItemId(id);
-    setStep('reason');
+  const pickOrder = (o: OrderListRow) => {
+    if (returnDaysLeft(o.deliveredAt) <= 0) { showToast('Return window closed', '7-day window has ended', 'alert-triangle'); return; }
+    setOrder(o); setItemId(null); setItems([]); setStep('item'); setLoadingItems(true);
+    getOrder(o.id)
+      .then((d) => setItems(d.items ?? []))
+      .catch((e: any) => { showToast('Could not load items', e?.message || 'Try again', 'x'); setStep('order'); })
+      .finally(() => setLoadingItems(false));
   };
 
   const back = () => {
-    if (step === 'reason') { setStep('item'); setReason(''); return; }
-    if (step === 'item') { setStep('order'); setItemId(null); return; }
+    if (step === 'reason') { setStep('item'); setReason(null); setNote(''); return; }
+    if (step === 'item') { setStep('order'); setItemId(null); setItems([]); return; }
     nav.goBack();
   };
 
   const submit = () => {
-    showToast('Return initiated', 'Pickup scheduled for tomorrow', 'rotate-ccw');
-    nav.goBack();
+    if (!order || !itemId || !reason || submitting) return;
+    setSubmitting(true);
+    createReturn({ orderId: order.id, items: [{ orderItemId: itemId, reasonCategory: reason, ...(note.trim() ? { reasonText: note.trim() } : {}) }] })
+      .then((r) => {
+        showToast('Return requested', r.reversePickupId ? 'Pickup scheduled — see My Returns for the code' : 'The store will review your request', 'rotate-ccw');
+        setStep('order'); setOrder(null); setItemId(null); setReason(null); setNote(''); setItems([]);
+        setTab('my'); loadReturns(); loadOrders();
+      })
+      .catch((e: any) => {
+        const msg = e?.code === 'return_window_expired' ? '7-day window has ended'
+          : e?.code === 'return_invalid_state' ? 'This item is not eligible for return'
+          : e?.message || 'Please try again';
+        showToast('Return failed', msg, 'x');
+      })
+      .finally(() => setSubmitting(false));
   };
 
-  // Progress bar — shows current step of 3
   const stepIndex = step === 'order' ? 0 : step === 'item' ? 1 : 2;
   const stepLabels = ['ORDER', 'ITEM', 'REASON'];
 
   return (
     <PageShell>
-      <ScreenHeader title="Returns" onBack={back} />
+      <ScreenHeader title="Returns" onBack={tab === 'new' && step !== 'order' ? back : () => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'RETURN_FLOW · 7D'}
           title={'EASY\nRETURNS.'}
-          intro="7-day hassle-free returns. Pickup from your door. Refund in 3-5 days."
-          chips={[{ label: `STEP ${stepIndex + 1}/3`, solid: true }, { label: 'FREE PICKUP' }]}
+          intro="7-day returns. Pickup from your door — give the partner the collect code shown under My Returns."
+          chips={[{ label: 'FREE PICKUP', solid: true }, { label: '7-DAY WINDOW' }]}
         />
 
-        {/* Step progress */}
+        {/* Tabs: new return | my returns */}
         <View style={[{ flexDirection: 'row', marginTop: SP.l, overflow: 'hidden' }, BORDER(1)]}>
-          {stepLabels.map((label, i) => {
-            const active = i === stepIndex;
-            const done = i < stepIndex;
+          {(['new', 'my'] as const).map((t, i) => {
+            const on = tab === t;
             return (
-              <View
-                key={label}
-                style={[
-                  { flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: active || done ? C.ink : C.white },
-                  i > 0 && { borderLeftWidth: 1, borderColor: C.ink },
-                ]}
-              >
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: active || done ? C.white : C.ink, letterSpacing: 0.6 }}>{label}</Text>
-                <Text style={[T.mono, { fontSize: 8, marginTop: 2, color: active || done ? 'rgba(255,255,255,0.6)' : C.dim }]}>0{i + 1}</Text>
-              </View>
+              <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: on ? C.ink : C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: on ? C.white : C.ink, letterSpacing: 0.6 }}>{t === 'new' ? 'NEW RETURN' : `MY RETURNS${returns.length ? ` · ${returns.length}` : ''}`}</Text>
+              </Pressable>
             );
           })}
         </View>
 
-        {/* ── STEP 1: PICK ORDER ── */}
-        {step === 'order' && (
+        {/* ═══════════ MY RETURNS ═══════════ */}
+        {tab === 'my' && (
           <>
-            <SectionLabel label="SELECT ORDER" right={`${RETURNABLE_ORDERS.length} ELIGIBLE`} />
-            {RETURNABLE_ORDERS.map((o, i) => {
-              const expired = o.daysLeft <= 0;
+            {loadingReturns && <Text style={[T.mono, { fontSize: 11, color: C.dim, marginTop: SP.l }]}>LOADING…</Text>}
+            {!loadingReturns && returns.length === 0 && (
+              <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center' }, BORDER(1)]}>
+                <Feather name="package" size={22} color={C.dim} />
+                <Text style={[T.monoB, { fontSize: 11, marginTop: 8 }]}>NO RETURNS YET</Text>
+                <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 4, textAlign: 'center' }]}>Returns you open will show here with pickup status and refund.</Text>
+              </View>
+            )}
+            {returns.map((r, i) => {
+              const rp = r.reversePickup;
+              const showOtp = !!rp && !!rp.collectOtp && (rp.status === 'pending' || rp.status === 'assigned');
               return (
-                <FadeInUp key={o.id} delay={i * 40}>
-                  <Pressable
-                    onPress={() => pickOrder(o.id)}
-                    style={[
-                      { marginTop: SP.s, backgroundColor: expired ? C.white : C.white, opacity: expired ? 0.55 : 1 },
-                      BORDER(1),
-                    ]}
-                  >
+                <FadeInUp key={r.id} delay={i * 40}>
+                  <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[T.monoB, { fontSize: 10 }]}>{`#${o.id}`}</Text>
-                        <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{o.date} · {o.items.length} item{o.items.length !== 1 ? 's' : ''}</Text>
+                        <Text style={[T.monoB, { fontSize: 9, color: C.dim }]}>{r.itemBrand}</Text>
+                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 2 }} numberOfLines={1}>{r.itemName}</Text>
                       </View>
-                      <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: expired ? C.white : C.ink }, BORDER(1)]}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: expired ? C.ink : C.white }}>
-                          {expired ? 'WINDOW CLOSED' : `${o.daysLeft}D LEFT`}
-                        </Text>
+                      <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: r.storeDecision === 'accepted' ? C.ink : C.white }, BORDER(1)]}>
+                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5, color: r.storeDecision === 'accepted' ? C.white : C.ink }}>{DECISION_LABEL[r.storeDecision] || r.storeDecision.toUpperCase()}</Text>
                       </View>
                     </View>
-                    <View style={{ padding: SP.m, gap: 6 }}>
-                      {o.items.map(it => (
-                        <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={[T.monoB, { fontSize: 8, color: C.dim, width: 48 }]}>{it.brand}</Text>
-                          <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: C.ink, flex: 1 }} numberOfLines={1}>{it.name}</Text>
-                          <Text style={[T.mono, { fontSize: 10 }]}>₹{it.price}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    {!expired && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', padding: SP.m, borderTopWidth: 1, borderColor: C.hairline, gap: 4 }}>
-                        <Text style={[T.monoB, { fontSize: 10 }]}>CHOOSE ITEM</Text>
-                        <Feather name="chevron-right" size={14} color={C.ink} />
+
+                    {/* Collect OTP — the code the customer reads to the pickup partner */}
+                    {showOtp && (
+                      <View style={[{ margin: SP.m, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+                        <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>GIVE THIS CODE TO THE PICKUP PARTNER</Text>
+                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), letterSpacing: 6, color: C.white, marginTop: 6 }}>{rp!.collectOtp}</Text>
+                        <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 4 }]}>{PICKUP_LABEL[rp!.status] || rp!.status}</Text>
                       </View>
                     )}
-                  </Pressable>
+
+                    <View style={{ padding: SP.m, gap: 4 }}>
+                      {rp && !showOtp && (
+                        <Row2 k="PICKUP" v={PICKUP_LABEL[rp.status] || rp.status} />
+                      )}
+                      {r.refund && (
+                        <Row2 k="REFUND" v={`₹${(r.refund.amountPaise / 100).toFixed(0)} · ${r.refund.status.toUpperCase()}`} />
+                      )}
+                      <Row2 k="OPENED" v={new Date(r.openedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} />
+                    </View>
+                  </View>
                 </FadeInUp>
               );
             })}
           </>
         )}
 
-        {/* ── STEP 2: PICK ITEM ── */}
-        {step === 'item' && selectedOrder && (
+        {/* ═══════════ NEW RETURN WIZARD ═══════════ */}
+        {tab === 'new' && (
           <>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'SELECTED ORDER'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, marginTop: 4 }}>{`#${selectedOrder.id}`}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D LEFT IN WINDOW</Text>
+            <View style={[{ flexDirection: 'row', marginTop: SP.l, overflow: 'hidden' }, BORDER(1)]}>
+              {stepLabels.map((label, i) => {
+                const active = i === stepIndex; const done = i < stepIndex;
+                return (
+                  <View key={label} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: active || done ? C.ink : C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: active || done ? C.white : C.ink, letterSpacing: 0.6 }}>{label}</Text>
+                    <Text style={[T.mono, { fontSize: 8, marginTop: 2, color: active || done ? 'rgba(255,255,255,0.6)' : C.dim }]}>0{i + 1}</Text>
+                  </View>
+                );
+              })}
             </View>
 
-            <SectionLabel label="SELECT ITEM TO RETURN" right={`${selectedOrder.items.length} ITEMS`} />
-            {selectedOrder.items.map((it, i) => {
-              const on = itemId === it.id;
-              return (
-                <FadeInUp key={it.id} delay={i * 40}>
-                  <Pressable onPress={() => pickItem(it.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
-                      <Feather name="shopping-bag" size={16} color={on ? C.ink : C.ink} />
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[T.monoB, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{it.brand}</Text>
-                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, marginTop: 2 }}>{it.name}</Text>
-                      <Text style={[T.mono, { fontSize: 10, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>₹{it.price}</Text>
-                    </View>
-                    <Feather name={on ? 'check' : 'chevron-right'} size={16} color={on ? C.white : C.ink} />
-                  </Pressable>
-                </FadeInUp>
-              );
-            })}
-          </>
-        )}
+            {/* STEP 1: pick a delivered order */}
+            {step === 'order' && (
+              <>
+                <SectionLabel label="SELECT ORDER" right={loadingOrders ? '…' : `${orders.length} ELIGIBLE`} />
+                {loadingOrders && <Text style={[T.mono, { fontSize: 11, color: C.dim, marginTop: 8 }]}>LOADING…</Text>}
+                {!loadingOrders && orders.length === 0 && (
+                  <View style={[{ marginTop: SP.s, padding: SP.l, alignItems: 'center' }, BORDER(1)]}>
+                    <Text style={[T.monoB, { fontSize: 11 }]}>NO RETURNABLE ORDERS</Text>
+                    <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 4, textAlign: 'center' }]}>Only delivered orders within 7 days can be returned.</Text>
+                  </View>
+                )}
+                {orders.map((o, i) => {
+                  const days = returnDaysLeft(o.deliveredAt); const expired = days <= 0;
+                  return (
+                    <FadeInUp key={o.id} delay={i * 40}>
+                      <Pressable onPress={() => pickOrder(o)} style={[{ marginTop: SP.s, backgroundColor: C.white, opacity: expired ? 0.55 : 1 }, BORDER(1)]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[T.monoB, { fontSize: 11 }]}>{o.storeName}</Text>
+                            <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{o.deliveredAt ? new Date(o.deliveredAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}{o.grandTotalPaise != null ? ` · ₹${(o.grandTotalPaise / 100).toFixed(0)}` : ''}</Text>
+                          </View>
+                          <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: expired ? C.white : C.ink }, BORDER(1)]}>
+                            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: expired ? C.ink : C.white }}>{expired ? 'WINDOW CLOSED' : `${days}D LEFT`}</Text>
+                          </View>
+                          {!expired && <Feather name="chevron-right" size={16} color={C.ink} style={{ marginLeft: 8 }} />}
+                        </View>
+                      </Pressable>
+                    </FadeInUp>
+                  );
+                })}
+              </>
+            )}
 
-        {/* ── STEP 3: PICK REASON ── */}
-        {step === 'reason' && selectedOrder && selectedItem && (
-          <>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'RETURNING'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, marginTop: 4 }}>{selectedItem.name}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
-            </View>
+            {/* STEP 2: pick the item */}
+            {step === 'item' && order && (
+              <>
+                <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+                  <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>SELECTED ORDER</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, marginTop: 4 }}>{order.storeName}</Text>
+                  <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{returnDaysLeft(order.deliveredAt)}D LEFT IN WINDOW</Text>
+                </View>
+                <SectionLabel label="SELECT ITEM TO RETURN" right={loadingItems ? '…' : `${items.length} ITEMS`} />
+                {loadingItems && <Text style={[T.mono, { fontSize: 11, color: C.dim, marginTop: 8 }]}>LOADING ITEMS…</Text>}
+                {items.map((it, i) => {
+                  const on = itemId === it.id;
+                  return (
+                    <FadeInUp key={it.id} delay={i * 40}>
+                      <Pressable onPress={() => { setItemId(it.id); setStep('reason'); }} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                        <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
+                          <Feather name="shopping-bag" size={16} color={C.ink} />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={[T.monoB, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{it.brandSnap}</Text>
+                          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, marginTop: 2 }} numberOfLines={1}>{it.listingNameSnap}</Text>
+                          <Text style={[T.mono, { fontSize: 10, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>Qty {it.qty} · ₹{(it.netLinePaise / 100).toFixed(0)}</Text>
+                        </View>
+                        <Feather name={on ? 'check' : 'chevron-right'} size={16} color={on ? C.white : C.ink} />
+                      </Pressable>
+                    </FadeInUp>
+                  );
+                })}
+              </>
+            )}
 
-            <SectionLabel label="WHY ARE YOU RETURNING?" />
-            {reasons.map((r, i) => {
-              const on = reason === r.label;
-              return (
-                <FadeInUp key={r.label} delay={i * 30}>
-                  <Pressable onPress={() => setReason(r.label)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
-                      <Feather name={r.icon as any} size={14} color={C.ink} />
-                    </View>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }}>{r.label}</Text>
-                    {on && <Feather name="check" size={16} color={C.white} />}
-                  </Pressable>
-                </FadeInUp>
-              );
-            })}
-
-            <BrutalButton label="Initiate return" icon="rotate-ccw" block disabled={!reason} onPress={submit} style={{ marginTop: SP.xl }} />
+            {/* STEP 3: reason + optional note */}
+            {step === 'reason' && order && selectedItem && (
+              <>
+                <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+                  <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>RETURNING</Text>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, marginTop: 4 }}>{selectedItem.listingNameSnap}</Text>
+                  <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedItem.brandSnap} · ₹{(selectedItem.netLinePaise / 100).toFixed(0)} · from {order.storeName}</Text>
+                </View>
+                <SectionLabel label="WHY ARE YOU RETURNING?" />
+                {RETURN_REASONS.map((r, i) => {
+                  const on = reason === r.category;
+                  return (
+                    <FadeInUp key={r.category} delay={i * 30}>
+                      <Pressable onPress={() => setReason(r.category)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                        <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
+                          <Feather name={r.icon as any} size={14} color={C.ink} />
+                        </View>
+                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }}>{r.label}</Text>
+                        {on && <Feather name="check" size={16} color={C.white} />}
+                      </Pressable>
+                    </FadeInUp>
+                  );
+                })}
+                <SectionLabel label="ADD A NOTE (OPTIONAL)" />
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder="Anything the store should know…"
+                  placeholderTextColor={C.dim}
+                  multiline
+                  style={[{ marginTop: 6, paddingHorizontal: SP.m, paddingVertical: 12, fontFamily: 'Inter_400Regular', fontSize: 13, color: C.ink, backgroundColor: C.white, minHeight: 72, textAlignVertical: 'top' }, BORDER(1)]}
+                />
+                <BrutalButton label={submitting ? 'Submitting…' : 'Initiate return'} icon="rotate-ccw" block disabled={!reason || submitting} onPress={submit} style={{ marginTop: SP.xl }} />
+              </>
+            )}
           </>
         )}
       </ScrollView>
     </PageShell>
+  );
+}
+
+function Row2({ k, v }: { k: string; v: string }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{k}</Text>
+      <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{v}</Text>
+    </View>
   );
 }
 

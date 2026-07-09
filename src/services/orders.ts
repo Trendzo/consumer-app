@@ -93,21 +93,58 @@ export type OrderListRow = {
   deliveredAt?: string | null;
 };
 
-/** Consumer-facing fields of the order-detail row. deliveryOtp/pickupCode ARE for the
- *  consumer (spoken to the driver at handover / shown at the store counter); truly
- *  internal columns (idempotencyKey, routingHistory) must still never be rendered. */
+/** A single line of a placed order (server-shaped: `id` IS the orderItemId used to open a return). */
+export type OrderDetailItem = {
+  id: string;
+  listingId: string;
+  variantId: string;
+  listingNameSnap: string;
+  brandSnap: string;
+  categorySnap: string;
+  galleryImageSnap: string | null;
+  attributesLabelSnap: string;
+  listingPolicySnap: string;
+  qty: number;
+  unitPricePaise: number;
+  lineSubtotalPaise: number;
+  netLinePaise: number;
+  outcome: string;
+};
+
+/** Consumer-facing fields of the order-detail row (whitelisted by the backend shaper).
+ *  deliveryOtp/pickupCode ARE for the consumer (spoken to the driver at handover / shown
+ *  at the store counter); truly internal columns (idempotencyKey, routingHistory,
+ *  agentHandoffCode) are stripped server-side and never reach the app. */
 export type OrderDetail = {
   id: string;
+  groupId?: string;
+  storeId?: string;
   status: string;
-  storeNameSnap?: string;
-  totalPaise?: number;
   deliveryMethod?: string;
-  createdAt?: string;
+  paymentMethod?: string;
+  paymentMethodLabel?: string;
+  storeNameSnap?: string;
+  itemsSubtotalPaise?: number;
+  couponPaise?: number;
+  pointsRedeemedPaise?: number;
+  walletAppliedPaise?: number;
+  taxPaise?: number;
+  deliveryFeePaise?: number;
+  grandTotalPaise?: number;
+  loyaltyEarnedPoints?: number;
   /** Consumer→driver handover proof for door deliveries — read it to the driver. */
   deliveryOtp?: string | null;
   /** Counter code for pickup orders — show at the store. */
   pickupCode?: string | null;
-  items?: { variantId: string; nameSnap?: string; qty: number; unitPricePaise?: number; imageUrlSnap?: string }[];
+  pickupSlotStart?: string | null;
+  pickupSlotEnd?: string | null;
+  doorWindowExpiresAt?: string | null;
+  placedAt?: string;
+  acceptedAt?: string | null;
+  packedAt?: string | null;
+  deliveredAt?: string | null;
+  closedAt?: string | null;
+  items?: OrderDetailItem[];
 };
 
 /** Stable-per-attempt idempotency key. Generate once, reuse across retries of the SAME order. */

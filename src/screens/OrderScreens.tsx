@@ -6,7 +6,10 @@ import { MotiView } from 'moti';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { getOrder, listOrders, type OrderDetail, type OrderListRow } from '../services/orders';
+import { getOrder, listOrders, cancelOrder, retryPayment, verifyPayment, type OrderDetail, type OrderListRow } from '../services/orders';
+import { openRazorpayCheckout } from '../services/razorpay-checkout';
+
+const CANCELABLE = ['pending', 'payment_failed', 'confirmed', 'routing', 'accepted'];
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
@@ -95,22 +98,61 @@ const OTP_ACTIVE_STATUSES = ['pending', 'confirmed', 'routing', 'accepted', 'pac
 export function OrderTrackingScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const { lastOrder, night, token } = useApp();
+  const { lastOrder, night, token, user, showToast, showConfirm } = useApp();
   // Route params win (history taps a specific order); fall back to the just-placed one.
   const orderId: string | undefined = route.params?.id ?? lastOrder?.id;
   const method = route.params?.method || lastOrder?.method || 'express';
   const store = lastOrder?.store;
+  const isRealOrder = !!orderId && String(orderId).startsWith('ord_');
 
   // Real order row (OTP / pickup code / live status).
   const [real, setReal] = useState<OrderDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const reload = () => { if (isRealOrder) getOrder(String(orderId)).then(setReal).catch(() => {}); };
   useEffect(() => {
-    if (!token || !orderId || !String(orderId).startsWith('ord_')) { setReal(null); return; }
+    if (!token || !isRealOrder) { setReal(null); return; }
     let cancelled = false;
     const load = () => getOrder(String(orderId)).then((o) => { if (!cancelled) setReal(o); }).catch(() => {});
     load();
     const t = setInterval(load, 15000);
     return () => { cancelled = true; clearInterval(t); };
   }, [token, orderId]);
+
+  const doCancel = () => showConfirm({
+    title: 'Cancel order?', danger: true, icon: 'x-circle',
+    msg: 'This cancels the order. Any payment is refunded to your original method or wallet.',
+    confirmLabel: 'Cancel order',
+    onConfirm: () => {
+      if (!orderId) return;
+      setBusy(true);
+      cancelOrder(String(orderId), 'Cancelled from tracking')
+        .then(() => { showToast('Order cancelled', 'Refund initiated if you paid', 'check'); reload(); })
+        .catch((e: any) => showToast('Could not cancel', e?.message || 'Try again', 'x'))
+        .finally(() => setBusy(false));
+    },
+  });
+  const doPay = () => {
+    if (!orderId || busy) return;
+    setBusy(true);
+    retryPayment(String(orderId))
+      .then(async (r) => {
+        const pay = await openRazorpayCheckout({
+          payment: r.payment,
+          name: user?.name || undefined,
+          email: user?.email || undefined,
+          phone: user?.phone || undefined,
+        });
+        await verifyPayment({
+          razorpayOrderId: pay.razorpay_order_id,
+          razorpayPaymentId: pay.razorpay_payment_id,
+          razorpaySignature: pay.razorpay_signature,
+        });
+        showToast('Payment successful', 'Your order is confirmed', 'check');
+        reload();
+      })
+      .catch((e: any) => showToast('Payment not completed', e?.message || 'Try again', 'x'))
+      .finally(() => setBusy(false));
+  };
 
   const STEPS =
     method === 'pickup' ? STEPS_PICKUP :
@@ -187,6 +229,14 @@ export function OrderTrackingScreen() {
         {method === 'express' && <BrutalButton label="Contact rider" icon="phone" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
         {method === 'standard' && <BrutalButton label="Get shipping updates" icon="bell" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
         {method === 'tryandbuy' && <BrutalButton label="Reschedule trial" icon="calendar" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
+
+        {/* ═══ REAL-ORDER ACTIONS: pay-now (failed) + cancel (pre-shipment) ═══ */}
+        {isRealOrder && real?.status === 'payment_failed' && (
+          <BrutalButton label={busy ? 'Please wait…' : 'Pay now'} icon="credit-card" block disabled={busy} onPress={doPay} style={{ marginTop: SP.m }} />
+        )}
+        {isRealOrder && real && CANCELABLE.includes(real.status) && (
+          <BrutalButton label="Cancel order" icon="x-circle" variant="outline" block disabled={busy} onPress={doCancel} style={{ marginTop: SP.m }} />
+        )}
       </ScrollView>
     </View>
   );

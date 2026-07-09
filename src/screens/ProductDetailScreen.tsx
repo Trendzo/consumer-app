@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, InteractionManager } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, TextInput, InteractionManager } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
@@ -12,7 +12,7 @@ import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
 import {
-  getProductDetail, listReviews, listProducts, isBackendListingId,
+  getProductDetail, listReviews, listProducts, isBackendListingId, addReview,
   type ProductDetailData, type Review,
 } from '../services/catalog';
 
@@ -42,7 +42,7 @@ export default function ProductDetailScreen() {
   const route = useRoute<any>();
   const product = route.params?.product || PRODUCTS[0];
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, night, theme, showToast, showConfirm, gender } = useApp();
+  const { addToCart, night, theme, showToast, showConfirm, gender, token } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
   // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
   // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
@@ -58,6 +58,29 @@ export default function ProductDetailScreen() {
     listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
     return () => { cancelled = true; };
   }, [listingId, gender]);
+
+  // Write-a-review composer (real backend listings only).
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [revRating, setRevRating] = useState(5);
+  const [revBody, setRevBody] = useState('');
+  const [revSubmitting, setRevSubmitting] = useState(false);
+  const openReview = () => {
+    if (!isBackendListingId(listingId)) { showToast('Not available', 'Reviews open once this item is live', 'star'); return; }
+    if (!token) { showToast('Sign in to review', 'Log in to write a review', 'lock'); return; }
+    setRevRating(5); setRevBody(''); setReviewOpen(true);
+  };
+  const submitReview = () => {
+    if (revSubmitting) return;
+    setRevSubmitting(true);
+    addReview(listingId, { rating: revRating, ...(revBody.trim() ? { body: revBody.trim() } : {}) })
+      .then(() => {
+        setReviewOpen(false);
+        showToast('Review posted', 'Thanks for the feedback!', 'star');
+        return listReviews(listingId).then(setReviews).catch(() => {});
+      })
+      .catch((e: any) => showToast('Could not post review', e?.message || 'Try again', 'x'))
+      .finally(() => setRevSubmitting(false));
+  };
   const { openZoom } = useZoom();
   const zoomRefs = useRef<{ [k: string]: any }>({});
   const closeStarted = useRef(false);
@@ -459,8 +482,9 @@ export default function ProductDetailScreen() {
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
             <Text style={T.h2}>{`▌ RATINGS & REVIEWS`}</Text>
-            <Pressable onPress={() => showToast('Reviews', `Showing all ${reviewsCount} reviews`, 'star')} hitSlop={8}>
-              <Text style={[T.monoB, { fontSize: 10 }]}>VIEW ALL ──▶</Text>
+            <Pressable onPress={openReview} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Feather name="edit-3" size={12} color={C.ink} />
+              <Text style={[T.monoB, { fontSize: 10 }]}>WRITE REVIEW</Text>
             </Pressable>
           </View>
           <AsciiDivider faint style={{ marginTop: 4 }} />
@@ -612,6 +636,40 @@ export default function ProductDetailScreen() {
               <Text style={[T.monoB, { fontSize: 10, textDecorationLine: 'underline' }]}>{'[ SIZE GUIDE ]'}</Text>
             </Pressable>
           </MV>
+        </Pressable>
+      </Modal>
+
+      {/* WRITE A REVIEW — rating + optional note → POST /consumer/community/reviews */}
+      <Modal transparent visible={reviewOpen} animationType="none" onRequestClose={() => setReviewOpen(false)}>
+        <Pressable onPress={() => setReviewOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
+          <MotiView
+            from={{ translateY: 500 }} animate={{ translateY: 0 }} transition={{ type: 'timing', duration: 300 }}
+            onStartShouldSetResponder={() => true}
+            style={{ backgroundColor: C.bg, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 32, borderTopWidth: 2, borderColor: C.ink }}
+          >
+            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
+            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>YOUR REVIEW</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, marginTop: 2 }} numberOfLines={1}>{product.name}</Text>
+
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: SP.l }}>
+              {[1, 2, 3, 4, 5].map((s) => (
+                <Pressable key={s} onPress={() => setRevRating(s)} hitSlop={6}>
+                  <Feather name="star" size={34} color={s <= revRating ? C.ink : C.hairline} />
+                </Pressable>
+              ))}
+            </View>
+
+            <TextInput
+              value={revBody}
+              onChangeText={setRevBody}
+              placeholder="Share what you liked (optional)…"
+              placeholderTextColor={C.dim}
+              multiline
+              style={[{ marginTop: SP.l, paddingHorizontal: SP.m, paddingVertical: 12, fontFamily: 'Inter_400Regular', fontSize: 14, color: C.ink, backgroundColor: C.white, minHeight: 96, textAlignVertical: 'top' }, BORDER(1)]}
+            />
+
+            <BrutalButton label={revSubmitting ? 'Posting…' : 'Post review'} icon="send" block disabled={revSubmitting} onPress={submitReview} style={{ marginTop: SP.l }} />
+          </MotiView>
         </Pressable>
       </Modal>
     </View>
