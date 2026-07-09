@@ -6,38 +6,56 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
-const QUICK = [
-  { icon: 'package', label: 'ORDERS', sub: 'HISTORY', screen: 'OrderHistory' },
-  { icon: 'home', label: 'TRY&BUY', sub: '15-MIN', screen: 'TryAndBuy' },
-  { icon: 'map', label: 'PICKUP', sub: '3 NEAR', screen: 'StorePickup' },
-  { icon: 'rotate-ccw', label: 'RETURNS', sub: '7-DAY', screen: 'OrderReturn' },
-];
-
 const MENU_GROUPS = [
   {
     code: '01',
     title: 'ORDERS & DELIVERY',
-    intro: 'Track your orders and addresses.',
+    intro: 'Track your orders, returns and addresses.',
     items: [
-      { icon: 'package', label: 'My orders', sub: '6 total · tap to view history', screen: 'OrderHistory' },
+      { icon: 'package', label: 'My orders', sub: 'View + track your order history', screen: 'OrderHistory' },
+      { icon: 'rotate-ccw', label: 'Returns', sub: 'Return an item · reverse pickup', screen: 'OrderReturn' },
+      { icon: 'map-pin', label: 'Addresses', sub: 'Manage delivery addresses', screen: 'SavedAddresses' },
     ],
   },
   {
     code: '02',
+    title: 'MONEY & REWARDS',
+    intro: 'Wallet, loyalty, referrals.',
+    items: [
+      { icon: 'briefcase', label: 'Wallet', sub: 'Balance + redeem gift cards', screen: 'Wallet' },
+      { icon: 'award', label: 'Loyalty & rewards', sub: 'Your points and tier', screen: 'LoyaltyRewards' },
+      { icon: 'users', label: 'Refer & earn', sub: 'Share your code, earn points', screen: 'ReferralRewards' },
+      { icon: 'gift', label: 'Gift cards', sub: 'Redeem a gift card', screen: 'GiftCard' },
+    ],
+  },
+  {
+    code: '03',
     title: 'APP & ACCOUNT',
     intro: 'Preferences and support.',
     items: [
       { icon: 'settings', label: 'Notification settings', sub: 'Push, email, deals', screen: 'NotificationSettings' },
-      { icon: 'message-square', label: 'Customer support', sub: '24×7 chat · CX-Bot v2', screen: 'CustomerSupport' },
+      { icon: 'message-square', label: 'Customer support', sub: 'Get help with an order', screen: 'CustomerSupport' },
       { icon: 'info', label: 'About Trendzo', sub: 'Delivery, returns, refunds & more', screen: 'About' },
     ],
   },
 ];
 
+const PROFILE_TIERS: Array<{ name: string; min: number }> = [
+  { name: 'BRONZE', min: 0 },
+  { name: 'SILVER', min: 1000 },
+  { name: 'GOLD', min: 5000 },
+  { name: 'PLATINUM', min: 10000 },
+];
+
 export default function ProfileScreen() {
   const nav = useNavigation<any>();
-  const { user, signOut, cartCount, night, toggleNight, showToast, showConfirm } = useApp();
+  const { user, loyalty, signOut, cartCount, night, toggleNight, showToast, showConfirm } = useApp();
   const initials = ((user?.name || 'Guest').split(' ').map(s => s[0]).join('').slice(0, 2) || 'G').toUpperCase();
+  const points = loyalty?.balancePoints ?? 0;
+  const tier = PROFILE_TIERS.filter(t => points >= t.min).pop()!;
+  const nextTier = PROFILE_TIERS[PROFILE_TIERS.indexOf(tier) + 1];
+  const tierPct = nextTier ? Math.min(100, Math.round((points / nextTier.min) * 100)) : 100;
+  const pointsShort = points >= 1000 ? `${(points / 1000).toFixed(1)}K` : String(points);
 
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
@@ -68,10 +86,10 @@ export default function ProfileScreen() {
                   <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 2 }]}>{user?.email || 'guest@trendzo.app'}</Text>
                   <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
                     <BrutalBox maxRadius={10} border={0} style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.6 }}>BRONZE</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.6 }}>{tier.name}</Text>
                     </BrutalBox>
                     <BrutalBox maxRadius={10} transparent style={{ paddingHorizontal: 6, paddingVertical: 3, borderColor: C.white }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.white, letterSpacing: 0.6 }}>D7 STREAK</Text>
+                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.white, letterSpacing: 0.6 }}>{points.toLocaleString('en-IN')} PTS</Text>
                     </BrutalBox>
                   </View>
                 </View>
@@ -85,11 +103,11 @@ export default function ProfileScreen() {
               {/* Progress strip */}
               <View style={{ marginTop: SP.l }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>BRONZE → SILVER</Text>
-                  <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>1,240 / 5,000</Text>
+                  <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{nextTier ? `${tier.name} → ${nextTier.name}` : `${tier.name} · MAX`}</Text>
+                  <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{nextTier ? `${points.toLocaleString('en-IN')} / ${nextTier.min.toLocaleString('en-IN')}` : `${points.toLocaleString('en-IN')} PTS`}</Text>
                 </View>
                 <View style={{ marginTop: 6, height: 4, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
-                  <View style={{ width: '24%', height: '100%', backgroundColor: C.white }} />
+                  <View style={{ width: `${tierPct}%`, height: '100%', backgroundColor: C.white }} />
                 </View>
               </View>
             </BrutalBox>
@@ -100,10 +118,9 @@ export default function ProfileScreen() {
         <FadeInUp delay={80}>
           <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
             <BrutalBox maxRadius={14} style={{ flexDirection: 'row' }}>
-              <Stat label="ORDERS" value="12" sub="LIFETIME" />
-              <Stat label="POINTS" value="1.2K" sub="BRONZE" />
-              <Stat label="STREAK" value="D7" sub="DAILY" />
-              <Stat label="REVIEWS" value="6" sub="POSTED" last />
+              <Stat label="POINTS" value={pointsShort} sub={tier.name} />
+              <Stat label="TIER" value={tier.name.slice(0, 4)} sub={nextTier ? `${tierPct}%` : 'MAX'} />
+              <Stat label="ORDERS" value="—" sub="HISTORY" last />
             </BrutalBox>
           </View>
         </FadeInUp>

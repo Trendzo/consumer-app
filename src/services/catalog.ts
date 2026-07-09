@@ -271,6 +271,21 @@ export async function listReviews(id: string): Promise<Review[]> {
   return request<Review[]>(`/catalog/products/${encodeURIComponent(id)}/reviews`, { auth: false });
 }
 
+/**
+ * Write a product review (requireAuth('consumer')). POST /consumer/community/reviews.
+ * `listingId` in the body, `rating` 1–5 required, `body` optional (not `text`),
+ * `media` optional image URLs. Appears in listReviews immediately.
+ */
+export async function addReview(
+  listingId: string,
+  body: { rating: number; body?: string; orderId?: string; media?: string[] },
+): Promise<{ id: string }> {
+  return request<{ id: string }>('/consumer/community/reviews', {
+    method: 'POST',
+    body: { listingId, ...body },
+  });
+}
+
 /** True when an id looks like a real backend listing id (`lst_…`). */
 export function isBackendListingId(id?: string): boolean {
   return !!id && id.startsWith('lst_');

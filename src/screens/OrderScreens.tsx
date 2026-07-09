@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, StatusBar, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { listOrders, type OrderListRow } from '../services/orders';
+import { getOrder, listOrders, type OrderDetail, type OrderListRow } from '../services/orders';
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
@@ -89,11 +89,28 @@ const STEPS_TRYBUY = [
   { label: 'TRIAL COMPLETE', sub: 'Keep what fits', icon: 'check-circle' },
 ];
 
+// Order is still travelling toward the customer — the handover proof is relevant.
+const OTP_ACTIVE_STATUSES = ['pending', 'confirmed', 'routing', 'accepted', 'packed', 'picked_up', 'out_for_delivery', 'at_door', 'undelivered'];
+
 export function OrderTrackingScreen() {
   const nav = useNavigation<any>();
-  const { lastOrder, night } = useApp();
-  const method = lastOrder?.method || 'express';
+  const route = useRoute<any>();
+  const { lastOrder, night, token } = useApp();
+  // Route params win (history taps a specific order); fall back to the just-placed one.
+  const orderId: string | undefined = route.params?.id ?? lastOrder?.id;
+  const method = route.params?.method || lastOrder?.method || 'express';
   const store = lastOrder?.store;
+
+  // Real order row (OTP / pickup code / live status).
+  const [real, setReal] = useState<OrderDetail | null>(null);
+  useEffect(() => {
+    if (!token || !orderId || !String(orderId).startsWith('ord_')) { setReal(null); return; }
+    let cancelled = false;
+    const load = () => getOrder(String(orderId)).then((o) => { if (!cancelled) setReal(o); }).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [token, orderId]);
 
   const STEPS =
     method === 'pickup' ? STEPS_PICKUP :
@@ -108,16 +125,34 @@ export function OrderTrackingScreen() {
     return () => clearInterval(t);
   }, [STEPS.length]);
 
+  const showOtp =
+    method !== 'pickup' &&
+    !!real?.deliveryOtp &&
+    OTP_ACTIVE_STATUSES.includes(real.status);
+
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
       <BrutalStatusBar />
       <ScreenHeader title={method === 'pickup' ? 'Pickup' : 'Order Tracking'} onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         {/* ═══ METHOD-SPECIFIC HEADER CARD ═══ */}
-        {method === 'pickup' ? <PickupHeader order={lastOrder} store={store} active={active} stepCount={STEPS.length} /> :
+        {method === 'pickup' ? <PickupHeader order={lastOrder} store={store} active={active} stepCount={STEPS.length} realCode={real?.pickupCode} /> :
          method === 'standard' ? <StandardHeader order={lastOrder} /> :
          method === 'tryandbuy' ? <TryBuyHeader order={lastOrder} /> :
          <ExpressHeader order={lastOrder} />}
+
+        {/* ═══ DELIVERY OTP — the handover proof the driver will ask for ═══ */}
+        {showOtp && (
+          <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
+            <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{'DELIVERY OTP'}</Text>
+            <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(34), color: C.white, letterSpacing: 8, marginTop: 8 }}>
+              {real!.deliveryOtp}
+            </Text>
+            <Text style={[T.mono, { color: C.white, opacity: 0.6, fontSize: 9, marginTop: 8, textAlign: 'center' }]}>
+              {'SHARE WITH THE DELIVERY PARTNER ONLY\nWHEN YOUR ORDER IS IN YOUR HANDS'}
+            </Text>
+          </View>
+        )}
 
         {/* ═══ TIMELINE (always shown, steps vary by method) ═══ */}
         <View style={{ marginTop: SP.xl }}>
@@ -207,9 +242,10 @@ function TryBuyHeader({ order }: any) {
   );
 }
 
-function PickupHeader({ order, store, active, stepCount }: any) {
+function PickupHeader({ order, store, active, stepCount, realCode }: any) {
   const ready = active >= stepCount - 2; // "ready for pickup" state
-  const code = store?.code || order?.id || 'CX48201';
+  // Real backend pickup code when available; mock fallbacks otherwise.
+  const code = realCode || store?.code || order?.id || 'CX48201';
   const slot = store?.slot;
   return (
     <View>
@@ -413,7 +449,7 @@ export function OrderHistoryScreen() {
             const itemCount = o.items.reduce((s, it) => s + it.qty, 0);
             return (
               <FadeInUp key={o.id} delay={i * 50}>
-                <Pressable onPress={() => nav.navigate('OrderTracking')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+                <Pressable onPress={() => nav.navigate('OrderTracking', { id: o.id, method: o.method })} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
                   {/* Top bar: order id + status */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
                     <View style={{ flex: 1 }}>

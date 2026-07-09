@@ -900,7 +900,7 @@ export function TryOnScreen() {
   // the user can copy the full trace instead of chasing disappearing toasts.
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
-  useEffect(() => subscribeTryOnLog(setLogLines), []);
+  useEffect(() => { const unsub = subscribeTryOnLog(setLogLines); return () => { unsub(); }; }, []);
   const openErrorInspector = (msg: string) => setErrorMsg(msg);
   const copyLog = async () => {
     const text = [`ERROR: ${errorMsg || '(none)'}`, '', ...getTryOnLog()].join('\n');

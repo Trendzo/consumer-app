@@ -16,6 +16,8 @@ import { setAuthToken } from '../services/api';
 import type { Session, Consumer } from '../services/auth';
 import { getServerCart, putServerCart } from '../services/cart';
 import { priceCart } from '../services/pricing';
+import { getWallet } from '../services/wallet';
+import { getLoyalty } from '../services/loyalty';
 
 const TOKEN_KEY = '@closetx/token';
 const USER_KEY = '@closetx/user';
@@ -36,6 +38,11 @@ type AppCtx = {
   applyConsumer: (consumer: Consumer) => Promise<void>;
   // true once the persisted session (if any) has been read from disk
   authHydrated: boolean;
+  // wallet + loyalty balances (ledger-backed) — hydrated on login, refreshable
+  wallet: { balancePaise: number } | null;
+  loyalty: { balancePoints: number } | null;
+  refreshWallet: () => void;
+  refreshLoyalty: () => void;
   // onboarding
   onboarded: boolean;
   setOnboarded: (v: boolean) => void;
@@ -97,6 +104,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<Product[]>([]);
+  const [wallet, setWallet] = useState<{ balancePaise: number } | null>(null);
+  const [loyalty, setLoyalty] = useState<{ balancePoints: number } | null>(null);
   const [lastOrder, setLastOrder] = useState<AppCtx['lastOrder']>(null);
   const [night, setNight] = useState(false);
   // Nonce bumps on every palette mutation so every component that reads
@@ -275,8 +284,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setTokenState(null);
     setAuthToken(null);
+    setWallet(null);
+    setLoyalty(null);
     AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]).catch(() => {});
   }, []);
+
+  // Ledger-backed balances — refreshed on login + whenever a screen asks (after a
+  // gift-card redeem, order, etc.). Failures keep the last value.
+  const refreshWallet = useCallback(() => {
+    getWallet({ limit: 1 }).then((w) => setWallet({ balancePaise: w.balancePaise })).catch(() => {});
+  }, []);
+  const refreshLoyalty = useCallback(() => {
+    getLoyalty({ limit: 1 }).then((l) => setLoyalty({ balancePoints: l.balancePoints })).catch(() => {});
+  }, []);
+  // Hydrate balances whenever a token is present (login or cold-start restore).
+  useEffect(() => {
+    if (!token) { setWallet(null); setLoyalty(null); return; }
+    refreshWallet();
+    refreshLoyalty();
+  }, [token, refreshWallet, refreshLoyalty]);
   const updateUser = useCallback((patch: Partial<{ name: string; email: string; phone: string; address: string }>) =>
     setUser(u => {
       const next = { name: 'You', email: 'guest@trendzo.app', ...(u || {}), ...patch };
@@ -375,7 +401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
 
   return (
-    <Ctx.Provider value={{ user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer, authHydrated, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
+    <Ctx.Provider value={{ user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer, authHydrated, wallet, loyalty, refreshWallet, refreshLoyalty, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
       {children}
     </Ctx.Provider>
   );

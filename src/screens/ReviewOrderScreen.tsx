@@ -7,7 +7,8 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
-import { placeOrder as placeOrderApi, newIdempotencyKey } from '../services/orders';
+import { placeGroupOrder as placeGroupOrderApi, verifyPayment, reportPaymentFailed, newIdempotencyKey } from '../services/orders';
+import { openRazorpayCheckout } from '../services/razorpay-checkout';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 const PAYMENTS = [
   { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
@@ -75,8 +76,9 @@ export default function ReviewOrderScreen() {
   const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
   const totalSavings = mrpSavings + (agg ? toRupees(agg.discountPaise) : couponOff + rewardOff);
 
-  // Real order placement: price the cart → one order per store (idempotency-keyed) →
-  // record the real order id for the success/tracking screens. Needs login + address.
+  // Real order placement: ONE group-checkout call — the server buckets the cart by
+  // store, places a child order per store under one order_group, all-or-nothing
+  // (a stock/price failure anywhere unwinds the rest — no half-placed carts).
   const placeIt = async () => {
     if (placing) return;
     if (!token) { setPayOpen(false); showToast('Sign in to order', 'Please log in first', 'lock'); return; }
@@ -86,20 +88,39 @@ export default function ReviewOrderScreen() {
     if (method === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
     setPlacing(true);
     try {
-      const priced = pricing ?? await priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })));
-      const key = newIdempotencyKey();
-      let firstOrderId = '';
-      for (const store of priced.stores) {
-        const res = await placeOrderApi({
-          storeId: store.storeId,
-          items: store.lines.map((l) => ({ variantId: l.variantId, qty: l.qty })),
-          deliveryMethod: method,
-          paymentMethod: payId as any,
-          addressId: addr.id,
-          idempotencyKey: `${key}_${store.storeId}`,
-        });
-        firstOrderId = firstOrderId || res.orderId;
+      const res = await placeGroupOrderApi({
+        items: items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
+        deliveryMethod: method,
+        paymentMethod: payId as any,
+        addressId: addr.id,
+        idempotencyKey: newIdempotencyKey(),
+      });
+
+      // Razorpay two-phase: the server returned a Checkout block — run the sheet,
+      // then hand the signed result back to settle (webhook is the safety net).
+      if (res.payment) {
+        try {
+          const pay = await openRazorpayCheckout({
+            payment: res.payment,
+            name: user?.name || undefined,
+            email: user?.email || undefined,
+            phone: user?.phone || undefined,
+          });
+          await verifyPayment({
+            razorpayOrderId: pay.razorpay_order_id,
+            razorpayPaymentId: pay.razorpay_payment_id,
+            razorpaySignature: pay.razorpay_signature,
+          });
+        } catch (payErr: any) {
+          // Dismissed / failed / module missing — mark the attempt failed so the
+          // retry flow owns it, and stop here (no success screen).
+          reportPaymentFailed(res.payment.gatewayOrderId, payErr?.message).catch(() => {});
+          showToast('Payment not completed', 'Your order is saved — retry from Orders', 'x');
+          return;
+        }
       }
+
+      const firstOrderId = res.orders[0]?.orderId ?? res.groupId;
       const count = items.reduce((s, it) => s + it.qty, 0);
       setPayOpen(false);
       placeOrder({ method: tryBuy ? 'tryandbuy' : 'express', id: firstOrderId, total, items: count });

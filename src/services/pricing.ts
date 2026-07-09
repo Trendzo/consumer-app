@@ -44,10 +44,20 @@ export const toRupees = (paise: number) => Math.round((paise ?? 0) / 100);
  * Price a cart. `auth:true` attaches the bearer token if the user is logged in (enriching
  * with wallet/loyalty); guests still get a valid preview. 404s if any variantId is unknown.
  */
-export async function priceCart(items: CartLineItem[], couponCode?: string): Promise<CartPricing> {
+export async function priceCart(
+  items: CartLineItem[],
+  couponCode?: string,
+  opts?: { pointsToRedeem?: number; applyWallet?: boolean; voucherCode?: string },
+): Promise<CartPricing> {
   return request<CartPricing>('/pricing/cart', {
     method: 'POST',
-    body: { items, ...(couponCode ? { couponCode } : {}) },
+    body: {
+      items,
+      ...(couponCode ? { couponCode } : {}),
+      ...(opts?.voucherCode ? { voucherCode: opts.voucherCode } : {}),
+      ...(opts?.pointsToRedeem != null ? { pointsToRedeem: opts.pointsToRedeem } : {}),
+      ...(opts?.applyWallet != null ? { applyWallet: opts.applyWallet } : {}),
+    },
     auth: true,
   });
 }

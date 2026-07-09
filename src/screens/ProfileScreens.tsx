@@ -1,15 +1,20 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Modal } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, Modal, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, BrutalBox, FadeInUp, BrutalInput, Chip } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import {
-  listAddresses, createAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
+  listAddresses, createAddress, updateAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
 } from '../services/addresses';
+import { getLoyalty, type LoyaltyTxn } from '../services/loyalty';
+import { getWallet, type WalletTxn } from '../services/wallet';
+import { redeemGiftCard, listGiftCards, type GiftCard } from '../services/giftCards';
+import { getReferral, redeemReferral, type Referral } from '../services/referrals';
 
 // ═══════════════════════════════════════════════════════════
 // SHARED PRIMITIVES — unique hero per screen, shared shell
@@ -95,6 +100,14 @@ export function SavedAddressesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_ADDR_FORM);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const openAdd = () => { setEditingId(null); setForm(EMPTY_ADDR_FORM); setFormOpen(true); };
+  const openEdit = (a: Address) => {
+    setEditingId(a.id);
+    setForm({ label: a.label ?? '', line1: a.line1, line2: a.line2 ?? '', city: a.city, pincode: a.pincode, stateCode: a.stateCode });
+    setFormOpen(true);
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -116,13 +129,15 @@ export function SavedAddressesScreen() {
   const onSave = () => {
     if (!canSave || saving) return;
     setSaving(true);
-    createAddress({
+    const payload = {
       label: form.label.trim() || null,
       line1: form.line1.trim(), line2: form.line2.trim() || null,
       city: form.city.trim(), pincode: form.pincode.trim(), stateCode: form.stateCode.trim().toUpperCase(),
       lat: DEFAULT_COORDS.lat, lng: DEFAULT_COORDS.lng,
-    })
-      .then(() => { setFormOpen(false); setForm(EMPTY_ADDR_FORM); showToast('Address added', 'Saved to your account', 'check'); load(); })
+    };
+    const req = editingId ? updateAddress(editingId, payload) : createAddress(payload);
+    req
+      .then(() => { setFormOpen(false); setForm(EMPTY_ADDR_FORM); setEditingId(null); showToast(editingId ? 'Address updated' : 'Address added', 'Saved to your account', 'check'); load(); })
       .catch((e: any) => showToast('Could not save', e?.message || 'Check details / sign in', 'x'))
       .finally(() => setSaving(false));
   };
@@ -158,6 +173,9 @@ export function SavedAddressesScreen() {
                   </Pressable>
                 )}
                 <View style={{ flex: 1 }} />
+                <Pressable onPress={() => openEdit(a)} style={{ padding: 6, marginLeft: 4 }}>
+                  <Feather name="edit-2" size={13} color={C.ink} />
+                </Pressable>
                 <Pressable onPress={() => onDelete(a)} style={{ padding: 6, marginLeft: 4 }}>
                   <Feather name="trash-2" size={13} color={C.ink} />
                 </Pressable>
@@ -169,14 +187,14 @@ export function SavedAddressesScreen() {
             </View>
           </FadeInUp>
         ))}
-        <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
+        <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={openAdd} style={{ marginTop: SP.l }} />
       </ScrollView>
 
       <Modal transparent visible={formOpen} animationType="slide" onRequestClose={() => setFormOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={[{ backgroundColor: C.bg, padding: SP.l, paddingBottom: 40 }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP.m }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink }}>NEW ADDRESS</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink }}>{editingId ? 'EDIT ADDRESS' : 'NEW ADDRESS'}</Text>
               <Pressable onPress={() => setFormOpen(false)} hitSlop={10}><Feather name="x" size={22} color={C.ink} /></Pressable>
             </View>
             <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
@@ -211,8 +229,14 @@ const PAYMENTS = [
 
 export function PaymentMethodsScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
+  const { showToast, wallet } = useApp();
   const [selected, setSelected] = useState('1');
+  // Real wallet balance on the wallet row; tapping it opens the Wallet screen.
+  const methods = PAYMENTS.map((p) =>
+    p.type === 'WALLET'
+      ? { ...p, sub: `Balance: ₹${((wallet?.balancePaise ?? 0) / 100).toLocaleString('en-IN')}` }
+      : p,
+  );
   return (
     <PageShell>
       <ScreenHeader title="Payment" onBack={() => nav.goBack()} />
@@ -224,12 +248,12 @@ export function PaymentMethodsScreen() {
           chips={[{ label: 'SECURE' }, { label: '256-BIT' }, { label: 'PCI DSS' }]}
         />
 
-        <SectionLabel label="METHODS" right={`${PAYMENTS.length} LINKED`} />
-        {PAYMENTS.map((p, i) => {
+        <SectionLabel label="METHODS" right={`${methods.length} LINKED`} />
+        {methods.map((p, i) => {
           const on = selected === p.id;
           return (
             <FadeInUp key={p.id} delay={i * 60}>
-              <Pressable onPress={() => setSelected(p.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+              <Pressable onPress={() => p.type === 'WALLET' ? nav.navigate('Wallet') : setSelected(p.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
                 <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : C.ink }]}>
                   <Feather name={p.icon as any} size={18} color={on ? C.ink : C.white} />
                 </View>
@@ -265,6 +289,71 @@ export function PaymentMethodsScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// WALLET — ledger-backed balance + transactions + gift-card redeem
+// ═══════════════════════════════════════════════════════════
+export function WalletScreen() {
+  const nav = useNavigation<any>();
+  const { wallet, refreshWallet, showToast } = useApp();
+  const [txns, setTxns] = useState<WalletTxn[]>([]);
+  const [code, setCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const balance = wallet?.balancePaise ?? 0;
+
+  const load = useCallback(() => {
+    refreshWallet();
+    getWallet({ limit: 30 }).then((w) => setTxns(w.transactions)).catch(() => {});
+  }, [refreshWallet]);
+  useEffect(() => { load(); }, [load]);
+
+  const redeem = () => {
+    const c = code.trim().toUpperCase();
+    if (!c || redeeming) return;
+    setRedeeming(true);
+    redeemGiftCard(c)
+      .then((r) => { showToast('Gift card redeemed', `₹${(r.creditedPaise / 100).toFixed(0)} added`, 'gift'); setCode(''); load(); })
+      .catch((e: any) => showToast('Could not redeem', e?.message || 'Check the code', 'x'))
+      .finally(() => setRedeeming(false));
+  };
+
+  return (
+    <PageShell>
+      <ScreenHeader title="Wallet" onBack={() => nav.goBack()} />
+      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+        <FadeInUp>
+          <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
+            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO WALLET · BALANCE'}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(56), color: C.white, letterSpacing: -2, marginTop: 6, lineHeight: rf(58) }}>₹{(balance / 100).toLocaleString('en-IN')}</Text>
+            <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 4, fontSize: 10 }]}>Used automatically at checkout</Text>
+          </View>
+        </FadeInUp>
+
+        <SectionLabel label="ADD FUNDS · REDEEM A GIFT CARD" />
+        <View style={{ marginTop: 8, flexDirection: 'row', gap: SP.s, alignItems: 'flex-end' }}>
+          <View style={{ flex: 1 }}>
+            <BrutalInput value={code} onChangeText={(v: string) => setCode(v.toUpperCase())} placeholder="GIFT CARD CODE" label="Code" icon="gift" autoCapitalize="characters" />
+          </View>
+          <BrutalButton label={redeeming ? '…' : 'Redeem'} icon="download" onPress={redeem} style={{ marginBottom: 2 }} />
+        </View>
+
+        <SectionLabel label="TRANSACTIONS" right={`${txns.length}`} />
+        {txns.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No wallet activity yet.</Text>}
+        {txns.map((t) => (
+          <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: SP.s, paddingVertical: 8, borderBottomWidth: 1, borderColor: C.hairline }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[T.bodyB, { fontSize: 13 }]}>{t.note || t.kind.replace(/_/g, ' ')}</Text>
+              <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 1 }]}>{new Date(t.at).toLocaleDateString()}</Text>
+            </View>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: t.amountPaise >= 0 ? C.ink : C.dim }}>
+              {t.amountPaise >= 0 ? '+' : '−'}₹{Math.abs(t.amountPaise / 100).toFixed(0)}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+    </PageShell>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // LOYALTY REWARDS
 // ═══════════════════════════════════════════════════════════
 const TIERS = [
@@ -276,7 +365,13 @@ const TIERS = [
 
 export function LoyaltyRewardsScreen() {
   const nav = useNavigation<any>();
-  const points = 1240;
+  const { loyalty, refreshLoyalty } = useApp();
+  const points = loyalty?.balancePoints ?? 0;
+  const [history, setHistory] = useState<LoyaltyTxn[]>([]);
+  useEffect(() => {
+    refreshLoyalty();
+    getLoyalty({ limit: 20 }).then((l) => setHistory(l.transactions)).catch(() => {});
+  }, [refreshLoyalty]);
   const currentTier = TIERS.filter(t => points >= t.min).pop()!;
   const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
   const progress = nextTier ? points / nextTier.min : 1;
@@ -361,6 +456,21 @@ export function LoyaltyRewardsScreen() {
             <Text style={[T.body, { flex: 1 }]}>{p}</Text>
           </View>
         ))}
+
+        {history.length > 0 && (
+          <>
+            <SectionLabel label="RECENT ACTIVITY" right={`${history.length}`} />
+            {history.slice(0, 10).map((t) => (
+              <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: SP.s, paddingVertical: 6, borderBottomWidth: 1, borderColor: C.hairline }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[T.bodyB, { fontSize: 13 }]}>{t.note || t.kind}</Text>
+                  <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 1 }]}>{new Date(t.at).toLocaleDateString()}</Text>
+                </View>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: t.points >= 0 ? C.ink : C.dim }}>{t.points >= 0 ? '+' : ''}{t.points}</Text>
+              </View>
+            ))}
+          </>
+        )}
       </ScrollView>
     </PageShell>
   );
@@ -371,50 +481,64 @@ export function LoyaltyRewardsScreen() {
 // ═══════════════════════════════════════════════════════════
 export function GiftCardScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
-  const [amount, setAmount] = useState('1000');
-  const [toEmail, setToEmail] = useState('');
-  const [note, setNote] = useState('');
-  const amounts = [500, 1000, 2000, 5000];
+  const { showToast, refreshWallet } = useApp();
+  const [code, setCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const [cards, setCards] = useState<GiftCard[]>([]);
+  const [totalPaise, setTotalPaise] = useState(0);
+
+  const load = useCallback(() => {
+    listGiftCards().then((r) => { setCards(r.cards); setTotalPaise(r.totalPaise); }).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const redeem = () => {
+    const c = code.trim().toUpperCase();
+    if (!c || redeeming) return;
+    setRedeeming(true);
+    redeemGiftCard(c)
+      .then((r) => {
+        showToast('Gift card redeemed', `₹${(r.creditedPaise / 100).toFixed(0)} added to your wallet`, 'gift');
+        setCode('');
+        refreshWallet();
+        load();
+      })
+      .catch((e: any) => showToast('Could not redeem', e?.message || 'Check the code', 'x'))
+      .finally(() => setRedeeming(false));
+  };
 
   return (
     <PageShell>
       <ScreenHeader title="Gift Card" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'GIFT_CARD · DIGITAL'}
-          title={'GIVE THE\nGIFT OF FIT.'}
-          intro="Send a Trendzo gift card to anyone. Redeemable across the entire catalog."
-          chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
+          code={'GIFT_CARD · REDEEM'}
+          title={'REDEEM A\nGIFT CARD.'}
+          intro="Have a Trendzo gift card code? Redeem it straight into your wallet."
+          chips={[{ label: 'INSTANT', solid: true }, { label: 'TO WALLET' }]}
         />
 
-        {/* Live preview card */}
-        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink, minHeight: 180 }, BORDER(1)]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO · GIFT CARD'}</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>PREVIEW</Text>
-          </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
-          <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 8 }]}>TO: {toEmail || '—'}</Text>
-          <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 2 }]}>NOTE: {note || '—'}</Text>
-        </View>
-
-        <SectionLabel label="SELECT AMOUNT" />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-          {amounts.map(a => (
-            <Pressable key={a} onPress={() => setAmount(String(a))} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: amount === String(a) ? C.ink : C.white }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: amount === String(a) ? C.white : C.ink }}>₹{a}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <SectionLabel label="RECIPIENT" />
+        <SectionLabel label="ENTER CODE" />
         <View style={{ marginTop: 8 }}>
-          <BrutalInput value={toEmail} onChangeText={setToEmail} placeholder="friend@example.com" label="Send to (email)" icon="mail" />
-          <BrutalInput value={note} onChangeText={setNote} placeholder="You're the best. Go buy something good." label="Personal note" icon="message-square" />
+          <BrutalInput value={code} onChangeText={(v: string) => setCode(v.toUpperCase())} placeholder="XXXX-XXXX-XXXX" label="Gift card code" icon="gift" autoCapitalize="characters" />
         </View>
+        <BrutalButton label={redeeming ? 'Redeeming…' : 'Redeem to wallet'} icon="download" block disabled={redeeming} onPress={redeem} style={{ marginTop: SP.m }} />
 
-        <BrutalButton label={`Buy gift card — ₹${amount || '0'}`} icon="gift" block onPress={() => showToast('Gift Card', 'Purchase coming soon', 'gift')} style={{ marginTop: SP.l }} />
+        {cards.length > 0 && (
+          <>
+            <SectionLabel label="YOUR CARDS" right={`₹${(totalPaise / 100).toFixed(0)}`} />
+            {cards.map((g) => (
+              <View key={g.id} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                <Feather name="gift" size={16} color={C.ink} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={[T.monoB, { fontSize: 12 }]}>{g.code}</Text>
+                  <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>Expires {g.expiresOn}</Text>
+                </View>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>₹{(g.balancePaise / 100).toFixed(0)}</Text>
+              </View>
+            ))}
+          </>
+        )}
       </ScrollView>
     </PageShell>
   );
@@ -425,37 +549,77 @@ export function GiftCardScreen() {
 // ═══════════════════════════════════════════════════════════
 export function ReferralRewardsScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
+  const { user, showToast, refreshLoyalty } = useApp();
+  const [ref, setRef] = useState<Referral | null>(null);
+  const [friendCode, setFriendCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const code = ref?.code || user?.referralCode || '—';
+  const shareLink = ref?.shareLink || (ref?.code ? `https://closetx.app/invite/${ref.code}` : '');
+
+  useEffect(() => { getReferral().then(setRef).catch(() => {}); }, []);
+
+  const copy = async () => {
+    try { await Clipboard.setStringAsync(code); showToast('Copied', 'Referral code copied', 'copy'); } catch { /* ignore */ }
+  };
+  const share = async () => {
+    try {
+      await Share.share({ message: `Join me on Trendzo — use my code ${code}. ${shareLink}`.trim() });
+    } catch { /* user dismissed */ }
+  };
+  const redeemFriend = () => {
+    const c = friendCode.trim();
+    if (!c || redeeming) return;
+    setRedeeming(true);
+    redeemReferral(c)
+      .then((r) => {
+        showToast('Code applied', `You earned ${r.refereePointsGranted} points`, 'gift');
+        setFriendCode('');
+        refreshLoyalty();
+        getReferral().then(setRef).catch(() => {});
+      })
+      .catch((e: any) => showToast('Could not apply', e?.message || 'Check the code', 'x'))
+      .finally(() => setRedeeming(false));
+  };
+
   return (
     <PageShell>
       <ScreenHeader title="Refer & Earn" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
-          code={'REFERRAL · ₹200 EACH'}
+          code={'REFERRAL'}
           title={'SHARE THE\nDRIP.'}
-          intro="Give ₹200, get ₹200 when your friend makes their first order."
-          chips={[{ label: '7 INVITED' }, { label: '4 JOINED' }, { label: '₹800 EARNED', solid: true }]}
+          intro="Give your friends points, earn points when they join with your code."
+          chips={[{ label: `${ref?.referredCount ?? 0} JOINED` }, { label: `${ref?.pointsEarned ?? 0} PTS EARNED`, solid: true }]}
         />
 
         <FadeInUp delay={60}>
-          <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
+          <Pressable onPress={copy} style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
             <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'YOUR CODE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
-            <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 6, fontSize: 10 }]}>TAP COPY TO SHARE</Text>
-          </View>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 8, letterSpacing: 4 }}>{code}</Text>
+            <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 6, fontSize: 10 }]}>TAP TO COPY</Text>
+          </Pressable>
         </FadeInUp>
 
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-          <BrutalButton label="Copy code" icon="copy" variant="outline" style={{ flex: 1 }} onPress={() => showToast('Copied', 'Code copied to clipboard', 'copy')} />
-          <BrutalButton label="Share" icon="share-2" style={{ flex: 1 }} onPress={() => showToast('Share', 'Share sheet coming soon', 'share-2')} />
+          <BrutalButton label="Copy code" icon="copy" variant="outline" style={{ flex: 1 }} onPress={copy} />
+          <BrutalButton label="Share" icon="share-2" style={{ flex: 1 }} onPress={share} />
         </View>
+
+        {!ref?.redeemed && (
+          <>
+            <SectionLabel label="HAVE A FRIEND'S CODE?" />
+            <View style={{ marginTop: 8 }}>
+              <BrutalInput value={friendCode} onChangeText={(v: string) => setFriendCode(v.toUpperCase())} placeholder="THEIRCODE" label="Enter a referral code" icon="users" autoCapitalize="characters" />
+            </View>
+            <BrutalButton label={redeeming ? 'Applying…' : 'Apply code'} icon="check" block disabled={redeeming} onPress={redeemFriend} style={{ marginTop: SP.m }} />
+          </>
+        )}
 
         <SectionLabel label="HOW IT WORKS" />
         {[
-          { i: 1, t: 'Share your code', sub: 'Send TRENDZO42 to your friends' },
-          { i: 2, t: 'Friend signs up', sub: 'They apply the code at checkout' },
-          { i: 3, t: 'They order', sub: 'First order of ₹499 or more unlocks it' },
-          { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
+          { i: 1, t: 'Share your code', sub: `Send ${code} to your friends` },
+          { i: 2, t: 'Friend applies it', sub: 'They enter your code in the app' },
+          { i: 3, t: 'You both earn points', sub: 'Credited to your loyalty balance' },
         ].map(s => (
           <View key={s.i} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
             <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
@@ -470,7 +634,7 @@ export function ReferralRewardsScreen() {
 
         <SectionLabel label="YOUR STATS" />
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
-          {[{ label: 'INVITED', value: '7' }, { label: 'JOINED', value: '4' }, { label: 'EARNED', value: '₹800' }].map((s, i) => (
+          {[{ label: 'JOINED', value: String(ref?.referredCount ?? 0) }, { label: 'PTS EARNED', value: String(ref?.pointsEarned ?? 0) }].map((s, i) => (
             <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 }}>{s.value}</Text>
               <Text style={[T.monoB, { fontSize: 9, marginTop: 4 }]}>{s.label}</Text>
