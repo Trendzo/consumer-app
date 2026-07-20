@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { AsciiDivider, Chip, CachedImage } from '../components/Brutal';
+import { AsciiDivider, Chip, CachedImage, ProductCard } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
@@ -14,21 +14,6 @@ import { useApp } from '../state/AppState';
 const RECENT = ['oversized blazer', 'cropped cargo', 'silk dress', 'sneakers'];
 const TRENDING = ['Y2K', 'wide leg', 'cargo', 'mesh', 'utility', 'denim', 'satin', 'preppy'];
 
-// Result card — taps zoom the IMAGE from its grid spot into the product page
-function ResultCard({ p }: { p: any }) {
-  const { openZoom } = useZoom();
-  const imgRef = useRef<View>(null);
-  return (
-    <Pressable onPress={() => openZoom(imgRef, p.img, p)}>
-      <View ref={imgRef} collapsable={false} style={[{ height: 200, overflow: 'hidden' }, BORDER(1)]}>
-        <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-      </View>
-      <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]}>{p.brand}</Text>
-      <Text style={[T.body]} numberOfLines={1}>{p.name}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
-    </Pressable>
-  );
-}
 
 export default function SearchScreen() {
   const nav = useNavigation<any>();
@@ -128,10 +113,10 @@ export default function SearchScreen() {
             <Text style={[T.mono, { color: C.dim }]}>{searching ? `SEARCHING "${q.toUpperCase()}"…` : `${results.length} RESULTS FOR "${q.toUpperCase()}"`}</Text>
             <AsciiDivider style={{ marginTop: 6 }} />
             {!searching && results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
               {results.map((p, i) => (
-                <MotiView key={p.id} from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 50 }} style={{ width: '47.5%' }}>
-                  <ResultCard p={p} />
+                <MotiView key={p.id} from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 50 }}>
+                  <ProductCard p={p} style={{ marginBottom: SP.s }} />
                 </MotiView>
               ))}
             </View>

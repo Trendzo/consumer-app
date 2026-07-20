@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, Dimensions, Modal, FlatList } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, Dimensions, Modal, FlatList, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { MotiView } from 'moti';
 import LottieView from 'lottie-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn } from '../components/Brutal';
+import { ScreenHeader, AsciiDivider, BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, ProductCard } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { PRODUCTS, HERO_IMG, HERO_IMG_2 } from '../data/mockData';
@@ -51,14 +51,17 @@ export default function CategoryScreen() {
   // a `cat_…` id → filter by it; home-rail pseudo ids ('flash'/'trending'/'all')
   // → gender-only browse. Falls back to mock until loaded / on failure.
   const catId = route.params?.id as string | undefined;
+  // Optional narrowing term — the category browser passes it for subcategory
+  // ("T-Shirts") and colour ("Black") tiles; backend filters name ILIKE.
+  const searchTerm = route.params?.search as string | undefined;
   const [apiProducts, setApiProducts] = useState<Product[] | null>(null);
   useEffect(() => {
     let cancelled = false;
-    listProducts({ gender, categoryId: isBackendCategoryId(catId) ? catId : undefined, limit: 60 })
+    listProducts({ gender, categoryId: isBackendCategoryId(catId) ? catId : undefined, search: searchTerm, limit: 60 })
       .then((list) => { if (!cancelled) setApiProducts(list); })
       .catch(() => { /* keep mock fallback */ });
     return () => { cancelled = true; };
-  }, [catId, gender]);
+  }, [catId, gender, searchTerm]);
   // Remember the last-opened sheet so the CLOSING fade keeps showing the same content
   // (otherwise `sheet` becomes null and the ternaries flash the FILTER sheet mid-close).
   const lastSheet = useRef<'sort' | 'gender' | 'filter'>('sort');
@@ -156,7 +159,7 @@ export default function CategoryScreen() {
       </View>
       <View style={{ height: 1, backgroundColor: C.ink }} />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView showsVerticalScrollIndicator={false} removeClippedSubviews={Platform.OS === 'android'} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* ═══ QUICK OPTIONS — Myntra-style tiles (above the banner) ═══ */}
         <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, paddingTop: SP.m, gap: SP.s }}>
           {[
@@ -186,34 +189,21 @@ export default function CategoryScreen() {
               {sorted.map((p, i) => {
                 return (
                   <FadeInUp key={p.id} delay={(i % 6) * 30}>
-                    <Pressable onPress={() => openZoom(zoomRefs.current['g' + p.id], p.img, p, { brand: label })} style={{ width: (W - SP.l * 2 - SP.s) / 2 }}>
-                      {/* Image box — fixed height, same for every card */}
-                      <View ref={(el) => { zoomRefs.current['g' + p.id] = el; }} collapsable={false} style={[{ height: 220, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1), { borderRadius: cardRadius }]}>
-                        <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                        {/* Rank # for top items when sorted by rating */}
-                        {sort === 'RATING' && i < 3 && (
-                          <View style={[{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 4 }]}>
-                            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 1 }}>{`#0${i + 1}`}</Text>
-                          </View>
-                        )}
-                        {/* Low stock */}
-                        {p.stock < 15 && (
-                          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 6, paddingVertical: 3 }}>
-                            <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 8 }]}>{`◆ ONLY ${p.stock} LEFT`}</Text>
-                          </View>
-                        )}
-                      </View>
-                      {/* Meta — brand (store name), description, price + off. Tight spacing. */}
-                      <View style={{ marginTop: 6 }}>
-                        <Text style={[T.monoB, { fontSize: 9, color: C.ink }]} numberOfLines={1}>{label.toUpperCase()}</Text>
-                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 2 }} numberOfLines={1}>{p.name}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
-                          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
-                          <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
-                          {p.discount > 0 && <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{p.discount}% OFF</Text>}
+                    {/* Global standard-size card — rank badge when sorted by rating */}
+                    <ProductCard
+                      p={p}
+                      brand={label}
+                      zoomParams={{ brand: label }}
+                      rank={sort === 'RATING' && i < 3 ? i + 1 : undefined}
+                      frameStyle={{ borderRadius: cardRadius }}
+                    >
+                      {/* Low stock */}
+                      {p.stock < 15 && (
+                        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 6, paddingVertical: 3 }}>
+                          <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 8 }]}>{`◆ ONLY ${p.stock} LEFT`}</Text>
                         </View>
-                      </View>
-                    </Pressable>
+                      )}
+                    </ProductCard>
                   </FadeInUp>
                 );
               })}

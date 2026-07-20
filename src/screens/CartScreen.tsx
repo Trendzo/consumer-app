@@ -64,10 +64,10 @@ export default function CartScreen() {
   const allFees = METHOD_ORDER.reduce((s, m) => s + bucketFee(m), 0);
   const total = Math.max(0, cartTotal - applied) + allFees;
 
-  const checkoutBucket = (_m: DeliveryMethod) => {
-    // Route to the single-page Review Order, which prices the whole cart server-side
-    // and places one real order per store (see ReviewOrderScreen).
-    nav.navigate('ReviewOrder');
+  const checkoutBucket = (m: DeliveryMethod) => {
+    // Route to the multi-step Checkout (address → delivery → payment → confirm).
+    // Pre-select the bucket's delivery method so the flow opens on the right option.
+    nav.navigate('Checkout', { preMethod: m });
   };
 
   return (
@@ -184,7 +184,12 @@ export default function CartScreen() {
 
             {/* COUPON */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-              <Text style={[T.label, { marginBottom: 6 }]}>{'APPLY COUPON'}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={[T.label]}>{'APPLY COUPON'}</Text>
+                <Pressable onPress={() => nav.navigate('CouponWallet')} hitSlop={8}>
+                  <Text style={[T.monoB, { fontSize: 10, textDecorationLine: 'underline' }]}>{'VIEW WALLET ──▶'}</Text>
+                </Pressable>
+              </View>
               <View style={[{ flexDirection: 'row', alignItems: 'stretch', height: 46, overflow: 'hidden' }, BORDER(1)]}>
                 <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, backgroundColor: C.white }}>
                   <Feather name="tag" size={14} color={C.ink} />

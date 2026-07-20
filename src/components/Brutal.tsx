@@ -1,6 +1,6 @@
 // Reusable brutalism primitives
 import React, { ReactNode, useRef, useEffect } from 'react';
-import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal } from 'react-native';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -354,37 +354,79 @@ export function FadeInUp({ delay = 0, children, style }: { delay?: number; child
   );
 }
 
-// ─── PRODUCT MINI CARD ────────────────────────────────────
-export function ProductCard({ p, onPress, w = 160 }: { p: any; onPress?: () => void; w?: number }) {
+// ─── GLOBAL PRODUCT CARD — THE one product card ───────────
+// Single standard size everywhere a product is shown (home rails, new arrivals,
+// category/brand grids, search, detail upsell/grid). Sized off the category
+// 2-col grid: two cards + one SP.s gap fill the SP.l-padded screen width.
+// Memoized: parents re-render freely (scroll state, filters, data loads)
+// without touching dozens of mounted images — key for frame drops.
+const CARD_SCREEN_W = Dimensions.get('window').width;
+export const CARD = {
+  w: Math.floor((CARD_SCREEN_W - SP.l * 2 - SP.s) / 2), // 2-col grid width — the ONE card width
+  imgH: 220,                                            // fixed image box height — same for every card
+};
+
+export const ProductCard = React.memo(function ProductCard({
+  p, onPress, brand, rank, zoomParams, onAdd, style, frameStyle, children,
+}: {
+  p: any;
+  onPress?: () => void;        // fallback when there's no image to zoom
+  brand?: string;              // label override (e.g. store name on brand pages)
+  rank?: number;               // 1-based → "#01" badge + giant ghost number (trending/top-rated)
+  zoomParams?: any;            // extra route params for ProductDetail (e.g. { brand })
+  onAdd?: (p: any) => void;    // renders the "+ ADD" button under the card (upsells)
+  style?: any;                 // outer container overrides (margins etc.)
+  frameStyle?: any;            // animated/extra styles for the image box (gender curve)
+  children?: ReactNode;        // extra overlays inside the image box (stock notes etc.)
+}) {
   const scale = useRef(new Animated.Value(1)).current;
   const { ref: imgRef, open } = useZoomCard();
   // Tapping zooms the image into the product page (falls back to onPress if no image)
-  const handlePress = () => { if (p?.img) open(p.img, p); else onPress?.(); };
+  const handlePress = () => { if (p?.img) open(p.img, p, zoomParams); else onPress?.(); };
+  const off = p?.original > p?.price ? Math.round((1 - p.price / p.original) * 100) : 0;
   return (
-    <Animated.View style={{ transform: [{ scale }], width: w }}>
+    <Animated.View style={[{ transform: [{ scale }], width: CARD.w }, style]}>
       <Pressable
         onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50 }).start()}
         onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }).start()}
         onPress={handlePress}
       >
-        <View ref={imgRef} collapsable={false} style={[{ height: w * 1.25, overflow: 'hidden', backgroundColor: '#f3f3f3' }, BORDER(1)]}>
-          <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-          {p.tag && (
-            <View style={[{ position: 'absolute', top: 8, left: 8, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5 }}>{p.tag}</Text>
-            </View>
+        <Reanimated.View ref={imgRef} collapsable={false} style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1), frameStyle]}>
+          {rank != null && (
+            <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: rf(110), color: C.ink, opacity: 0.06 }}>{`0${rank}`}</Text>
           )}
-        </View>
-        <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
-        <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
-          <Text style={[T.caption, { textDecorationLine: 'line-through', fontSize: 10 }]}>₹{p.original}</Text>
+          <CachedImage transition={0} source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          {rank != null ? (
+            <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1 }}>{`#0${rank}`}</Text>
+            </View>
+          ) : p?.tag ? (
+            <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+              <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{p.tag}</Text>
+            </View>
+          ) : null}
+          {children}
+        </Reanimated.View>
+        <View style={{ marginTop: 6 }}>
+          <Text style={[T.monoB, { fontSize: 9, color: C.ink }]} numberOfLines={1}>{(brand ?? p.brand ?? '').toUpperCase()}</Text>
+          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 2 }} numberOfLines={1}>{p.name}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
+            {p.original > p.price && (
+              <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
+            )}
+            {off > 0 && <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{`${off}% OFF`}</Text>}
+          </View>
         </View>
       </Pressable>
+      {onAdd && (
+        <Pressable onPress={() => onAdd(p)} style={[{ marginTop: 6, paddingVertical: 8, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, letterSpacing: 0.5 }}>+ ADD</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
-}
+});
 
 // ─── CHIP ──────────────────────────────────────────────────
 export function Chip({ label, active, onPress }: { label: string; active?: boolean; onPress?: () => void }) {

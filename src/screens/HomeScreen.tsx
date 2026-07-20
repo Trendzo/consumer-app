@@ -1,7 +1,7 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, TextInput, DeviceEventEmitter } from 'react-native';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, TextInput, DeviceEventEmitter, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
@@ -10,7 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
-import { useZoom } from '../navigation/ZoomTransition';
 import {
   PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG, HERO_IMG_2,
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
@@ -163,14 +162,7 @@ export default function HomeScreen() {
 
 
   const onRefresh = () => { setRefreshing(true); setReloadKey((k) => k + 1); };
-  const { openZoom } = useZoom();
-  const zoomRefs = useRef<Record<string, any>>({});
-  // Zoom the card image into the product page; falls back to plain navigate
-  const goToProduct = (p: any, key?: string) => {
-    const node = key ? zoomRefs.current[key] : null;
-    if (node) openZoom(node, p.img, p);
-    else nav.navigate('ProductDetail', { product: p });
-  };
+  // Card taps zoom via the global ProductCard (zoom is built into it now).
 
   // Double-tap on Home tab scrolls back to the top of the page.
   useEffect(() => {
@@ -189,6 +181,8 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        // Android: detach offscreen sections — this page is VERY long and image-heavy
+        removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
       >
         {/* ═══════════ HEADER ═══════════ */}
@@ -236,13 +230,13 @@ export default function HomeScreen() {
         ║  No swipe — all visible in a 4×2 grid         ║
         ╚══════════════════════════════════════════════╝
         */}
-        <SectionHead title="SHOP BY" emphasis="VIBE" action="ALL" onAction={() => nav.navigate('Category', { id: 'all', label: 'All Categories' })} />
+        <SectionHead title="SHOP BY" emphasis="VIBE" action="ALL" onAction={() => nav.navigate('Categories')} />
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.s }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {activeCategories.map((c, i) => {
               const cardW = (W - SP.l * 2 - SP.s * 3) / 4;
               return (
-                <Pressable key={c.id} onPress={() => nav.navigate('Category', { id: c.id, label: c.label })} style={{ width: cardW, marginBottom: SP.xl, alignItems: 'center' }}>
+                <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ width: cardW, marginBottom: SP.xl, alignItems: 'center' }}>
                   <FadeInUp delay={i * 40}>
                     {/* Image — overflows above the card */}
                     <View style={{ alignItems: 'center', zIndex: 2 }}>
@@ -283,34 +277,20 @@ export default function HomeScreen() {
             <FlashTimer curveSmStyle={curveSmStyle} />
           </Animated.View>
         </Animated.View>
-        {/* Horizontal deal carousel — equal cards, discount + claimed progress */}
+        {/* Horizontal deal carousel — global standard-size cards */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m, marginTop: SP.m }}>
           {activeProducts.slice(0, 6).map((p, i) => {
-            const off = Math.round((1 - p.price / p.original) * 100);
             const claimed = 42 + ((i * 17) % 52); // deterministic "X% claimed"
             return (
-              <AnimatedPressable key={p.id} onPress={() => goToProduct(p, 'fl' + p.id)} style={[{ width: 152, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveStyle]}>
-                <Animated.View ref={(el) => { zoomRefs.current['fl' + p.id] = el; }} collapsable={false} style={{ height: 168, backgroundColor: C.hairline }}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                  <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 4 }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.3 }}>{`-${off}%`}</Text>
-                  </View>
-                </Animated.View>
-                <View style={{ padding: 8, borderTopWidth: 1, borderColor: C.ink }}>
-                  <Text style={[T.monoB, { fontSize: 8 }]} numberOfLines={1}>{p.brand}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 3 }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink }}>₹{p.price}</Text>
-                    <Text style={[T.caption, { textDecorationLine: 'line-through', fontSize: 9 }]}>₹{p.original}</Text>
-                  </View>
-                  {/* claimed progress (flex-based to avoid % typing) */}
-                  <View style={{ marginTop: 7, height: 5, backgroundColor: C.hairline, flexDirection: 'row', overflow: 'hidden' }}>
+              <ProductCard key={p.id} p={p} frameStyle={curveStyle}>
+                {/* claimed progress overlay — pinned to the image box bottom */}
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+                  <View style={{ height: 5, backgroundColor: C.hairline, flexDirection: 'row', overflow: 'hidden' }}>
                     <View style={{ flex: claimed, backgroundColor: C.ink }} />
-                    <View style={{ flex: 100 - claimed }} />
+                    <View style={{ flex: 100 - claimed, backgroundColor: C.white }} />
                   </View>
-                  <Text style={[T.mono, { fontSize: 7, color: C.dim, marginTop: 3 }]}>{`${claimed}% CLAIMED`}</Text>
                 </View>
-              </AnimatedPressable>
+              </ProductCard>
             );
           })}
         </ScrollView>
@@ -331,23 +311,10 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         <SectionHead title="TRENDING" emphasis="NOW" action="VIEW ALL" onAction={() => nav.navigate('Category', { id: 'trending', label: 'Trending Now' })} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: 0 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
           {activeProducts.slice(0, 6).map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <Pressable onPress={() => goToProduct(p, 't' + p.id)} style={{ width: 170, marginRight: SP.m }}>
-                <Animated.View ref={(el) => { zoomRefs.current['t' + p.id] = el; }} collapsable={false} style={[{ height: 230, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                  {/* Giant rank number behind product */}
-                  <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: rf(110), color: C.ink, opacity: 0.06 }}>{`0${i + 1}`}</Text>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                  {/* Rank badge — diagonal strip */}
-                  <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1 }}>{`#0${i + 1}`}</Text>
-                  </View>
-                </Animated.View>
-                <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
-                <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-              </Pressable>
+              <ProductCard p={p} rank={i + 1} frameStyle={curveStyle} />
             </FadeInUp>
           ))}
         </ScrollView>
@@ -468,51 +435,29 @@ export default function HomeScreen() {
         */}
         <SectionHead title="NEW" emphasis="ARRIVALS" action="ALL" onAction={() => nav.navigate('NewArrivals')} />
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: SP.s }}>
-          {/* Left column — tall first */}
-          <View style={{ flex: 1, gap: SP.s }}>
-            {activeProducts.filter((_,i) => i % 2 === 0).slice(0,3).map((p, i) => {
-              const zoomKey = 'na-l' + p.id;
-              return (
-                <FadeInUp key={p.id} delay={i * 40}>
-                  <AnimatedPressable onPress={() => goToProduct(p, zoomKey)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                    <Animated.View ref={(el) => { zoomRefs.current[zoomKey] = el; }} collapsable={false} style={{ width: '100%', height: '65%' }}>
-                      <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                      <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
-                      </View>
-                    </Animated.View>
-                    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
-                      <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
-                    </View>
-                  </AnimatedPressable>
-                </FadeInUp>
-              );
-            })}
+          {/* Left column */}
+          <View style={{ gap: SP.s }}>
+            {activeProducts.filter((_,i) => i % 2 === 0).slice(0,3).map((p, i) => (
+              <FadeInUp key={p.id} delay={i * 40}>
+                <ProductCard p={p} frameStyle={curveStyle}>
+                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
+                  </View>
+                </ProductCard>
+              </FadeInUp>
+            ))}
           </View>
-          {/* Right column — short first */}
-          <View style={{ flex: 1, gap: SP.s, marginTop: 30 }}>
-            {activeProducts.filter((_,i) => i % 2 === 1).slice(0,3).map((p, i) => {
-              const zoomKey = 'na-r' + p.id;
-              return (
-                <FadeInUp key={p.id} delay={i * 40 + 60}>
-                  <AnimatedPressable onPress={() => goToProduct(p, zoomKey)} style={[{ height: 220, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                    <Animated.View ref={(el) => { zoomRefs.current[zoomKey] = el; }} collapsable={false} style={{ width: '100%', height: '65%' }}>
-                      <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                      <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>JUST IN</Text>
-                      </View>
-                    </Animated.View>
-                    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
-                      <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
-                    </View>
-                  </AnimatedPressable>
-                </FadeInUp>
-              );
-            })}
+          {/* Right column — staggered start, same card size */}
+          <View style={{ gap: SP.s, marginTop: 30 }}>
+            {activeProducts.filter((_,i) => i % 2 === 1).slice(0,3).map((p, i) => (
+              <FadeInUp key={p.id} delay={i * 40 + 60}>
+                <ProductCard p={p} frameStyle={curveStyle}>
+                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>JUST IN</Text>
+                  </View>
+                </ProductCard>
+              </FadeInUp>
+            ))}
           </View>
         </View>
 
@@ -780,35 +725,12 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                {/* Staggered 2-col grid — brutalist cards */}
+                {/* 2-col grid — global standard-size cards */}
                 <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
                   {visible.map((p, i) => (
-                    <Pressable key={p.id + '-' + i} onPress={() => goToProduct(p, 'f' + p.id + i)} style={{ width: '48.5%' }}>
-                      <FadeInUp delay={(i % 4) * 50}>
-                        <Animated.View style={[{ backgroundColor: C.white, overflow: 'hidden', height: 240 }, BORDER(1), curveStyle]}>
-                          <Animated.View 
-                            ref={(el) => { zoomRefs.current['f' + p.id + i] = el; }} 
-                            collapsable={false}
-                            style={{ flex: 1, backgroundColor: C.hairline }}
-                          >
-                            <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                            {p.tag && (
-                              <View style={[{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }]}>
-                                <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{p.tag}</Text>
-                              </View>
-                            )}
-                          </Animated.View>
-                          <View style={{ padding: 8, borderTopWidth: 1, borderColor: C.ink }}>
-                            <Text style={[T.monoB, { fontSize: 8 }]}>{p.brand}</Text>
-                            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 2 }}>
-                              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>₹{p.price}</Text>
-                              <Text style={[T.caption, { textDecorationLine: 'line-through', fontSize: 9 }]}>₹{p.original}</Text>
-                            </View>
-                          </View>
-                        </Animated.View>
-                      </FadeInUp>
-                    </Pressable>
+                    <FadeInUp key={p.id + '-' + i} delay={(i % 4) * 50}>
+                      <ProductCard p={p} frameStyle={curveStyle} style={{ marginBottom: SP.s }} />
+                    </FadeInUp>
                   ))}
                 </View>
 

@@ -27,7 +27,10 @@ function OtpBoxes({
 }: {
   value: string;
   onChange: (v: string) => void;
-  onComplete?: () => void;
+  // Receives the freshly-typed code — the parent's `otp` state is still one
+  // render behind when the 4th digit lands, so verifying from state alone
+  // would see 3 digits and flash a bogus "enter the code" error.
+  onComplete?: (code: string) => void;
   error?: string;
 }) {
   const inputRef = useRef<TextInput | null>(null);
@@ -41,7 +44,7 @@ function OtpBoxes({
     onChange(next);
     if (next.length >= OTP_LEN) {
       inputRef.current?.blur();
-      onComplete?.();
+      onComplete?.(next);
     }
   };
 
@@ -79,7 +82,7 @@ function OtpBoxes({
           maxLength={OTP_LEN}
           autoFocus
           returnKeyType="go"
-          onSubmitEditing={() => { if (value.length >= OTP_LEN) onComplete?.(); }}
+          onSubmitEditing={() => { if (value.length >= OTP_LEN) onComplete?.(value); }}
           textContentType="oneTimeCode"
           autoComplete="sms-otp"
           caretHidden
@@ -148,9 +151,11 @@ export function PhoneAuthScreen({ navigation }: any) {
     }
   };
 
-  const handleVerify = async () => {
+  // codeArg comes from OtpBoxes' onComplete (fresh, ahead of state). The button
+  // press path passes an event object instead, so only trust actual strings.
+  const handleVerify = async (codeArg?: unknown) => {
     setOtpErr(undefined);
-    const code = otp.replace(/\D/g, '');
+    const code = (typeof codeArg === 'string' ? codeArg : otp).replace(/\D/g, '');
     if (code.length < 4 || !reqId) {
       setOtpErr('Enter the code we sent you');
       return;

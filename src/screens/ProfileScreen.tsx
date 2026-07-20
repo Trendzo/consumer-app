@@ -20,14 +20,43 @@ const MENU_GROUPS = [
     intro: 'Track your orders and addresses.',
     items: [
       { icon: 'package', label: 'My orders', sub: '6 total · tap to view history', screen: 'OrderHistory' },
+      { icon: 'rotate-ccw', label: 'Returns & exchanges', sub: '7-day easy returns', screen: 'OrderReturn' },
+      { icon: 'map-pin', label: 'Store pickup', sub: '3 stores near you', screen: 'StorePickup' },
+      { icon: 'home', label: 'Try & Buy at home', sub: 'Try in 15 min · keep what fits', screen: 'TryAndBuy' },
+      { icon: 'map', label: 'Saved addresses', sub: 'Home, office & more', screen: 'SavedAddresses' },
     ],
   },
   {
     code: '02',
+    title: 'PAYMENTS & REWARDS',
+    intro: 'Money, points and perks.',
+    items: [
+      { icon: 'credit-card', label: 'Payment methods', sub: 'UPI, cards, wallet, COD', screen: 'PaymentMethods' },
+      { icon: 'award', label: 'Loyalty rewards', sub: 'Bronze · 1,240 points', screen: 'LoyaltyRewards' },
+      { icon: 'gift', label: 'Gift cards', sub: 'Buy & redeem', screen: 'GiftCard' },
+      { icon: 'users', label: 'Refer & earn', sub: 'Invite friends for credit', screen: 'ReferralRewards' },
+    ],
+  },
+  {
+    code: '03',
+    title: 'STYLE & PREFERENCES',
+    intro: 'Make Trendzo yours.',
+    items: [
+      { icon: 'heart', label: 'Shop the HER edit', sub: 'Curated womenswear', screen: 'ForHer' },
+      { icon: 'user', label: 'Shop the HIM edit', sub: 'Curated menswear', screen: 'ForHim' },
+      { icon: 'sliders', label: 'Style preferences', sub: 'Fits, sizes & vibes', screen: 'StylePreferences' },
+      { icon: 'maximize-2', label: 'My measurements', sub: 'Size profile · AR scan', screen: 'Measurement' },
+      { icon: 'star', label: 'My reviews', sub: '6 posted', screen: 'Reviews' },
+    ],
+  },
+  {
+    code: '04',
     title: 'APP & ACCOUNT',
     intro: 'Preferences and support.',
     items: [
+      { icon: 'user-check', label: 'Complete profile', sub: 'Add name, email & gender', screen: 'CompleteProfile' },
       { icon: 'settings', label: 'Notification settings', sub: 'Push, email, deals', screen: 'NotificationSettings' },
+      { icon: 'globe', label: 'Language', sub: 'English · हिन्दी & more', screen: 'Language' },
       { icon: 'message-square', label: 'Customer support', sub: '24×7 chat · CX-Bot v2', screen: 'CustomerSupport' },
       { icon: 'info', label: 'About Trendzo', sub: 'Delivery, returns, refunds & more', screen: 'About' },
     ],

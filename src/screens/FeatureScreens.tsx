@@ -184,17 +184,11 @@ export function ImageSearchScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: SP.m }}>
             {PRODUCTS.slice(0, 8).map((p, i) => (
               <FadeInUp key={p.id} delay={i * 40}>
-                <Pressable onPress={() => openZoom(zoomRefs.current['is' + p.id], p.img, p)} style={{ width: 160, marginBottom: SP.m }}>
-                  <View ref={(el) => { zoomRefs.current['is' + p.id] = el; }} collapsable={false} style={[{ height: 180, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-                    <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                    <View style={{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
-                      <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`${98 - i * 3}% MATCH`}</Text>
-                    </View>
+                <ProductCard p={p} style={{ marginBottom: SP.m }}>
+                  <View style={{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
+                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`${98 - i * 3}% MATCH`}</Text>
                   </View>
-                  <Text style={[T.monoB, { fontSize: 9, marginTop: 4 }]}>{p.brand}</Text>
-                  <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-                </Pressable>
+                </ProductCard>
               </FadeInUp>
             ))}
           </View>
@@ -1250,23 +1244,14 @@ export function NewArrivalsScreen() {
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>LATEST{'\n'}DROPS.</Text>
         </FadeInUp>
         <AsciiDivider style={{ marginTop: SP.l }} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
           {PRODUCTS.map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <Pressable onPress={() => openZoom(zoomRefs.current['na' + p.id], p.img, p)} style={{ width: '47%' }}>
-                <View ref={(el) => { zoomRefs.current['na' + p.id] = el; }} collapsable={false} style={[{ height: 210, overflow: 'hidden', backgroundColor: '#f3f3f3' }, BORDER(1)]}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                  <View style={[{ position: 'absolute', top: 8, left: 8, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, BORDER(1)]}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.5 }}>NEW</Text>
-                  </View>
+              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }}>
+                <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                  <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
                 </View>
-                <Text style={[T.monoB, { marginTop: 6, fontSize: 9 }]}>{p.brand}</Text>
-                <Text style={[T.body, { marginTop: 1 }]} numberOfLines={1}>{p.name}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
-                  <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
-                </View>
-              </Pressable>
+              </ProductCard>
             </FadeInUp>
           ))}
         </View>
@@ -1437,9 +1422,7 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.m }}>
           {HER_PRODUCTS.filter(p => p.tag === 'NEW').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <View style={{ width: '47%' }}>
-                <ProductCard p={p} onPress={() => goToProduct(p)} w={170} />
-              </View>
+              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }} />
             </FadeInUp>
           ))}
         </View>
@@ -1574,9 +1557,7 @@ export function ForHimScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.m }}>
           {HIM_PRODUCTS.filter(p => p.tag === 'NEW').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <View style={{ width: '47%' }}>
-                <ProductCard p={p} onPress={() => goToProduct(p)} w={170} />
-              </View>
+              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }} />
             </FadeInUp>
           ))}
         </View>

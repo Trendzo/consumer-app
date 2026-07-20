@@ -30,6 +30,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
+import CategoryBrowseScreen from '../screens/CategoryBrowseScreen';
 import CheckoutScreen from '../screens/CheckoutScreen';
 import ReviewOrderScreen from '../screens/ReviewOrderScreen';
 import TryOnPickerScreen from '../screens/TryOnPickerScreen';
@@ -394,6 +395,7 @@ export default function RootNav() {
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
+            <Stack.Screen name="Categories" component={CategoryBrowseScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
         <Stack.Screen name="Checkout" component={CheckoutScreen} />
         <Stack.Screen name="ReviewOrder" component={ReviewOrderScreen} />

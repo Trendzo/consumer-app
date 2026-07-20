@@ -152,6 +152,9 @@ export function OrderTrackingScreen() {
         {method === 'express' && <BrutalButton label="Contact rider" icon="phone" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
         {method === 'standard' && <BrutalButton label="Get shipping updates" icon="bell" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
         {method === 'tryandbuy' && <BrutalButton label="Reschedule trial" icon="calendar" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
+
+        {/* Return / exchange — available once an order exists */}
+        <BrutalButton label="Return or exchange" icon="rotate-ccw" variant="outline" block onPress={() => nav.navigate('OrderReturn')} style={{ marginTop: SP.s }} />
       </ScrollView>
     </View>
   );

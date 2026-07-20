@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, InteractionManager } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, InteractionManager, Platform } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
@@ -8,7 +8,6 @@ import { MotiView } from 'moti';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
 import {
@@ -50,16 +49,6 @@ export default function ProductDetailScreen() {
   const [detail, setDetail] = useState<ProductDetailData | null>(null);
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [similar, setSimilar] = useState<Product[] | null>(null);
-  useEffect(() => {
-    if (!isBackendListingId(listingId)) return;
-    let cancelled = false;
-    getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
-    listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
-    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [listingId, gender]);
-  const { openZoom } = useZoom();
-  const zoomRefs = useRef<{ [k: string]: any }>({});
   const closeStarted = useRef(false);
   // Close mirrors open: fade content, then fly the image/backdrop back to the measured card frame.
   const goBack = () => {
@@ -95,6 +84,18 @@ export default function ProductDetailScreen() {
   // so nothing competes with the animation. Scroll stays locked until it's done.
   const [ready, setReady] = useState(!isZoom);
   const [gridReady, setGridReady] = useState(!isZoom);
+  // NOTE: gated on gridReady — these responses used to land MID-ZOOM and
+  // re-render the whole page during the fly, which is exactly the jank the
+  // deferred-mount logic tries to avoid. Now they fire only after the open
+  // transition (and its two-stage reveal) has fully settled.
+  useEffect(() => {
+    if (!gridReady || !isBackendListingId(listingId)) return;
+    let cancelled = false;
+    getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
+    listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
+    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [listingId, gender, gridReady]);
   const SLOT = { x: 0, y: 105, w: width, h: width * 1.2 }; // where the gallery image lands
   const imgAnim = useSharedValue(isZoom ? 0 : 1);         // 0 = at card, 1 = at gallery slot
   const backdropFade = useSharedValue(isZoom ? 0 : 1);     // home → white as the image expands
@@ -204,10 +205,19 @@ export default function ProductDetailScreen() {
     if (detail && detail.sizes.length === 1) setSize(detail.sizes[0]);
   }, [detail]);
   const reviewsCount = detail?.ratingCount ?? product.reviews ?? 128;
-  const reviewList = reviews && reviews.length
+  // Memoized so the item objects keep a stable identity across re-renders —
+  // this is what lets React.memo on MiniCard actually skip work.
+  const reviewList = React.useMemo(() => (reviews && reviews.length
     ? reviews.map((r) => ({ id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body, date: fmtReviewDate(r.createdAt) }))
-    : REVIEWS;
-  const similarList = (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id);
+    : REVIEWS), [reviews]);
+  const similarList = React.useMemo(
+    () => (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id),
+    [similar, product.id]);
+  // Stable handler for the upsell "+ ADD" buttons (keeps MiniCard memo intact).
+  const handleUpsellAdd = React.useCallback((p: Product) => {
+    addToCart(p, 'M');
+    showToast('Added to bag', p.name, 'shopping-bag');
+  }, [addToCart, showToast]);
 
   // Resolve the selected size (+ colour) to a real backend variant id so the cart can be
   // priced/checked-out server-side. Undefined for mock products (falls back to local math).
@@ -271,6 +281,9 @@ export default function ProductDetailScreen() {
         overScrollMode="never"
         scrollEnabled={ready}
         scrollEventThrottle={16}
+        // Android: detach offscreen grid/upsell views so the long page doesn't
+        // keep ~30 image views alive in the render tree while scrolling.
+        removeClippedSubviews={Platform.OS === 'android'}
         stickyHeaderIndices={[3]}
         onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
         onScroll={scrollHandler}
@@ -459,7 +472,7 @@ export default function ProductDetailScreen() {
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
             <Text style={T.h2}>{`▌ RATINGS & REVIEWS`}</Text>
-            <Pressable onPress={() => showToast('Reviews', `Showing all ${reviewsCount} reviews`, 'star')} hitSlop={8}>
+            <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
               <Text style={[T.monoB, { fontSize: 10 }]}>VIEW ALL ──▶</Text>
             </Pressable>
           </View>
@@ -494,19 +507,7 @@ export default function ProductDetailScreen() {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
             {ready && similarList.slice(0, 6).map(p => (
-              <View key={p.id} style={{ width: 150 }}>
-                <Pressable onPress={() => openZoom(zoomRefs.current['sim' + p.id], p.img, p)}>
-                  <View ref={(el) => { zoomRefs.current['sim' + p.id] = el; }} collapsable={false} style={[{ height: 170, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                    <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                  </View>
-                  <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]} numberOfLines={1}>{p.brand}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-                </Pressable>
-                <Pressable onPress={() => { addToCart(p, 'M'); showToast('Added to bag', p.name, 'shopping-bag'); }} style={[{ marginTop: 6, paddingVertical: 8, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, letterSpacing: 0.5 }}>+ ADD</Text>
-                </Pressable>
-              </View>
+              <ProductCard key={p.id} p={p} onAdd={handleUpsellAdd} />
             ))}
           </ScrollView>
         </View>
@@ -517,14 +518,7 @@ export default function ProductDetailScreen() {
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
           {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
-            <Pressable key={p.id + '-' + i} onPress={() => openZoom(zoomRefs.current['grid' + p.id + '-' + i], p.img, p)} style={{ width: (width - SP.l * 2 - SP.s) / 2, marginBottom: SP.m }}>
-              <View ref={(el) => { zoomRefs.current['grid' + p.id + '-' + i] = el; }} collapsable={false} style={[{ height: 200, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-              </View>
-              <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]} numberOfLines={1}>{p.brand}</Text>
-              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-            </Pressable>
+            <ProductCard key={p.id + '-' + i} p={p} style={{ marginBottom: SP.m }} />
           ))}
         </View>
 
