@@ -1,5 +1,8 @@
 // Vertical reels feed with snap-paging, brutalism overlay UI.
-import React, { useState, useEffect, useRef } from 'react';
+// Feed + social layer are backend-driven (services/reels); when the backend has no reels
+// yet (e.g. before the record/upload flow ships) it falls back to a local demo feed so the
+// screen still has content. Demo reels carry `backendId: null` and use the old mock actions.
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, Modal, TextInput, Share, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
@@ -13,8 +16,40 @@ import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useGenderCurve } from '../components/Brutal';
 import { useZoomCard } from '../navigation/ZoomTransition';
+import * as reelsApi from '../services/reels';
+import { getProduct } from '../services/catalog';
 
 const { height, width } = Dimensions.get('window');
+
+// Unified shape the UI renders — sourced either from the backend or the demo builder.
+type UIReel = {
+  id: string;                 // FlatList key (unique across pages)
+  backendId: string | null;   // null → demo reel (mock, local-only interactions)
+  video: string;
+  user: string;
+  title: string;
+  product: { id: string; name: string; img: string | null; brand?: string; price?: number } | null;
+  // Demo reels carry the full mock Product so favorite/add-to-bag work locally; backend
+  // reels leave this undefined and fetch the real listing on demand.
+  mockProduct?: any;
+  likes: number;
+  comments: number;
+  viewerHasLiked: boolean;
+  viewerHasSaved: boolean;
+};
+
+const mapReel = (r: reelsApi.Reel): UIReel => ({
+  id: r.id,
+  backendId: r.id,
+  video: r.videoUrl,
+  user: r.author?.name || 'closetx',
+  title: r.caption || '',
+  product: r.product ? { id: r.product.id, name: r.product.name, img: r.product.image } : null,
+  likes: r.likeCount,
+  comments: r.commentCount,
+  viewerHasLiked: r.viewerHasLiked,
+  viewerHasSaved: r.viewerHasSaved,
+});
 
 // Fashion / clothing reels (Mixkit, royalty-free – verified URLs)
 const FASHION_VIDEOS = [
@@ -30,18 +65,24 @@ const FASHION_VIDEOS = [
   'https://assets.mixkit.co/videos/42298/42298-720.mp4',  // Retro fashion style
 ];
 
-// Build a page of reel data starting at a given offset
-const buildPage = (offset: number, count: number) =>
+// Demo fallback — a local page built from mock reels/products (backendId: null).
+const buildDemo = (offset: number, count: number): UIReel[] =>
   Array.from({ length: count }, (_, k) => {
     const i = offset + k;
     const base = REELS[i % REELS.length];
+    const p = PRODUCTS[i % PRODUCTS.length];
     return {
-      ...base,
-      id: `${base.id}-${i}`,
+      id: `demo-${base.id}-${i}`,
+      backendId: null,
       video: FASHION_VIDEOS[i % FASHION_VIDEOS.length],
-      product: PRODUCTS[i % PRODUCTS.length],
+      user: base.user,
+      title: base.title,
+      product: { id: p.id, name: p.name, img: p.img, brand: p.brand, price: p.price },
+      mockProduct: p,
       likes: 1240 + i * 137,
       comments: 89 + i * 12,
+      viewerHasLiked: false,
+      viewerHasSaved: false,
     };
   });
 
@@ -49,12 +90,56 @@ const PAGE_SIZE = 12;
 
 export default function ReelsScreen() {
   const nav = useNavigation<any>();
-  const { addToCart, toggleFavorite, isFavorite, night, showToast } = useApp();
+  const { night } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const [active, setActive] = useState(0);
-  const [seed, setSeed] = useState(0);
-  const [data, setData] = useState(() => buildPage(0, PAGE_SIZE * 2));
+  const [data, setData] = useState<UIReel[]>([]);
+  const [mode, setMode] = useState<'loading' | 'real' | 'demo'>('loading');
+  const cursorRef = useRef<string | null>(null);
+  const loadingMore = useRef(false);
   const listRef = useRef<FlatList>(null);
+
+  // Load the first page. A successful response (even an empty one) is the source of truth:
+  // an empty feed shows the real empty state. Only a genuine network/backend failure falls
+  // back to the local demo feed, so a broken connection doesn't leave the tab blank.
+  const loadInitial = useCallback(async () => {
+    setMode('loading');
+    setActive(0);
+    try {
+      const page = await reelsApi.getFeed({ limit: 10 });
+      setData(page.items.map(mapReel));
+      cursorRef.current = page.nextCursor;
+      setMode('real');
+    } catch {
+      setData(buildDemo(0, PAGE_SIZE * 2));
+      cursorRef.current = null;
+      setMode('demo');
+    }
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore.current) return;
+    if (mode === 'demo') {
+      setData(prev => prev.concat(buildDemo(prev.length, PAGE_SIZE)));
+      return;
+    }
+    if (mode !== 'real' || !cursorRef.current) return;
+    loadingMore.current = true;
+    try {
+      const page = await reelsApi.getFeed({ cursor: cursorRef.current, limit: 10 });
+      setData(prev => [...prev, ...page.items.map(mapReel)]);
+      cursorRef.current = page.nextCursor;
+    } catch {
+      /* keep what we have */
+    } finally {
+      loadingMore.current = false;
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    loadInitial();
+  }, [loadInitial]);
 
   // Search drop-down (slides from top)
   const [searchMounted, setSearchMounted] = useState(false);
@@ -72,14 +157,10 @@ export default function ReelsScreen() {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('reelsReload', () => {
-      const newSeed = Math.floor(Math.random() * 10000);
-      setSeed(newSeed);
-      setData(buildPage(newSeed, PAGE_SIZE * 2));
-      setActive(0);
-      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      loadInitial();
     });
     return () => sub.remove();
-  }, []);
+  }, [loadInitial]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -94,7 +175,7 @@ export default function ReelsScreen() {
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}
         onEndReachedThreshold={1.5}
-        onEndReached={() => setData(prev => prev.concat(buildPage(prev.length, PAGE_SIZE)))}
+        onEndReached={loadMore}
         onViewableItemsChanged={({ viewableItems }) => {
           if (viewableItems[0]) setActive(viewableItems[0].index || 0);
         }}
@@ -103,17 +184,26 @@ export default function ReelsScreen() {
         maxToRenderPerBatch={3}
         windowSize={5}
         removeClippedSubviews={false}
+        ListEmptyComponent={mode === 'loading' ? null : <ReelsEmpty />}
         renderItem={({ item, index }) => (
           <ReelItem
             reel={item}
             isActive={index === active}
-            onLike={() => toggleFavorite(item.product)}
-            isLiked={isFavorite(item.product.id)}
-            onAdd={() => {
-              addToCart(item.product);
-              showToast('Added to bag', item.product.name, 'shopping-bag');
+            onOpenProduct={async () => {
+              if (!item.product) return;
+              // Demo reels carry a full mock product; backend reels carry only id/name/img,
+              // so fetch the full listing before opening the detail screen.
+              if (item.backendId) {
+                try {
+                  const full = await getProduct(item.product.id);
+                  nav.navigate('ProductDetail', { product: full });
+                  return;
+                } catch {
+                  /* fall through to the thin tag */
+                }
+              }
+              nav.navigate('ProductDetail', { product: item.product });
             }}
-            onProduct={() => nav.navigate('ProductDetail', { product: item.product })}
           />
         )}
       />
@@ -132,6 +222,18 @@ export default function ReelsScreen() {
           <SearchCloseButton onPress={closeSearch} />
         </Animated.View>
       )}
+    </View>
+  );
+}
+
+function ReelsEmpty() {
+  return (
+    <View style={{ height, width, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', padding: 32 }}>
+      <Feather name="film" size={40} color="#fff" />
+      <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: 18, marginTop: 12 }}>NO REELS YET</Text>
+      <Text style={{ fontFamily: 'Inter_500Medium', color: '#aaa', fontSize: 13, marginTop: 6, textAlign: 'center' }}>
+        Reels from products you buy will show up here.
+      </Text>
     </View>
   );
 }
@@ -175,20 +277,101 @@ function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
   );
 }
 
-function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
-  const { night } = useApp();
+function ReelItem({ reel, isActive, onOpenProduct }: { reel: UIReel; isActive: boolean; onOpenProduct: () => void }) {
+  const { night, addToCart, toggleFavorite, isFavorite, showToast } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const { ref: prodRef, open: openProd } = useZoomCard();
+  const backed = !!reel.backendId;
 
-  const [saved, setSaved] = useState(false);
+  // Backend reels seed from the server's viewer flag; demo reels reuse the local
+  // product-favorite state (there's no reel-level like store for them).
+  const [liked, setLiked] = useState(backed ? reel.viewerHasLiked : reel.product ? isFavorite(reel.product.id) : false);
+  const [likeCount, setLikeCount] = useState(reel.likes);
+  const [saved, setSaved] = useState(reel.viewerHasSaved);
   const [shareCount, setShareCount] = useState(102);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [comments, setComments] = useState(SEED_COMMENTS);
+  const [comments, setComments] = useState<{ user: string; text: string }[]>(backed ? [] : SEED_COMMENTS);
+  const [commentCount, setCommentCount] = useState(reel.comments);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [draft, setDraft] = useState('');
   // Track if this reel has ever been active so we mount the video player once
   // and keep it alive (avoids re-buffering on quick swipes back).
   const [wasActive, setWasActive] = useState(isActive);
   useEffect(() => { if (isActive) setWasActive(true); }, [isActive]);
+
+  // Fire a single view ping the first time this reel becomes active (backend reels only).
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (isActive && backed && !viewedRef.current) {
+      viewedRef.current = true;
+      reelsApi.recordView(reel.backendId!).catch(() => {});
+    }
+  }, [isActive, backed, reel.backendId]);
+
+  const toggleLike = useCallback(async () => {
+    const next = !liked;
+    setLiked(next);
+    setLikeCount(c => Math.max(0, c + (next ? 1 : -1)));
+    if (backed) {
+      try {
+        const res = next ? await reelsApi.like(reel.backendId!) : await reelsApi.unlike(reel.backendId!);
+        setLiked(res.liked);
+        setLikeCount(res.likeCount);
+      } catch {
+        setLiked(!next); // revert
+        setLikeCount(c => Math.max(0, c + (next ? -1 : 1)));
+      }
+    } else if (reel.mockProduct) {
+      toggleFavorite(reel.mockProduct);
+    }
+  }, [liked, backed, reel.backendId, reel.mockProduct, toggleFavorite]);
+
+  const likeFromDoubleTap = useCallback(async () => {
+    if (liked) return;
+    await toggleLike();
+  }, [liked, toggleLike]);
+
+  const toggleSave = useCallback(async () => {
+    const next = !saved;
+    setSaved(next);
+    if (backed) {
+      try {
+        const res = next ? await reelsApi.save(reel.backendId!) : await reelsApi.unsave(reel.backendId!);
+        setSaved(res.saved);
+      } catch {
+        setSaved(!next); // revert
+      }
+    }
+  }, [saved, backed, reel.backendId]);
+
+  const openComments = useCallback(async () => {
+    setCommentsOpen(true);
+    if (backed && !commentsLoaded) {
+      try {
+        const page = await reelsApi.listComments(reel.backendId!, { limit: 50 });
+        setComments(page.items.map(c => ({ user: c.author?.name || 'user', text: c.body })));
+        setCommentsLoaded(true);
+      } catch {
+        /* leave empty */
+      }
+    }
+  }, [backed, commentsLoaded, reel.backendId]);
+
+  const onAdd = useCallback(async () => {
+    if (!reel.product) return;
+    if (!backed && reel.mockProduct) {
+      addToCart(reel.mockProduct);
+      showToast('Added to bag', reel.mockProduct.name, 'shopping-bag');
+      return;
+    }
+    try {
+      const full = await getProduct(reel.product.id);
+      addToCart(full);
+      showToast('Added to bag', full.name, 'shopping-bag');
+    } catch {
+      onOpenProduct();
+    }
+  }, [reel.product, reel.mockProduct, backed, addToCart, showToast, onOpenProduct]);
 
   // HER-mode curves for all the overlay cards on the reel
   const prodCurve = useGenderCurve(14);
@@ -222,23 +405,34 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       heartX.value = e.x;
       heartY.value = e.y;
       runOnJS(popHeart)();
-      if (!isLiked) runOnJS(onLike)();
+      runOnJS(likeFromDoubleTap)();
     });
 
   const handleShare = async () => {
     try {
       const r = await Share.share({
-        message: `Check out ${reel.user} on TRENDZO — ${reel.title}`,
+        message: `Check out ${reel.user} on CLOSETX — ${reel.title}`,
       });
       if (r.action === Share.sharedAction) setShareCount(c => c + 1);
     } catch {}
   };
 
-  const submitComment = () => {
+  const submitComment = async () => {
     const t = draft.trim();
     if (!t) return;
-    setComments(c => [{ user: 'you', text: t }, ...c]);
     setDraft('');
+    const optimistic = { user: 'you', text: t };
+    setComments(c => [optimistic, ...c]);
+    setCommentCount(n => n + 1);
+    if (backed) {
+      try {
+        await reelsApi.addComment(reel.backendId!, t);
+      } catch {
+        // Roll back the optimistic insert so the UI matches the server.
+        setComments(c => c.filter(x => x !== optimistic));
+        setCommentCount(n => Math.max(0, n - 1));
+      }
+    }
   };
 
   return (
@@ -257,10 +451,10 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
 
       {/* RIGHT ACTIONS */}
       <View style={s.actions}>
-        <ReelAction icon={isLiked ? 'heart' : 'heart-outline'} iconSet="ion" count={reel.likes + (isLiked ? 1 : 0)} active={isLiked} onPress={onLike} />
-        <ReelAction icon="message-circle" count={comments.length} onPress={() => setCommentsOpen(true)} />
+        <ReelAction icon={liked ? 'heart' : 'heart-outline'} iconSet="ion" count={likeCount} active={liked} onPress={toggleLike} />
+        <ReelAction icon="message-circle" count={commentCount} onPress={openComments} />
         <ReelAction icon="share-2" count={shareCount} onPress={handleShare} />
-        <ReelAction icon={saved ? 'bookmark' : 'bookmark-outline'} iconSet="ion" active={saved} onPress={() => setSaved(s => !s)} />
+        <ReelAction icon={saved ? 'bookmark' : 'bookmark-outline'} iconSet="ion" active={saved} onPress={toggleSave} />
       </View>
 
       {/* COMMENTS MODAL */}
@@ -269,7 +463,7 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.modalSheet}>
           <View style={s.modalHandle} />
           <View style={s.modalHeader}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>{comments.length} COMMENTS</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>{commentCount} COMMENTS</Text>
             <Pressable onPress={() => setCommentsOpen(false)} hitSlop={10}>
               <Feather name="x" size={22} color={C.ink} />
             </Pressable>
@@ -315,19 +509,31 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       </View>
 
       {/* PRODUCT TAG */}
-      <Animated.View style={[s.prodTag, prodCurve]}>
-        <Pressable onPress={() => reel.product?.img ? openProd(reel.product.img, reel.product) : onProduct()} style={{ flex: 1, flexDirection: 'row' }}>
-          <View ref={prodRef} collapsable={false}><Image source={{ uri: reel.product.img }} style={s.prodTagImg} /></View>
-          <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
-            <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
-            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{reel.product.price}</Text>
-          </View>
-        </Pressable>
-        <Pressable onPress={onAdd} style={s.prodAdd}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>+ ADD</Text>
-        </Pressable>
-      </Animated.View>
+      {reel.product && (
+        <Animated.View style={[s.prodTag, prodCurve]}>
+          <Pressable onPress={() => (reel.product!.img && reel.product!.price != null ? openProd(reel.product!.img, reel.product) : onOpenProduct())} style={{ flex: 1, flexDirection: 'row' }}>
+            <View ref={prodRef} collapsable={false}>
+              {reel.product.img ? (
+                <Image source={{ uri: reel.product.img }} style={s.prodTagImg} />
+              ) : (
+                <View style={[s.prodTagImg, { backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }]}>
+                  <Feather name="tag" size={22} color={C.white} />
+                </View>
+              )}
+            </View>
+            <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
+              {reel.product.brand ? <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text> : null}
+              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>
+              {reel.product.price != null ? (
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{reel.product.price}</Text>
+              ) : null}
+            </View>
+          </Pressable>
+          <Pressable onPress={onAdd} style={s.prodAdd}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>+ ADD</Text>
+          </Pressable>
+        </Animated.View>
+      )}
 
     </View>
   );
