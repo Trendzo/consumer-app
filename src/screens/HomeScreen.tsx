@@ -1,10 +1,10 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, TextInput, DeviceEventEmitter, Platform } from 'react-native';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -33,7 +33,7 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 export default function HomeScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { user, cartCount, night, toggleNight, gender, setGender, curveProgress, theme, showConfirm } = useApp();
+  const { night, gender, setGender, curveProgress, theme, showConfirm } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // Live catalog from the backend (gender-aware). `null` = not loaded yet or the
@@ -82,6 +82,19 @@ export default function HomeScreen() {
   // live so cards/boxes curve in real time during the drag.
   const curveStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 18 }));
   const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
+  // Collapsible top header (brand + ETA headline + address) — shrinks to nothing as the
+  // page scrolls, while the search bar / quick categories below it live outside the
+  // ScrollView entirely so they never move. Height is measured off the real content
+  // (via onLayout below) rather than guessed, so there's no leftover gap. Measured
+  // ONCE on mount — the collapsing parent's own height changes every animation frame,
+  // and re-measuring mid-shrink would capture a clipped (too-small) reading and
+  // permanently corrupt the target, breaking the re-expand on scroll-up.
+  const [headerContentH, setHeaderContentH] = useState(92);
+  const headerMeasuredRef = useRef(false);
+  const headerCollapseStyle = useAnimatedStyle(() => ({
+    height: interpolate(scrollY.value, [0, headerContentH], [headerContentH, 0], 'clamp'),
+    opacity: interpolate(scrollY.value, [0, headerContentH * 0.6], [1, 0], 'clamp'),
+  }));
   // Fades out brutalist ASCII corner marks when curves are active
   const fadeBrutalStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   // Gap / spacing for connected tile groups — tiles separate slightly in HER mode.
@@ -127,37 +140,13 @@ export default function HomeScreen() {
   const playExpand = useSharedValue(0);
   const feedPushStyle = useAnimatedStyle(() => ({ transform: [{ translateY: playExpand.value * (OPEN_PH - CLOSED_PH) }] }));
 
-  // ─── EXPLORE MORE state — infinite scroll + filters + sticky search bar ───
-  const [exploreY, setExploreY] = useState(99999);
-  // The feed now lives inside the push-down wrapper, so the explore section's onLayout y
-  // is relative to that wrapper. Track the wrapper's own top and add it back so the
-  // sticky-search trigger still fires at the correct absolute scroll offset.
-  const [feedTop, setFeedTop] = useState(0);
-  const [exploreLocalY, setExploreLocalY] = useState(99999);
-  useEffect(() => { setExploreY(feedTop + exploreLocalY); }, [feedTop, exploreLocalY]);
+  // ─── EXPLORE MORE state — infinite scroll + filters ───
   const [exploreFilter, setExploreFilter] = useState<'ALL' | 'HER' | 'HIM' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
   const [explorePage, setExplorePage] = useState(1);
-  const [exploreQuery, setExploreQuery] = useState('');
-  const [showSearchBar, setShowSearchBar] = useState(false);
-  // Slide-only animation for the sticky search bar (no fade)
-  const searchBarSlide = useSharedValue(-220);
-  const searchBarStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: searchBarSlide.value }],
-  }));
 
-  // UI-thread scroll handler — drives searchBarSlide directly and only pings
-  // JS when the show/hide boolean actually flips. Replaces the 60Hz JS onScroll
-  // that was causing scroll lag.
-  const searchBarShownUI = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler((e) => {
     'worklet';
     scrollY.value = e.contentOffset.y;
-    const shouldShow = e.contentOffset.y + 120 > exploreY ? 1 : 0;
-    if (shouldShow !== searchBarShownUI.value) {
-      searchBarShownUI.value = shouldShow;
-      searchBarSlide.value = withTiming(shouldShow ? 0 : -220, { duration: 260 });
-      runOnJS(setShowSearchBar)(shouldShow === 1);
-    }
   });
 
 
@@ -175,9 +164,77 @@ export default function HomeScreen() {
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
       <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+
+      {/* ═══ FIXED TOP — never scrolls. Only the collapsible block below shrinks; the
+          safe-area padding, search bar and quick categories stay put. ═══ */}
+      <View style={{ paddingTop: insets.top + 8, backgroundColor: C.white }}>
+        {/* ═══════════ HEADER (collapses away on scroll) ═══════════ */}
+        <Animated.View style={[{ overflow: 'hidden' }, headerCollapseStyle]}>
+          <View
+            onLayout={(e) => {
+              if (headerMeasuredRef.current) return;
+              headerMeasuredRef.current = true;
+              setHeaderContentH(e.nativeEvent.layout.height);
+            }}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(12), color: C.ink, letterSpacing: 1.5 }}>TRENDZO</Text>
+              {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, lineHeight: rf(36) }}>60 MIN</Text>
+                <View style={[{ paddingHorizontal: 7, paddingVertical: 3, marginTop: 6 }, BORDER(1)]}>
+                  <Text style={[T.mono, { fontSize: 9 }]}>3 STORES NEARBY</Text>
+                </View>
+              </View>
+              {/* Delivery location — tap to change (Myntra-style) */}
+              <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 }}>
+                <Feather name="map-pin" size={11} color={C.ink} />
+                <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>Deliver to</Text>
+                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, letterSpacing: -0.2 }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                <Feather name="chevron-down" size={13} color={C.ink} />
+              </Pressable>
+            </View>
+            <BrutalIconBtn icon="user" onPress={() => nav.navigate('ProfileTab')} />
+          </View>
+        </Animated.View>
+
+        {/* ═══════════ SEARCH — constant, always visible ═══════════ */}
+        <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.s, borderWidth: 1, borderColor: C.ink, backgroundColor: C.white }, curveStyle]}>
+          <Feather name="search" size={16} color={C.ink} />
+          <Text style={[T.mono, { flex: 1 }]}>SEARCH 60-MIN DROPS...</Text>
+          <Feather name="mic" size={16} color={C.dim} />
+        </AnimatedPressable>
+
+        {/* ═══════════ QUICK CATEGORIES — constant, always visible ═══════════ */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.m, paddingBottom: SP.xs }}>
+          <Pressable onPress={() => nav.navigate('Categories')} style={{ alignItems: 'center', width: 60 }}>
+            <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, BORDER(1)]}>
+              <Feather name="grid" size={18} color={C.white} />
+            </View>
+            <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
+          </Pressable>
+          {activeCategories.map((c) => {
+            // Category icons come from two vocabularies: Feather names on the
+            // HIM/HER mock lists, Ionicons "-outline" names once live backend
+            // categories load — pick the matching glyph set per item.
+            const isIonicon = (c.icon || '').includes('-outline');
+            const IconCmp: any = isIonicon ? Ionicons : Feather;
+            return (
+              <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ alignItems: 'center', width: 60 }}>
+                <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                  <IconCmp name={c.icon || 'pricetag-outline'} size={18} color={C.ink} />
+                </View>
+                <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>{c.label.toUpperCase()}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       <AnimatedScrollView
         ref={scrollRef as any}
-        contentContainerStyle={{ paddingTop: 56, paddingBottom: 120 }}
+        contentContainerStyle={{ paddingTop: 0, paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
@@ -185,35 +242,6 @@ export default function HomeScreen() {
         removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
       >
-        {/* ═══════════ HEADER ═══════════ */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: SP.l, marginBottom: SP.m }}>
-          <View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1 }}>TRENDZO</Text>
-            {/* Delivery location — tap to change (Myntra-style) */}
-            <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
-              <Feather name="map-pin" size={11} color={C.ink} />
-              <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>Deliver to</Text>
-              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, letterSpacing: -0.2 }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
-              <Feather name="chevron-down" size={13} color={C.ink} />
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <BrutalIconBtn icon={night ? 'sun' : 'moon'} onPress={toggleNight} />
-            <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
-          </View>
-        </View>
-
-        {/* ═══════════ USER STRIP ═══════════ */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 6, borderBottomWidth: 1, borderColor: C.ink, marginBottom: SP.m }}>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{`HELLO, ${user?.name?.toUpperCase() || 'GUEST'}`}</Text>
-          <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{cartCount > 0 ? `${cartCount} IN BAG` : 'BAG EMPTY'}</Text>
-        </View>
-
-        {/* ═══════════ SEARCH ═══════════ */}
-        <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, borderWidth: 1, borderColor: C.ink, backgroundColor: C.white }, curveStyle]}>
-          <Feather name="search" size={16} color={C.ink} />
-          <Text style={[T.mono, { flex: 1 }]}>SEARCH 60-MIN DROPS...</Text>
-        </AnimatedPressable>
 
         {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════ */}
         <GenderSwitch gender={gender} onSwitch={setGender} />
@@ -302,7 +330,7 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         <PlayWheelSection nav={nav} expandP={playExpand} />
-        <Animated.View onLayout={(e) => setFeedTop(e.nativeEvent.layout.y)} style={feedPushStyle}>
+        <Animated.View style={feedPushStyle}>
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -684,13 +712,9 @@ export default function HomeScreen() {
         {/*
         ╔══════════════════════════════════════════════╗
         ║  EXPLORE MORE — Filters + infinite product grid ║
-        ║  Sticky search bar slides in from top           ║
         ╚══════════════════════════════════════════════╝
         */}
-        <View
-          onLayout={(e) => setExploreLocalY(e.nativeEvent.layout.y)}
-          style={{ marginTop: SP.xl }}
-        >
+        <View style={{ marginTop: SP.xl }}>
           <SectionHead title="EXPLORE" emphasis="MORE" />
 
           {/* Filter chip rail */}
@@ -710,7 +734,6 @@ export default function HomeScreen() {
           {/* Result count + sort */}
           {(() => {
             const list = exploreProducts.filter(p => {
-              if (exploreQuery && !p.name.toLowerCase().includes(exploreQuery.toLowerCase()) && !p.brand.toLowerCase().includes(exploreQuery.toLowerCase())) return false;
               if (exploreFilter === 'ALL' || exploreFilter === 'HER' || exploreFilter === 'HIM') return true;
               return p.category === exploreFilter;
             });
@@ -765,28 +788,6 @@ export default function HomeScreen() {
         </View>
         </Animated.View>
       </AnimatedScrollView>
-
-      {/* STICKY SEARCH BAR — slides down from top (no fade) */}
-      <Animated.View pointerEvents={showSearchBar ? 'auto' : 'none'} style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: Math.max(insets.top - 8, 4), paddingHorizontal: SP.l, paddingBottom: 6, backgroundColor: C.bg, borderBottomWidth: 1, borderColor: C.ink, zIndex: 100 }, searchBarStyle]}>
-        <View style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 10, gap: 10, backgroundColor: C.white }, BORDER(1)]}>
-          <Feather name="search" size={16} color={C.ink} />
-          <TextInput
-            value={exploreQuery}
-            onChangeText={(t) => { setExploreQuery(t); setExplorePage(1); }}
-            placeholder="SEARCH EXPLORE..."
-            placeholderTextColor={C.dim}
-            style={{ flex: 1, fontFamily: 'SpaceMono_700Bold', fontSize: 11, color: C.ink, padding: 0, letterSpacing: 0.5 }}
-          />
-          {exploreQuery.length > 0 && (
-            <Pressable onPress={() => setExploreQuery('')} hitSlop={10}>
-              <Feather name="x" size={14} color={C.dim} />
-            </Pressable>
-          )}
-          <View style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.ink }]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{exploreFilter}</Text>
-          </View>
-        </View>
-      </Animated.View>
     </View>
   );
 }
