@@ -21,7 +21,7 @@ const METHOD_ORDER: DeliveryMethod[] = ['express', 'standard', 'pickup'];
 export default function CartScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, night, theme, showToast } = useApp();
+  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, night, theme, showToast, requireAuth } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
@@ -67,7 +67,8 @@ export default function CartScreen() {
   const checkoutBucket = (m: DeliveryMethod) => {
     // Route to the multi-step Checkout (address → delivery → payment → confirm).
     // Pre-select the bucket's delivery method so the flow opens on the right option.
-    nav.navigate('Checkout', { preMethod: m });
+    // Guests get the bottom-sheet login first — checkout only opens once signed in.
+    requireAuth(() => nav.navigate('Checkout', { preMethod: m }));
   };
 
   return (

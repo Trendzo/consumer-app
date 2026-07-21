@@ -177,6 +177,31 @@ export const HIM_CATEGORIES: Category[] = [
   { id: 'him-c8', label: 'Shades',   icon: 'umbrella', tint: '#3e2723', img: png('sunglasses', 155) },
 ];
 
+// Transparent product PNG (pngimg.com cut-outs) for a category LABEL. Home's
+// "Shop by Vibe" grid uses this so those tiles always show a clean cut-out
+// product shot instead of the backend's lifestyle category photo — matching
+// the original look. Keyword-matched; specific terms (polo, heel, mini) win
+// before broad ones (shirt, shoe, dress).
+export function categoryPng(label: string): string {
+  const l = (label || '').toLowerCase();
+  const has = (...k: string[]) => k.some((s) => l.includes(s));
+  if (has('polo')) return png('tshirt', 5453);
+  if (has('heel')) return png('women_shoes', 7473);
+  if (has('mini')) return png('dress', 194);
+  if (has('maxi')) return png('dress', 196);
+  if (has('dress', 'gown')) return png('dress', 197);
+  if (has('coat')) return png('coat', 80);
+  if (has('jacket', 'bomber', 'blazer', 'outer')) return png('jacket', 8059);
+  if (has('jean', 'denim', 'bottom', 'trouser', 'pant')) return png('jeans', 5779);
+  if (has('sneaker', 'shoe', 'foot', 'boot')) return png('women_shoes', 7472);
+  if (has('bag', 'tote', 'clutch')) return png('women_bag', 6428);
+  if (has('beauty', 'lip', 'makeup')) return png('lipstick', 76278);
+  if (has('watch')) return png('watches', 101457);
+  if (has('shade', 'sunglass', 'eyewear', 'glass')) return png('sunglasses', 155);
+  if (has('tee', 'top', 'shirt')) return png('tshirt', 5454);
+  return png('tshirt', 5454);
+}
+
 export const HER_BUNDLES: Bundle[] = [
   { id: 'hb1', title: 'Brunch Goddess', price: 4999, pieces: 4, colors: ['#ffafbd', '#ffc3a0', '#feca57'], img: u('photo-1483985988355-763728e1935b', 500) },
   { id: 'hb2', title: 'Date Night Glam', price: 6499, pieces: 3, colors: ['#ff6b9d', '#a78bfa', '#feca57'], img: u('photo-1539109136881-3be0616acf4b', 500) },

@@ -1,12 +1,13 @@
 // Reusable brutalism primitives
-import React, { ReactNode, useRef, useEffect } from 'react';
-import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions } from 'react-native';
+import React, { ReactNode, useRef, useEffect, useSyncExternalStore } from 'react';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { C, T, BORDER, SP, ASCII, HAIRLINE, rf } from '../theme/brutal';
+import { C, T, BORDER, SP, ASCII, HAIRLINE, rf, subscribeTheme, isHer } from '../theme/brutal';
 import { useApp } from '../state/AppState';
+import { toastBus, confirmBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
 // CachedImage — drop-in `<Image>` replacement backed by expo-image.
@@ -20,7 +21,14 @@ export function CachedImage({ source, style, resizeMode = 'contain', ...rest }: 
       style={style}
       contentFit={resizeMode === 'cover' ? 'cover' : resizeMode === 'stretch' ? 'fill' : 'contain'}
       cachePolicy="memory-disk"
-      transition={200}
+      // Android: the 200ms fade ran a compositor animation for every image that
+      // (re)entered the viewport while scrolling — measurable jank on older
+      // phones. Instant swap there; iOS keeps the subtle fade.
+      transition={Platform.OS === 'android' ? 0 : 200}
+      // Lets expo-image reuse the underlying native view for the same URL
+      // instead of tearing it down when lists recycle.
+      recyclingKey={uri}
+      allowDownscaling
       {...rest}
     />
   );
@@ -36,7 +44,10 @@ export function BrutalStatusBar() {
 // Replaces native Alert.alert. Centered card with title, optional message,
 // and Confirm/Cancel buttons. Slides in from bottom with a soft scale.
 export function BrutalConfirm() {
-  const { confirm, hideConfirm, night } = useApp();
+  // Confirm state comes from the uiBus — only THIS component re-renders when
+  // a confirm opens/closes, instead of every context consumer in the app.
+  const confirm = useSyncExternalStore(confirmBus.subscribe, confirmBus.get);
+  const { hideConfirm, night } = useApp();
   if (!confirm) return null;
   const danger = !!confirm.danger;
   return (
@@ -90,7 +101,10 @@ export function BrutalConfirm() {
 // Renders at the bottom of the screen above the tab bar. Global, driven
 // by `useApp().showToast('title', 'msg?')`. Auto-dismisses after ~2s.
 export function BrutalToast() {
-  const { toast, hideToast } = useApp();
+  // Toast state comes from the uiBus — showing/hiding a toast re-renders only
+  // this host component (it used to re-render the whole tree, twice).
+  const toast = useSyncExternalStore(toastBus.subscribe, toastBus.get);
+  const { hideToast } = useApp();
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, {
@@ -147,8 +161,13 @@ export function useGenderCurve(maxRadius = 14) {
   // They settle to the right radius the moment `gender` commits; by the time you scroll to
   // them they're already rounded, so you never see the difference. The on-screen rounding
   // (hero / search / categories, via HomeScreen's curveStyle) still animates live & smooth.
-  const { gender } = useApp();
-  return { borderRadius: gender === 'her' ? maxRadius : 0 };
+  //
+  // Subscribes to the theme store directly (NOT the app context) — same update
+  // timing (setGenderCurve fires the theme subscribers on every gender commit),
+  // but the primitives using this hook no longer re-render when unrelated
+  // context state (cart, user, favorites…) changes.
+  const her = useSyncExternalStore(subscribeTheme, isHer);
+  return { borderRadius: her ? maxRadius : 0 };
 }
 
 // ─── BRUTAL BOX — curve-aware bordered container ──────────────

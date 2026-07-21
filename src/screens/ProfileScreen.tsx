@@ -4,7 +4,32 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, FadeInUp } from '../components/Brutal';
+import { RealIcon, RealIconName } from '../components/RealIcon';
 import { useApp } from '../state/AppState';
+
+// Old Feather glyph name → realistic 3D icon (RealIcon). Menu data keeps its
+// Feather vocabulary so nothing else breaks; the render maps through this.
+const ICON_3D: Record<string, RealIconName> = {
+  'package': 'package',
+  'rotate-ccw': 'forward',
+  'map-pin': 'bag',
+  'home': 'home',
+  'map': 'marker',
+  'credit-card': 'card',
+  'award': 'medal',
+  'gift': 'gift',
+  'users': 'friends',
+  'heart': 'heart',
+  'user': 'user',
+  'sliders': 'settings',
+  'maximize-2': 'ruler',
+  'star': 'star',
+  'user-check': 'user',
+  'settings': 'bell',
+  'globe': 'globe',
+  'message-square': 'support',
+  'info': 'info',
+};
 
 const QUICK = [
   { icon: 'package', label: 'ORDERS', sub: 'HISTORY', screen: 'OrderHistory' },
@@ -65,7 +90,7 @@ const MENU_GROUPS = [
 
 export default function ProfileScreen() {
   const nav = useNavigation<any>();
-  const { user, signOut, cartCount, night, toggleNight, showToast, showConfirm } = useApp();
+  const { user, signOut, cartCount, night, toggleNight, showToast, showConfirm, requireAuth } = useApp();
   const initials = ((user?.name || 'Guest').split(' ').map(s => s[0]).join('').slice(0, 2) || 'G').toUpperCase();
 
   return (
@@ -74,7 +99,7 @@ export default function ProfileScreen() {
       <ScreenHeader title="Profile" right={
         <Pressable onPress={() => nav.navigate('Notifications')}>
           <BrutalBox maxRadius={18} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-            <Feather name="bell" size={14} color={C.ink} />
+            <RealIcon name="bell" size={16} />
           </BrutalBox>
         </Pressable>
       } />
@@ -106,7 +131,7 @@ export default function ProfileScreen() {
                 </View>
                 <Pressable onPress={() => nav.navigate('EditProfile')}>
                   <BrutalBox maxRadius={18} border={0} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-                    <Feather name="edit-2" size={14} color={C.ink} />
+                    <RealIcon name="pencil" size={16} />
                   </BrutalBox>
                 </Pressable>
               </View>
@@ -154,7 +179,7 @@ export default function ProfileScreen() {
                     ]}
                   >
                     <BrutalBox maxRadius={18} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-                      <Feather name={it.icon} size={14} color={C.ink} />
+                      <RealIcon name={ICON_3D[it.icon] ?? 'sparkles'} size={16} />
                     </BrutalBox>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink }}>{it.label}</Text>
@@ -177,7 +202,7 @@ export default function ProfileScreen() {
             <Pressable onPress={toggleNight}>
               <BrutalBox maxRadius={16} style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', padding: SP.m, backgroundColor: C.white }}>
                 <BrutalBox maxRadius={18} solid={night} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name={night ? 'moon' : 'sun'} size={14} color={night ? C.white : C.ink} />
+                  <RealIcon name={night ? 'moon' : 'sun'} size={16} color={night ? C.white : C.ink} />
                 </BrutalBox>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink }}>Night mode</Text>
@@ -207,7 +232,7 @@ export default function ProfileScreen() {
               })}
             />
           ) : (
-            <BrutalButton label="Log in / Sign up" icon="log-in" block onPress={() => nav.navigate('Login')} />
+            <BrutalButton label="Log in / Sign up" icon="log-in" block onPress={() => requireAuth()} />
           )}
         </View>
       </ScrollView>

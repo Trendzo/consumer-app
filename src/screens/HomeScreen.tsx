@@ -1,26 +1,46 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform } from 'react-native';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
+import { AsciiDivider, BrutalButton, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
+import { RealIcon, RealIconName, categoryIconName } from '../components/RealIcon';
 import {
   PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG, HERO_IMG_2,
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
   HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
+  categoryPng,
 } from '../data/mockData';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
 import { listCategories, listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
+import { warmCatalog } from '../services/prefetch';
 import { useApp } from '../state/AppState';
 
 const HOME_HERO = require('../../assets/home.jpeg');
 const { width: W } = Dimensions.get('window');
+// Text shadow for the header/search overlay now sitting on top of the hero
+// photo — keeps white text legible over whatever part of the image is behind it.
+const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
+
+// FEATURED CATEGORIES — swipeable PNG-cutout row under the banner marquee.
+// Reuses the same transparent product cutouts as "Shop by Vibe"; each tile
+// routes into the generic category browse screen like QuickCat/VibeTile do.
+const FEATURED_CATEGORIES = [
+  { id: 'new-arrivals', label: 'New Arrivals', img: categoryPng('tee') },
+  { id: 'her-c1', label: 'For Her', img: categoryPng('dress') },
+  { id: 'him-c3', label: 'For Him', img: categoryPng('jacket') },
+  { id: 'footwear', label: 'Footwear', img: categoryPng('sneaker') },
+  { id: 'bags', label: 'Bags', img: categoryPng('bag') },
+  { id: 'watches', label: 'Watches', img: categoryPng('watch') },
+  { id: 'eyewear', label: 'Eyewear', img: categoryPng('sunglass') },
+];
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
@@ -36,45 +56,78 @@ export default function HomeScreen() {
   const { night, gender, setGender, curveProgress, theme, showConfirm } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  // Live catalog from the backend (gender-aware). `null` = not loaded yet or the
-  // fetch failed; the selectors below fall back to the mock arrays so the home is
-  // never blank (the backend is a free tier that cold-starts slowly).
-  const [apiCategories, setApiCategories] = useState<Category[] | null>(null);
-  const [apiProducts, setApiProducts] = useState<Product[] | null>(null);
-  const [apiBrands, setApiBrands] = useState<Brand[] | null>(null);
-  const [apiBundles, setApiBundles] = useState<Bundle[] | null>(null);
-  const [apiOccasions, setApiOccasions] = useState<Occasion[] | null>(null);
+  // Live catalog from the backend, cached PER GENDER. A missing slice = not
+  // loaded yet or the fetch failed; the selectors below fall back to the mock
+  // arrays so the home is never blank (the backend is a free tier that
+  // cold-starts slowly). Caching both genders is what makes the HER↔HIM slide
+  // swap content INSTANTLY — before, the old gender's API data stayed on
+  // screen until a slow refetch landed, so the category boxes looked frozen.
+  type GenderSlice = { categories?: Category[]; products?: Product[]; bundles?: Bundle[]; occasions?: Occasion[] };
+  const [apiCache, setApiCache] = useState<{ her: GenderSlice; him: GenderSlice; brands?: Brand[] }>({ her: {}, him: {} });
 
-  // Refetch the whole home catalog whenever HER/HIM flips or the user pulls to
-  // refresh. Each slice sets independently so one slow/failed endpoint doesn't
-  // blank the others; failures leave state null → mock fallback.
+  // Armed on the FIRST focus of the Home tab: on a guest launch the Login
+  // modal covers the tabs, HomeTab is not focused, and neither the catalog
+  // fetch nor the image warm-up runs behind it. First focus also kicks the
+  // deferred two-wave image prefetch (moved out of AppProvider).
+  const [homeArmed, setHomeArmed] = useState(false);
+  useFocusEffect(useCallback(() => {
+    if (homeArmed) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      setHomeArmed(true);
+      warmCatalog(gender);
+    });
+    return () => task.cancel();
+  }, [homeArmed, gender]));
+
+  // Refetch the whole home catalog when HER/HIM flips or the user pulls to
+  // refresh. Each slice lands independently into the per-gender cache so one
+  // slow/failed endpoint doesn't blank the others; failures (or empty results)
+  // leave the slice untouched → mock fallback.
+  // GUARDED: a flip to a gender whose slice is already cached and fresh
+  // (<5 min) does ZERO network — a HER↔HIM↔HER round trip used to fire 15
+  // requests for data already on screen. Pull-to-refresh always forces.
+  const apiCacheRef = useRef(apiCache);
+  useEffect(() => { apiCacheRef.current = apiCache; }, [apiCache]);
+  const fetchedAt = useRef<{ her?: number; him?: number }>({});
+  const lastReloadKey = useRef(0);
   useEffect(() => {
+    if (!homeArmed) return;
+    const g = gender;
+    const forced = reloadKey !== lastReloadKey.current;
+    lastReloadKey.current = reloadKey;
+    const slice = apiCacheRef.current[g];
+    const hasCache = !!(slice.categories || slice.products);
+    const age = Date.now() - (fetchedAt.current[g] ?? 0);
+    if (!forced && hasCache && age < 5 * 60_000) { setRefreshing(false); return; }
+    fetchedAt.current[g] = Date.now();
     let cancelled = false;
-    const load = <T,>(p: Promise<T>, set: (v: T) => void) =>
-      p.then((v) => { if (!cancelled) set(v); }).catch(() => { /* keep mock fallback */ });
+    const put = (patch: GenderSlice) =>
+      setApiCache((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
     void Promise.allSettled([
-      load(listCategories(gender), setApiCategories),
-      load(listProducts({ gender, limit: 50 }), setApiProducts),
-      load(listBrands(), setApiBrands),
-      load(listBundles(gender), setApiBundles),
-      load(listOccasions(gender), setApiOccasions),
+      listCategories(g).then((v) => { if (!cancelled && v.length) put({ categories: v }); }),
+      listProducts({ gender: g, limit: 50 }).then((v) => { if (!cancelled && v.length) put({ products: v }); }),
+      listBrands().then((v) => { if (!cancelled && v.length) setApiCache((prev) => ({ ...prev, brands: v })); }),
+      listBundles(g).then((v) => { if (!cancelled && v.length) put({ bundles: v }); }),
+      listOccasions(g).then((v) => { if (!cancelled && v.length) put({ occasions: v }); }),
     ]).then(() => { if (!cancelled) setRefreshing(false); });
     return () => { cancelled = true; };
-  }, [gender, reloadKey]);
+  }, [gender, reloadKey, homeArmed]);
 
-  // Gender-specific data — backend when available, else the mock arrays.
-  const has = <T,>(a: T[] | null): a is T[] => !!a && a.length > 0;
-  const activeProducts = has(apiProducts) ? apiProducts : (gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS);
-  const activeCategories = has(apiCategories) ? apiCategories : (gender === 'her' ? HER_CATEGORIES : HIM_CATEGORIES);
-  const activeBundles = has(apiBundles) ? apiBundles : (gender === 'her' ? HER_BUNDLES : HIM_BUNDLES);
-  const activeOccasions = has(apiOccasions) ? apiOccasions : (gender === 'her' ? HER_OCCASIONS : HIM_OCCASIONS);
-  const activeBrands = has(apiBrands) ? apiBrands : BRANDS;
-  const exploreProducts = has(apiProducts) ? apiProducts : EXPLORE_PRODUCTS;
+  // Gender-specific data — backend cache when available, else the mock arrays.
+  // BOTH category lists are computed so the quick-category row and the vibe
+  // grid can crossfade HIM↔HER live while the gender bar is being dragged.
+  const herCategories = apiCache.her.categories ?? HER_CATEGORIES;
+  const himCategories = apiCache.him.categories ?? HIM_CATEGORIES;
+  const activeSlice = apiCache[gender];
+  const activeProducts = activeSlice.products ?? (gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS);
+  const activeBundles = activeSlice.bundles ?? (gender === 'her' ? HER_BUNDLES : HIM_BUNDLES);
+  const activeOccasions = activeSlice.occasions ?? (gender === 'her' ? HER_OCCASIONS : HIM_OCCASIONS);
+  const activeBrands = apiCache.brands ?? BRANDS;
+  const exploreProducts = activeSlice.products ?? EXPLORE_PRODUCTS;
   const activeHero = gender === 'her' ? HER_HERO : HIM_HERO;
   const brandPage = useRef(0);
   const brandRef = useRef<FlatList>(null);
   const scrollRef = useRef<ScrollView>(null);
-  const scrollY = useSharedValue(0);
   // Gender → curvature: HIM = 0 (sharp brutalist), HER = 1 (rounded/soft).
   // curveProgress lives in AppState so the GenderSwitch drag can drive it
   // and every component in the app stays in sync during the gesture.
@@ -82,19 +135,12 @@ export default function HomeScreen() {
   // live so cards/boxes curve in real time during the drag.
   const curveStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 18 }));
   const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
-  // Collapsible top header (brand + ETA headline + address) — shrinks to nothing as the
-  // page scrolls, while the search bar / quick categories below it live outside the
-  // ScrollView entirely so they never move. Height is measured off the real content
-  // (via onLayout below) rather than guessed, so there's no leftover gap. Measured
-  // ONCE on mount — the collapsing parent's own height changes every animation frame,
-  // and re-measuring mid-shrink would capture a clipped (too-small) reading and
-  // permanently corrupt the target, breaking the re-expand on scroll-up.
-  const [headerContentH, setHeaderContentH] = useState(92);
-  const headerMeasuredRef = useRef(false);
-  const headerCollapseStyle = useAnimatedStyle(() => ({
-    height: interpolate(scrollY.value, [0, headerContentH], [headerContentH, 0], 'clamp'),
-    opacity: interpolate(scrollY.value, [0, headerContentH * 0.6], [1, 0], 'clamp'),
-  }));
+  // Collapsible top header (brand + ETA headline + address): it now scrolls away
+  // NATIVELY (it's the first child of the ScrollView) while the search + quick-cats
+  // row below it is a native stickyHeaderIndices header that pins to the top. No
+  // Reanimated transform is driven off the scroll offset any more, so the header
+  // can't lag the native scroll by a frame — which is what made the old
+  // transform-collapse jitter on Android until it clamped. See the JSX below.
   // Fades out brutalist ASCII corner marks when curves are active
   const fadeBrutalStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   // Gap / spacing for connected tile groups — tiles separate slightly in HER mode.
@@ -144,14 +190,52 @@ export default function HomeScreen() {
   const [exploreFilter, setExploreFilter] = useState<'ALL' | 'HER' | 'HIM' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
   const [explorePage, setExplorePage] = useState(1);
 
-  const scrollHandler = useAnimatedScrollHandler((e) => {
-    'worklet';
-    scrollY.value = e.contentOffset.y;
-  });
+  // PERF: while the page is actively scrolling, background animations (the
+  // brand banner's auto-rotate) hold still so they don't compete for frames.
+  // Refs only — no re-renders, no behavior change when the page is idle.
+  const scrollingRef = useRef(false);
+  const scrollResumeT = useRef<any>(null);
+  const markScrollStart = () => {
+    scrollingRef.current = true;
+    if (scrollResumeT.current) clearTimeout(scrollResumeT.current);
+  };
+  const markScrollStop = (delay: number) => {
+    if (scrollResumeT.current) clearTimeout(scrollResumeT.current);
+    scrollResumeT.current = setTimeout(() => { scrollingRef.current = false; }, delay);
+  };
+
+  // PERF: mount the below-the-fold sections (everything after Play & Win —
+  // two screens down) one beat after first paint. Same content, same order;
+  // the initial frame just isn't paying for 40+ offscreen images at once.
+  const [tailMounted, setTailMounted] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setTailMounted(true));
+    return () => task.cancel();
+  }, []);
 
 
   const onRefresh = () => { setRefreshing(true); setReloadKey((k) => k + 1); };
   // Card taps zoom via the global ProductCard (zoom is built into it now).
+
+  // ── Adaptive header tint (Amazon/Blinkit-style) ──
+  // The campaign banner reports its slide's dominant colour; the header wears it
+  // as a light top fade, crossfading old → new as the carousel rotates.
+  const [bannerTint, setBannerTint] = useState(() => {
+    const t = gender === 'her' ? HER_CAMPAIGN_TINTS[0] : HIM_CAMPAIGN_TINTS[0];
+    return { prev: t, curr: t };
+  });
+  const tintRef = useRef(bannerTint);
+  const tintFade = useSharedValue(1);
+  const onBannerTint = useCallback((hex: string) => {
+    if (tintRef.current.curr === hex) return;
+    tintRef.current = { prev: tintRef.current.curr, curr: hex };
+    // Zero the fade BEFORE the new colour commits — the incoming layer mounts
+    // invisible and eases in, so the colour never snaps.
+    tintFade.value = 0;
+    setBannerTint(tintRef.current);
+    tintFade.value = withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) });
+  }, []);
+  const tintFadeStyle = useAnimatedStyle(() => ({ opacity: tintFade.value }));
 
   // Double-tap on Home tab scrolls back to the top of the page.
   useEffect(() => {
@@ -163,93 +247,150 @@ export default function HomeScreen() {
 
   return (
     <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+      {/* Hero redesign: the banner now bleeds full-bleed under the status bar with
+          a transparent header overlaid on it, so status bar icons stay legible over
+          the photo. (Was adaptive per night mode; the old dark/light logic is
+          commented below in case the hero goes back to a white top section.) */}
+      <StatusBar barStyle="light-content" />
+      {/* <StatusBar barStyle={night ? 'light-content' : 'dark-content'} /> */}
 
-      {/* ═══ FIXED TOP — never scrolls. Only the collapsible block below shrinks; the
-          safe-area padding, search bar and quick categories stay put. ═══ */}
-      <View style={{ paddingTop: insets.top + 8, backgroundColor: C.white }}>
-        {/* ═══════════ HEADER (collapses away on scroll) ═══════════ */}
-        <Animated.View style={[{ overflow: 'hidden' }, headerCollapseStyle]}>
-          <View
-            onLayout={(e) => {
-              if (headerMeasuredRef.current) return;
-              headerMeasuredRef.current = true;
-              setHeaderContentH(e.nativeEvent.layout.height);
-            }}
-            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(12), color: C.ink, letterSpacing: 1.5 }}>TRENDZO</Text>
-              {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, lineHeight: rf(36) }}>60 MIN</Text>
-                <View style={[{ paddingHorizontal: 7, paddingVertical: 3, marginTop: 6 }, BORDER(1)]}>
-                  <Text style={[T.mono, { fontSize: 9 }]}>3 STORES NEARBY</Text>
-                </View>
-              </View>
-              {/* Delivery location — tap to change (Myntra-style) */}
-              <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 }}>
-                <Feather name="map-pin" size={11} color={C.ink} />
-                <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>Deliver to</Text>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, letterSpacing: -0.2 }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
-                <Feather name="chevron-down" size={13} color={C.ink} />
-              </Pressable>
-            </View>
-            <BrutalIconBtn icon="user" onPress={() => nav.navigate('ProfileTab')} />
-          </View>
-        </Animated.View>
-
-        {/* ═══════════ SEARCH — constant, always visible ═══════════ */}
-        <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.s, borderWidth: 1, borderColor: C.ink, backgroundColor: C.white }, curveStyle]}>
-          <Feather name="search" size={16} color={C.ink} />
-          <Text style={[T.mono, { flex: 1 }]}>SEARCH 60-MIN DROPS...</Text>
-          <Feather name="mic" size={16} color={C.dim} />
-        </AnimatedPressable>
-
-        {/* ═══════════ QUICK CATEGORIES — constant, always visible ═══════════ */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.m, paddingBottom: SP.xs }}>
-          <Pressable onPress={() => nav.navigate('Categories')} style={{ alignItems: 'center', width: 60 }}>
-            <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-              <Feather name="grid" size={18} color={C.white} />
-            </View>
-            <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
-          </Pressable>
-          {activeCategories.map((c) => {
-            // Category icons come from two vocabularies: Feather names on the
-            // HIM/HER mock lists, Ionicons "-outline" names once live backend
-            // categories load — pick the matching glyph set per item.
-            const isIonicon = (c.icon || '').includes('-outline');
-            const IconCmp: any = isIonicon ? Ionicons : Feather;
-            return (
-              <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ alignItems: 'center', width: 60 }}>
-                <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <IconCmp name={c.icon || 'pricetag-outline'} size={18} color={C.ink} />
-                </View>
-                <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>{c.label.toUpperCase()}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+      {/* ═══ ADAPTIVE-TINT STRIP behind the status bar — commented out per redesign
+          request (no more colour-changing background as the banner rotates). Was
+          keeping the pinned search bar reading as one continuous coloured app-bar. ═══
+      <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top, zIndex: 5 }}>
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: C.white }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: hexA(bannerTint.prev, 0.5) }]} />
+        <Animated.View style={[StyleSheet.absoluteFill, tintFadeStyle, { backgroundColor: hexA(bannerTint.curr, 0.5) }]} />
       </View>
+      */}
 
-      <AnimatedScrollView
-        ref={scrollRef as any}
-        contentContainerStyle={{ paddingTop: 0, paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        // Android: detach offscreen sections — this page is VERY long and image-heavy
-        removeClippedSubviews={Platform.OS === 'android'}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
-      >
+      {/* No top inset padding any more — the banner needs to bleed edge-to-edge
+          under the status bar, with the header overlaid transparently on top of it
+          (see the HERO block below). Sticky search was dropped along with it: with
+          header+search now living INSIDE the hero overlay instead of their own
+          white sticky row, there's no separate index to pin. */}
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollRef as any}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 120 }}
+          overScrollMode="never"
+          showsVerticalScrollIndicator={false}
+          onScrollBeginDrag={markScrollStart}
+          onMomentumScrollBegin={markScrollStart}
+          onScrollEndDrag={() => markScrollStop(1200)}
+          onMomentumScrollEnd={() => markScrollStop(150)}
+          // No removeClippedSubviews — sections hold transformed/absolute children and
+          // Android's subview clipping mis-tracks that combo, blanking detached sections.
+          removeClippedSubviews={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
+        >
+          {/* ═══ HERO — banner bleeds full-bleed edge-to-edge under the status bar;
+              header + search float transparently on top of it, per redesign. ═══ */}
+          <View>
+            {/* ═══════════ BRAND BANNER — swipeable, auto-rotating brand posters ═══════════ */}
+            <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={gender} />
 
-        {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════ */}
-        <GenderSwitch gender={gender} onSwitch={setGender} />
+            {/* Scrim so the header/search stay legible over whichever banner art is
+                showing — the new campaign photos have bright sky/wall backgrounds
+                at the top, so this needs to be strong (near-solid black) rather
+                than a subtle fade, all the way down past the search bar. */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(0,0,0,0.95)', 'rgba(0,0,0,0.85)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
+              locations={[0, 0.35, 0.75, 1]}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 230 }}
+            />
 
-        {/* ═══════════ BRAND BANNER — swipeable, auto-rotating brand posters ═══════════ */}
-        <FadeInUp delay={50}>
-          <BrandBanner nav={nav} curveStyle={curveStyle} />
-        </FadeInUp>
+            {/* ═══ HEADER + SEARCH overlay — transparent, sits on top of the banner.
+                White text + shadow for legibility over the photo (was dark text on a
+                white bar before). Same fields as before, just restyled/repositioned.
+                Pulled up out of the safe-area inset (small fixed padding instead of
+                insets.top) so it sits right under the status bar, not below it. ═══ */}
+            <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(9), color: '#fff', letterSpacing: 1, ...HERO_SHADOW }}>trendzo</Text>
+                  {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 2 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'Inter_900Black', fontSize: rf(16), color: '#fff', letterSpacing: -0.5, lineHeight: rf(18), flexShrink: 0, ...HERO_SHADOW }}>60 MIN</Text>
+                    <Text numberOfLines={1} style={[T.mono, { fontSize: 9, color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>3 STORES NEARBY</Text>
+                  </View>
+                  {/* Delivery location — tap to change (Myntra-style) */}
+                  <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 }}>
+                    <RealIcon name="marker" size={13} color="#fff" />
+                    <Text style={[T.mono, { color: '#fff', opacity: 0.85, fontSize: 10 }, HERO_SHADOW]}>Deliver to</Text>
+                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: '#fff', letterSpacing: -0.2, ...HERO_SHADOW }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                    <Feather name="chevron-down" size={13} color="#fff" />
+                  </Pressable>
+                </View>
+                <Pressable onPress={() => nav.navigate('ProfileTab')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                  <RealIcon name="user" size={22} color="#fff" />
+                </Pressable>
+              </View>
+
+              {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
+              <AnimatedPressable onPress={() => nav.navigate('Search')} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 14 }}>
+                <RealIcon name="search" size={16} color="#fff" />
+                <Text style={[T.mono, { flex: 1, color: '#fff' }]}>SEARCH 60-MIN DROPS...</Text>
+                <RealIcon name="mic" size={16} color="#fff" />
+                <View style={{ width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.4)' }} />
+                <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
+                  <RealIcon name="camera" size={16} color="#fff" />
+                </Pressable>
+              </AnimatedPressable>
+
+              {/* ═══════════ QUICK CATEGORIES — commented out for now (redesign request).
+                  Kept intact below so it can be restored later; not deleted. ═══════════
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.m, paddingBottom: SP.s }}>
+                <Pressable onPress={() => nav.navigate('Categories')} style={{ alignItems: 'center', width: 60 }}>
+                  <Animated.View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink }, curveSmStyle]}>
+                    <RealIcon name="dashboard" size={22} color={C.white} />
+                  </Animated.View>
+                  <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
+                </Pressable>
+                {Array.from({ length: Math.max(herCategories.length, himCategories.length) }).map((_, i) => (
+                  <QuickCat
+                    key={i}
+                    her={herCategories[i]}
+                    him={himCategories[i]}
+                    progress={curveProgress}
+                    active={gender}
+                    curveSmStyle={curveSmStyle}
+                    onPress={(c) => nav.navigate('Categories', { id: c.id, label: c.label })}
+                  />
+                ))}
+              </ScrollView>
+              */}
+            </View>
+
+            {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════
+                Commented out for now (redesign request). State (gender/curveProgress)
+                is left live so this can be re-enabled later without other changes.
+            <GenderSwitch gender={gender} onSwitch={setGender} />
+            */}
+          </View>
+
+        {/* ═══ MARQUEE — sticks directly to the bottom of the banner, no gap ═══ */}
+        <Marquee text="NEW STYLES EVERYDAY  //  120+ STORES ACROSS INDIA  //  60-MIN DELIVERY  //  HASSLE-FREE RETURNS " />
+
+        {/*
+        ╔══════════════════════════════════════════════╗
+        ║  FEATURED CATEGORIES — swipeable PNG cutouts  ║
+        ║  Image only (no card/border), label below     ║
+        ╚══════════════════════════════════════════════╝
+        */}
+        <View style={{ marginTop: SP.xl }}>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.3, paddingHorizontal: SP.l, textAlign: 'center' }}>FEATURED CATEGORIES</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.l, paddingTop: SP.m }}>
+            {FEATURED_CATEGORIES.map((c) => (
+              <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ alignItems: 'center', width: 108 }}>
+                <CachedImage source={{ uri: c.img }} style={{ width: 100, height: 124 }} resizeMode="contain" />
+                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 6, textAlign: 'center' }} numberOfLines={1}>{c.label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -261,33 +402,18 @@ export default function HomeScreen() {
         <SectionHead title="SHOP BY" emphasis="VIBE" action="ALL" onAction={() => nav.navigate('Categories')} />
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.s }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-            {activeCategories.map((c, i) => {
-              const cardW = (W - SP.l * 2 - SP.s * 3) / 4;
-              return (
-                <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ width: cardW, marginBottom: SP.xl, alignItems: 'center' }}>
-                  <FadeInUp delay={i * 40}>
-                    {/* Image — overflows above the card */}
-                    <View style={{ alignItems: 'center', zIndex: 2 }}>
-                      <CachedImage                         source={{ uri: c.img }}
-                        style={{ width: cardW * 0.85, height: cardW * 0.85, marginBottom: -cardW * 0.3 }}
-                        resizeMode="contain"
-                      />
-                    </View>
-                    {/* Card body */}
-                    <Animated.View style={[{
-                      width: cardW,
-                      paddingTop: cardW * 0.35,
-                      paddingBottom: SP.s,
-                      alignItems: 'center',
-                      backgroundColor: C.white,
-                    }, BORDER(1), curveSmStyle]}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.5 }}>{c.label.toUpperCase()}</Text>
-                      <Text style={[T.mono, { fontSize: 7, color: C.dim, marginTop: 2 }]}>{`0${i + 1}`}</Text>
-                    </Animated.View>
-                  </FadeInUp>
-                </Pressable>
-              );
-            })}
+            {Array.from({ length: Math.max(herCategories.length, himCategories.length) }).map((_, i) => (
+              <VibeTile
+                key={i}
+                index={i}
+                her={herCategories[i]}
+                him={himCategories[i]}
+                progress={curveProgress}
+                active={gender}
+                curveSmStyle={curveSmStyle}
+                onPress={(c) => nav.navigate('Categories', { id: c.id, label: c.label })}
+              />
+            ))}
           </View>
         </View>
 
@@ -331,6 +457,7 @@ export default function HomeScreen() {
         */}
         <PlayWheelSection nav={nav} expandP={playExpand} />
         <Animated.View style={feedPushStyle}>
+        {tailMounted && (<>
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -428,14 +555,14 @@ export default function HomeScreen() {
           <Animated.View style={[{ flexDirection: 'row' }, rowGapStyle]}>
             <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
-                <Feather name="video" size={20} color={C.white} />
+                <RealIcon name="camcorder" size={22} color={C.white} />
               </Animated.View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, marginTop: 10, letterSpacing: -0.5 }}>AR TRY-ON</Text>
               <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Live camera</Text>
             </AnimatedPressable>
             <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
-                <Feather name="image" size={20} color={C.ink} />
+                <RealIcon name="photo" size={22} />
               </Animated.View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, marginTop: 10, letterSpacing: -0.5 }}>PHOTO TRY-ON</Text>
               <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.7 }]}>Upload a pic</Text>
@@ -445,7 +572,7 @@ export default function HomeScreen() {
           {/* Image search — kept, re-styled as a supporting tool */}
           <AnimatedPressable onPress={() => nav.navigate('ImageSearch')} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink }, curveStyle]}>
             <Animated.View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
-              <Feather name="camera" size={20} color={C.white} />
+              <RealIcon name="camera" size={22} color={C.white} />
             </Animated.View>
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SNAP TO FIND</Text>
@@ -649,7 +776,7 @@ export default function HomeScreen() {
               ))}
             </View>
             <View style={{ padding: SP.m, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.ink }}>
-              <Feather name="layout" size={18} color={C.ink} />
+              <RealIcon name="palette" size={20} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SAVE OUTFIT COMBOS</Text>
                 <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>3 BOARDS · 13 ITEMS SAVED</Text>
@@ -666,16 +793,16 @@ export default function HomeScreen() {
         */}
         <SectionHead title="FASHION" emphasis="CALENDAR" action="ALL" onAction={() => nav.navigate('FashionCalendar')} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: 0 }}>
-          {[
+          {([
             { date: 'APR 15', title: 'SUMMER DROP', icon: 'sun' },
-            { date: 'APR 20', title: 'FLASH SALE', icon: 'zap' },
+            { date: 'APR 20', title: 'FLASH SALE', icon: 'sale' },
             { date: 'MAY 01', title: 'BRAND COLLAB', icon: 'star' },
             { date: 'MAY 10', title: 'FESTIVAL EDIT', icon: 'gift' },
-          ].map((e, i) => (
+          ] as { date: string; title: string; icon: RealIconName }[]).map((e, i) => (
             <FadeInUp key={i} delay={i * 40}>
               <Pressable onPress={() => nav.navigate('FashionCalendar')} style={{ alignItems: 'center', width: 100, marginRight: SP.s }}>
                 <Animated.View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: i === 0 ? C.ink : C.white }, BORDER(1), curveStyle]}>
-                  <Feather name={e.icon as any} size={22} color={i === 0 ? C.white : C.ink} />
+                  <RealIcon name={e.icon} size={24} color={i === 0 ? C.white : C.ink} />
                 </Animated.View>
                 <View style={{ width: 1, height: 12, backgroundColor: C.ink }} />
                 <Animated.View style={[{ padding: 6, alignItems: 'center', backgroundColor: C.white }, BORDER(1), curveSmStyle]}>
@@ -697,10 +824,10 @@ export default function HomeScreen() {
           <AnimatedPressable onPress={() => nav.navigate('Sustainability')} style={[{ backgroundColor: C.ink, padding: SP.l, overflow: 'hidden' }, BORDER(1), curveStyle]}>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.white }}>FASHION{'\n'}FOR GOOD.</Text>
             <View style={{ flexDirection: 'row', gap: SP.m, marginTop: SP.m }}>
-              {[{ icon: 'package', label: 'ECO PKG' }, { icon: 'wind', label: 'CARBON 0' }, { icon: 'heart', label: 'ETHICAL' }, { icon: 'refresh-cw', label: '2ND LIFE' }].map(item => (
+              {([{ icon: 'package', label: 'ECO PKG' }, { icon: 'plant', label: 'CARBON 0' }, { icon: 'heart', label: 'ETHICAL' }, { icon: 'forward', label: '2ND LIFE' }] as { icon: RealIconName; label: string }[]).map(item => (
                 <View key={item.label} style={{ alignItems: 'center' }}>
                   <Animated.View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
-                    <Feather name={item.icon as any} size={16} color={C.ink} />
+                    <RealIcon name={item.icon} size={18} />
                   </Animated.View>
                   <Text style={[T.monoB, { color: C.white, fontSize: 7, marginTop: 4 }]}>{item.label}</Text>
                 </View>
@@ -743,7 +870,7 @@ export default function HomeScreen() {
                 <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.m, marginBottom: SP.s, justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{`${list.length} RESULTS · ${exploreFilter}`}</Text>
                   <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4 }, BORDER(1)]}>
-                    <Feather name="sliders" size={10} color={C.ink} />
+                    <RealIcon name="filter" size={12} />
                     <Text style={[T.monoB, { fontSize: 9 }]}>POPULAR</Text>
                   </View>
                 </View>
@@ -769,7 +896,7 @@ export default function HomeScreen() {
                   </View>
                 ) : (
                   <View style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                    <Feather name="search" size={32} color={C.dim} />
+                    <RealIcon name="search" size={32} color={C.dim} />
                     <Text style={[T.monoB, { marginTop: 8 }]}>NO MATCHES</Text>
                     <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4, textAlign: 'center' }]}>Try a different filter or search term</Text>
                   </View>
@@ -786,8 +913,10 @@ export default function HomeScreen() {
           <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>FROM YOUR BLOCK · IN 60 MINUTES</Text>
           <AsciiDivider faint style={{ marginTop: 8 }} />
         </View>
+        </>)}
         </Animated.View>
-      </AnimatedScrollView>
+      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -821,30 +950,58 @@ function FlashTimer({ curveSmStyle }: { curveSmStyle: any }) {
   );
 }
 
-// ─── BRAND BANNER — swipeable, auto-rotating brand posters; tap opens that brand's store ───
-// Six DISTINCT fashion photos so every brand poster looks clearly different as it rotates.
-const POSTER_IMAGES = [
-  'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=900&q=80&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=900&q=80&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=900&q=80&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=900&q=80&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1445205170230-053b83016050?w=900&q=80&auto=format&fit=crop',
-  'https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?w=900&q=80&auto=format&fit=crop',
+// ─── CAMPAIGN BANNER — swipeable, auto-rotating Trendzo campaign posters ───
+// Gender-matched pairs of the same campaigns (Desktop/trendzo art). The art is
+// 1080×1440 (3:4) and the banner box matches, so posters show uncropped.
+const HER_CAMPAIGNS = [
+  require('../../assets/banners/her-new1.png'),
+  require('../../assets/banners/her-new2.png'),
 ];
-const BRAND_TAGLINES: Record<string, string> = {
-  NIKE: 'JUST\nDO IT.',
-  ADIDAS: 'IMPOSSIBLE\nIS NOTHING.',
-  ZARA: 'NEW IN,\nEVERY WEEK.',
-  'H&M': 'FASHION\nFOR EVERYONE.',
-  UNIQLO: 'MADE\nFOR ALL.',
-  PUMA: 'FOREVER\nFASTER.',
+const HIM_CAMPAIGNS = [
+  require('../../assets/banners/him-new1.png'),
+];
+// LIGHT pastel of each poster's dominant colour (sampled from the actual art,
+// lifted to high lightness) — drives the Amazon/Blinkit-style adaptive top
+// gradient. Order matches the campaign arrays above.
+export const HER_CAMPAIGN_TINTS = ['#f4e6c3', '#efcdc8'];
+export const HIM_CAMPAIGN_TINTS = ['#ebe5cb'];
+const hexA = (hex: string, a: number) => {
+  const h = hex.replace('#', '');
+  return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
 };
-function BrandBanner({ nav, curveStyle }: { nav: any; curveStyle: any }) {
-  // Same image poster cards as before (same size + image); we overlay each brand's logo,
-  // a punchy heading + name, as a swipeable, auto-rotating carousel that opens the store.
-  const data = BRANDS.slice(0, 6).map((b, i) => ({ ...b, img: POSTER_IMAGES[i % POSTER_IMAGES.length], tagline: BRAND_TAGLINES[b.name] || 'SHOP THE\nLATEST DROP.' }));
+
+// 3:4 banner box — full-bleed edge-to-edge (redesign), matches the campaign art
+// aspect ratio exactly (no crop).
+const { height: SCREEN_H } = Dimensions.get('window');
+const BANNER_W = W;
+// Was a 3:4 ratio (~1.33x width) — too short. Ties to screen height instead
+// so the hero reads as a proper full banner, closer to the reference layout.
+// (0.78 was too tall — pushed Featured Categories off the first screen; dialed
+// back so the marquee + categories peek into view without scrolling.)
+const BANNER_H = Math.round(SCREEN_H * 0.62);
+// How far the adaptive tint reaches into the page: past the gender switch (~60)
+// and the banner's top margin, ending at the MIDDLE of the banner.
+const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
+// Overlap the content-side tint into the header overlay's tail end (see below) —
+// swallows any sub-pixel rounding gap between the two so there's never a seam.
+const SEAM_OVERLAP = 16;
+
+function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any; curveStyle: any; pausedRef?: React.MutableRefObject<boolean>; gender: 'her' | 'him'; onTint?: (hex: string) => void }) {
+  // Campaign art only — full-bleed, the art carries its own typography.
+  const tints = gender === 'her' ? HER_CAMPAIGN_TINTS : HIM_CAMPAIGN_TINTS;
+  const data = (gender === 'her' ? HER_CAMPAIGNS : HIM_CAMPAIGNS).map((img, i) => ({ id: `camp-${gender}-${i}`, campaign: img, tint: tints[i] }));
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
+
+  // Tell the header which colour the visible poster is (adaptive top gradient).
+  useEffect(() => { onTint?.(tints[index] ?? tints[0]); }, [index, gender]);
+
+  // Gender flip swaps the campaign set — restart the carousel from slide 1 so
+  // the fresh gender's art is what the user sees.
+  useEffect(() => {
+    setIndex(0);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [gender]);
 
   // Auto-advance every 3.5s, looping back. Pauses while the user is swiping (otherwise the
   // timer fires mid-swipe and yanks the poster back, so swipes look like they do nothing).
@@ -853,6 +1010,9 @@ function BrandBanner({ nav, curveStyle }: { nav: any; curveStyle: any }) {
   const start = () => {
     stop();
     timer.current = setInterval(() => {
+      // Hold the rotation while the page is scrolling — the animated
+      // full-width poster swap was stealing frames mid-scroll.
+      if (pausedRef?.current) return;
       setIndex(prev => {
         const next = (prev + 1) % data.length;
         listRef.current?.scrollToOffset({ offset: next * W, animated: true });
@@ -865,7 +1025,7 @@ function BrandBanner({ nav, curveStyle }: { nav: any; curveStyle: any }) {
   useFocusEffect(useCallback(() => { start(); return stop; }, [data.length]));
 
   return (
-    <View style={{ marginTop: SP.l }}>
+    <View>
       <FlatList
         ref={listRef}
         data={data}
@@ -874,35 +1034,55 @@ function BrandBanner({ nav, curveStyle }: { nav: any; curveStyle: any }) {
         showsHorizontalScrollIndicator={false}
         keyExtractor={(b) => b.id}
         getItemLayout={(_, i) => ({ length: W, offset: W * i, index: i })}
+        // Android defaults list clipping ON — with the parent scroll translated it
+        // blanks the posters after scrolling away and back. 3-4 slides; keep attached.
+        removeClippedSubviews={false}
         onScrollBeginDrag={stop}
         onMomentumScrollEnd={(e) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); }}
         renderItem={({ item }) => (
-          <Pressable onPress={() => nav.navigate('Category', { id: 'brand-' + item.id, label: item.name })} style={{ width: W }}>
-            {/* Image poster (unchanged size/style) with the brand logo + name overlaid on top */}
-            <Animated.View style={[{ marginHorizontal: SP.l, height: 380, overflow: 'hidden', backgroundColor: C.white, borderWidth: 1, borderColor: C.ink }, curveStyle]}>
-              <CachedImage source={{ uri: item.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-              <View style={[StyleSheet.absoluteFillObject as any, { backgroundColor: 'rgba(0,0,0,0.28)' }]} />
-              <View style={{ flex: 1, padding: 18, justifyContent: 'space-between' }}>
-                {/* Brand logo on a white chip — stays visible over any photo */}
-                <View style={{ alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#000' }}>
-                  <CachedImage source={{ uri: item.logo }} style={{ width: 70, height: 24 }} resizeMode="contain" />
-                </View>
-                <View>
-                  <Text style={[T.monoB, { color: '#fff', fontSize: 11, letterSpacing: 1, opacity: 0.95 }]}>{`${item.name}`}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), lineHeight: rf(34), color: '#fff', letterSpacing: -1.2, marginTop: 4, textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 }}>{item.tagline}</Text>
-                  <Text style={[T.monoB, { color: '#fff', fontSize: 10, marginTop: 8 }]}>TAP TO ENTER STORE ──▶</Text>
-                </View>
-              </View>
-            </Animated.View>
+          <Pressable onPress={() => nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim')} style={{ width: W }}>
+            {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design) */}
+            <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: C.white }}>
+              <CachedImage source={item.campaign} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            </View>
           </Pressable>
         )}
       />
-      {/* Page dots */}
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
+      {/* Page dots — overlaid inside the image at the bottom (not a separate row
+          below it), so the marquee can sit flush against the banner's edge. */}
+      <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
         {data.map((_, i) => (
-          <View key={i} style={{ width: i === index ? 18 : 6, height: 5, backgroundColor: i === index ? C.ink : C.faint }} />
+          <View key={i} style={{ width: i === index ? 18 : 6, height: 5, backgroundColor: i === index ? '#fff' : 'rgba(255,255,255,0.5)' }} />
         ))}
       </View>
+    </View>
+  );
+}
+
+// ─── MARQUEE — infinite auto-scrolling ticker, sits flush under the banner ───
+// Classic seamless-loop trick: render the text twice back to back and scroll
+// left by exactly one copy's width, then snap back to 0 — since the second
+// copy is sitting right where the first started, the reset is invisible.
+function Marquee({ text }: { text: string }) {
+  const [segW, setSegW] = useState(0);
+  const tx = useSharedValue(0);
+  useEffect(() => {
+    if (!segW) return;
+    tx.value = 0;
+    tx.value = withRepeat(withTiming(-segW, { duration: segW * 22, easing: Easing.linear }), -1, false);
+  }, [segW]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
+  const seg = (
+    <Text numberOfLines={1} style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 11, color: C.white, letterSpacing: 1 }}>
+      {text}
+    </Text>
+  );
+  return (
+    <View style={{ height: 34, backgroundColor: C.ink, overflow: 'hidden', justifyContent: 'center' }}>
+      <Animated.View style={[{ flexDirection: 'row' }, style]}>
+        <View onLayout={(e) => setSegW(e.nativeEvent.layout.width)}>{seg}</View>
+        {seg}
+      </Animated.View>
     </View>
   );
 }
@@ -915,6 +1095,8 @@ const SECTION_HEAD_H = 70; // approx height of SectionHead
 const CLOSED_PH = SECTION_HEAD_H + PH + 70;
 const OPEN_PH = SECTION_HEAD_H + CIRCLE_R * 2 + PH + 40;
 const GAME_MAP: any = { g1:'DailyReward', g2:'SpinWheel', g3:'LuckyDraw', g4:'StyleQuiz', g5:'InviteFriends', g6:'AppChallenges' };
+// Realistic 3D icon per game — replaces the old flat Ionicons glyphs.
+const GAME_ICON: Record<string, RealIconName> = { g1: 'gift', g2: 'wheel', g3: 'trophy', g4: 'palette', g5: 'friends', g6: 'fire' };
 
 function PlayWheelSection({ nav, expandP }: { nav: any; expandP: SharedValue<number> }) {
   const closeRot = useSharedValue(0);
@@ -1003,7 +1185,7 @@ function PlayGameCard({ game, index, progress, onTap }: { game: any; index: numb
       zIndex: total - Math.abs(Math.round(offset)),
     }, animStyle]}>
       <AnimatedPressable onPress={onTap} style={[{ flex: 1, padding: 6, backgroundColor: bg, justifyContent: 'center', alignItems: 'center', gap: 8, overflow: 'hidden' }, BORDER(1), cardCurve]}>
-        <Ionicons name={game.icon as any} size={24} color={fg} />
+        <RealIcon name={GAME_ICON[game.id] ?? 'gift'} size={24} color={fg} />
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: fg, textAlign: 'center', lineHeight: 11 }} numberOfLines={2}>{game.title.toUpperCase()}</Text>
       </AnimatedPressable>
     </Animated.View>
@@ -1112,13 +1294,14 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
       const velocityBias = e.velocityX / 1200;
       const target = Math.min(1, Math.max(0, final + velocityBias)) >= 0.5 ? 1 : 0;
       const nextGender: 'her' | 'him' = target === 1 ? 'her' : 'him';
-      // Delay the JS-side gender commit until the spring lands. The big
-      // re-render (hero crossfade, product/category/bundle/occasion swap)
-      // then happens after the dot has visually settled — no JS work
-      // competing with the spring frames, so the snap is jitter-free.
-      curveProgress.value = withSpring(target, GENDER_SPRING, (finished) => {
-        if (finished) runOnJS(commitFromDrag)(nextGender);
-      });
+      // Commit the gender IMMEDIATELY on release. The old spring-completion
+      // callback (runOnJS inside withSpring) silently failed to fire on the
+      // new architecture, leaving MODE/banner/API data stuck on the previous
+      // gender while the visuals (curveProgress) showed the new one. The
+      // commit re-render is cheap now (per-gender catalog cache), so it no
+      // longer needs to wait for the spring to land.
+      curveProgress.value = withSpring(target, GENDER_SPRING);
+      runOnJS(commitFromDrag)(nextGender);
     });
 
   // Tap-on-line handler: tap left of midpoint → HIM, right of midpoint → HER.
@@ -1177,5 +1360,177 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
         {`MODE: ${gender.toUpperCase()} · TAP OR DRAG`}
       </Text>
     </View>
+  );
+}
+
+// ─── QUICK CATEGORY — one box under the search bar. The box is a clipping
+// wrapper: as the gender bar drags toward HER, the HIM icon slides OUT the
+// left edge while the HER icon slides IN from the right — a conveyor scrubbed
+// live by curveProgress (dragging back plays the same motion in reverse).
+const QC_BOX = 44;
+const QC_LBL = 60;
+function QuickCat({ her, him, progress, active, curveSmStyle, onPress }: {
+  her?: Category;
+  him?: Category;
+  progress: SharedValue<number>;
+  active: 'her' | 'him';
+  curveSmStyle: any;
+  onPress: (c: Category) => void;
+}) {
+  // HIM: centered at p=0 → fully out the left edge at p=1.
+  // HER: parked outside the right edge at p=0 → centered at p=1.
+  const himStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -QC_BOX * progress.value }],
+  }));
+  const herStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: QC_BOX * (1 - progress.value) }],
+  }));
+  // Labels don't move — they blur/unblur in place. RN has no animatable text
+  // blur filter, so we fake it: as a label fades its text-shadow radius grows
+  // (soft halo = blur-out), while the incoming one sharpens as it fades in.
+  const ink = C.ink;
+  const inkClear = ink + '00';
+  // Sequenced, non-overlapping: over the FIRST half of the drag the outgoing
+  // label dissolves to a full blur (glyph fades to transparent so only its
+  // blurred shadow remains) and disappears; over the SECOND half the incoming
+  // label appears as a blur smear and sharpens. Never both readable at once.
+  const himLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.3, 0.5, 1], [1, 1, 0, 0], 'clamp'),
+      color: interpolateColor(p, [0, 0.25, 1], [ink, inkClear, inkClear]),
+      textShadowRadius: interpolate(p, [0, 0.35, 1], [0, 10, 10], 'clamp'),
+    };
+  });
+  const herLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.5, 0.65, 1], [0, 0, 1, 1], 'clamp'),
+      color: interpolateColor(p, [0, 0.75, 1], [inkClear, inkClear, ink]),
+      textShadowRadius: interpolate(p, [0, 0.6, 1], [10, 10, 0], 'clamp'),
+    };
+  });
+  const cat = (active === 'her' ? her : him) ?? her ?? him;
+  if (!cat) return null;
+  const center = { alignItems: 'center' as const, justifyContent: 'center' as const };
+  return (
+    <Pressable onPress={() => onPress(cat)} style={{ alignItems: 'center', width: QC_LBL }}>
+      <Animated.View style={[{ width: QC_BOX, height: QC_BOX, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveSmStyle]}>
+        {him && (
+          <Animated.View style={[StyleSheet.absoluteFillObject, center, himStyle]}>
+            <RealIcon name={categoryIconName(him.label)} size={24} />
+          </Animated.View>
+        )}
+        {her && (
+          <Animated.View style={[StyleSheet.absoluteFillObject, center, herStyle]}>
+            <RealIcon name={categoryIconName(her.label)} size={24} />
+          </Animated.View>
+        )}
+      </Animated.View>
+      <View style={[{ width: QC_LBL, height: 13, marginTop: 4 }, center]}>
+        {him && (
+          <Animated.Text numberOfLines={1} style={[T.monoB, { fontSize: 9, textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
+            {him.label.toUpperCase()}
+          </Animated.Text>
+        )}
+        {her && (
+          <Animated.Text numberOfLines={1} style={[T.monoB, { fontSize: 9, textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
+            {her.label.toUpperCase()}
+          </Animated.Text>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
+// ─── VIBE TILE — Shop-by-Vibe grid card. Same conveyor motion as QuickCat:
+// the image wrapper clips its content, the HIM product slides out the left
+// edge while the HER product rides in from the right (label matches), all
+// scrubbed live by the gender drag.
+function VibeTile({ her, him, index, progress, active, curveSmStyle, onPress }: {
+  her?: Category;
+  him?: Category;
+  index: number;
+  progress: SharedValue<number>;
+  active: 'her' | 'him';
+  curveSmStyle: any;
+  onPress: (c: Category) => void;
+}) {
+  const cardW = (W - SP.l * 2 - SP.s * 3) / 4;
+  const imgW = cardW * 0.85;
+  const himStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -imgW * progress.value }],
+  }));
+  const herStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: imgW * (1 - progress.value) }],
+  }));
+  // Labels blur/unblur in place (no movement) — see QuickCat for the trick.
+  const ink = C.ink;
+  const inkClear = ink + '00';
+  // Sequenced, non-overlapping: over the FIRST half of the drag the outgoing
+  // label dissolves to a full blur (glyph fades to transparent so only its
+  // blurred shadow remains) and disappears; over the SECOND half the incoming
+  // label appears as a blur smear and sharpens. Never both readable at once.
+  const himLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.3, 0.5, 1], [1, 1, 0, 0], 'clamp'),
+      color: interpolateColor(p, [0, 0.25, 1], [ink, inkClear, inkClear]),
+      textShadowRadius: interpolate(p, [0, 0.35, 1], [0, 10, 10], 'clamp'),
+    };
+  });
+  const herLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.5, 0.65, 1], [0, 0, 1, 1], 'clamp'),
+      color: interpolateColor(p, [0, 0.75, 1], [inkClear, inkClear, ink]),
+      textShadowRadius: interpolate(p, [0, 0.6, 1], [10, 10, 0], 'clamp'),
+    };
+  });
+  const cat = (active === 'her' ? her : him) ?? her ?? him;
+  if (!cat) return null;
+  const center = { alignItems: 'center' as const, justifyContent: 'center' as const };
+  return (
+    <Pressable onPress={() => onPress(cat)} style={{ width: cardW, marginBottom: SP.xl, alignItems: 'center' }}>
+      <FadeInUp delay={index * 40}>
+        {/* Image — overflows above the card; the wrapper clips the conveyor */}
+        <View style={{ alignItems: 'center', zIndex: 2 }}>
+          <View style={{ width: imgW, height: imgW, marginBottom: -cardW * 0.3, overflow: 'hidden' }}>
+            {him && (
+              <Animated.View style={[StyleSheet.absoluteFillObject, himStyle]}>
+                <CachedImage source={{ uri: categoryPng(him.label) }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              </Animated.View>
+            )}
+            {her && (
+              <Animated.View style={[StyleSheet.absoluteFillObject, herStyle]}>
+                <CachedImage source={{ uri: categoryPng(her.label) }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              </Animated.View>
+            )}
+          </View>
+        </View>
+        {/* Card body */}
+        <Animated.View style={[{
+          width: cardW,
+          paddingTop: cardW * 0.35,
+          paddingBottom: SP.s,
+          alignItems: 'center',
+          backgroundColor: C.white,
+        }, BORDER(1), curveSmStyle]}>
+          <View style={[{ width: cardW, height: 12 }, center]}>
+            {him && (
+              <Animated.Text numberOfLines={1} style={[{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.5, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
+                {him.label.toUpperCase()}
+              </Animated.Text>
+            )}
+            {her && (
+              <Animated.Text numberOfLines={1} style={[{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.5, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
+                {her.label.toUpperCase()}
+              </Animated.Text>
+            )}
+          </View>
+          <Text style={[T.mono, { fontSize: 7, color: C.dim, marginTop: 2 }]}>{`0${index + 1}`}</Text>
+        </Animated.View>
+      </FadeInUp>
+    </Pressable>
   );
 }

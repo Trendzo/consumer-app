@@ -41,7 +41,7 @@ export default function ProductDetailScreen() {
   const route = useRoute<any>();
   const product = route.params?.product || PRODUCTS[0];
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, night, theme, showToast, showConfirm, gender } = useApp();
+  const { addToCart, night, theme, showToast, showConfirm, gender, requireAuth } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
   // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
   // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
@@ -237,10 +237,12 @@ export default function ProductDetailScreen() {
     // Slide down to the "buy more, save more" upsell on the SAME page
     setTimeout(() => scrollRef.current?.scrollTo?.({ y: Math.max(0, upsellY - 8), animated: true }), 140);
   };
-  // Buy now → straight to the single-page Review Order (no multi-step checkout)
+  // Buy now → straight to the single-page Review Order (no multi-step checkout).
+  // Guests get the bottom-sheet login first; the item is already in the bag
+  // either way, so sign-in just resumes straight into Review Order.
   const doBuy = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
-    setTimeout(() => nav.navigate('ReviewOrder'), 60);
+    requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder'), 60));
   };
   // Require a size first — otherwise pop the "select a size" sheet from the bottom
   const handleAdd = () => { if (!size) { setSizeSheet('add'); return; } doAdd(size); };

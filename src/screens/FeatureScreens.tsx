@@ -32,18 +32,26 @@ export function ImageSearchScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('back');
 
+  // Scan-line loop lives in a ref so it can be STOPPED — before, the loop kept
+  // running (native-driven) long after the scan finished.
+  const scanLoopRef = useRef<Animated.CompositeAnimation | null>(null);
   const beginScan = (imgUri: string) => {
     setPickedImg(imgUri);
     setStage('scanning');
     scanAnim.setValue(0);
-    Animated.loop(
+    scanLoopRef.current = Animated.loop(
       Animated.sequence([
         Animated.timing(scanAnim, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true }),
         Animated.timing(scanAnim, { toValue: 0, duration: 900, easing: Easing.linear, useNativeDriver: true }),
       ])
-    ).start();
+    );
+    scanLoopRef.current.start();
     setTimeout(() => setStage('results'), 1800);
   };
+  useEffect(() => {
+    if (stage !== 'scanning') scanLoopRef.current?.stop();
+    return () => scanLoopRef.current?.stop();
+  }, [stage]);
 
   const runScan = async (src: 'camera' | 'gallery') => {
     setPickerOpen(false);
@@ -148,7 +156,7 @@ export function ImageSearchScreen() {
       {stage === 'scanning' && pickedImg && (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
           <View style={[{ width: 260, height: 320, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <CachedImage source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             {/* scanning laser line */}
             <Animated.View
               style={{
@@ -170,7 +178,7 @@ export function ImageSearchScreen() {
         <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
           <View style={{ flexDirection: 'row', gap: SP.m, alignItems: 'center' }}>
             <View style={[{ width: 80, height: 100, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-              <Image source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              <CachedImage source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'YOUR IMAGE'}</Text>
@@ -774,14 +782,19 @@ export function LuckyDrawScreen() {
   const [played, setPlayed] = useState(false);
   const pulse = useRef(new Animated.Value(1)).current;
 
-  useRef(
-    Animated.loop(
+  // The old `useRef(Animated.loop(...).start())` re-ran its initializer on
+  // EVERY render, spawning a new never-stopped infinite loop each time (leak).
+  // One loop, started once, stopped on unmount — same visible pulse.
+  useEffect(() => {
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1.04, duration: 700, useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
       ])
-    ).start()
-  );
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
 
   const pick = (i: number) => {
     if (played) return;
@@ -1331,7 +1344,7 @@ export function ForHerScreen() {
         {/* Aesthetic Banner */}
         <FadeInUp>
           <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 320, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: HER_BANNER }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            <CachedImage source={{ uri: HER_BANNER }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.25)' }]} />
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View style={[{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
@@ -1382,7 +1395,7 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l }}>
           <Pressable onPress={() => goToProduct(HER_PRODUCTS[2])} style={[{ flexDirection: 'row', backgroundColor: C.white, height: 160, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ width: 160, backgroundColor: '#f9f3ed', borderRightWidth: 1, borderColor: C.ink }}>
-              <Image source={{ uri: HER_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
+              <CachedImage source={{ uri: HER_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
             </View>
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View>
@@ -1398,7 +1411,7 @@ export function ForHerScreen() {
         {/* Second aesthetic banner */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
           <View style={[{ height: 200, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: HER_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            <CachedImage source={{ uri: HER_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l, backgroundColor: 'rgba(0,0,0,0.4)' }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'FEMININE_ESSENTIALS'}</Text>
@@ -1466,7 +1479,7 @@ export function ForHimScreen() {
         {/* Bold Banner */}
         <FadeInUp>
           <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 320, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: HIM_BANNER }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            <CachedImage source={{ uri: HIM_BANNER }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between', alignItems: 'flex-end' }}>
               <View style={[{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.ink, borderWidth: 1, borderColor: C.white }]}>
@@ -1525,7 +1538,7 @@ export function ForHimScreen() {
               <Text style={[T.monoB, { color: C.white }]}>{'COP ──▶'}</Text>
             </View>
             <View style={{ width: 160, backgroundColor: '#1a1a1a', borderLeftWidth: 1, borderColor: C.white }}>
-              <Image source={{ uri: HIM_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
+              <CachedImage source={{ uri: HIM_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
             </View>
           </Pressable>
         </View>
@@ -1533,7 +1546,7 @@ export function ForHimScreen() {
         {/* Second bold banner */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
           <View style={[{ height: 200, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: HIM_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            <CachedImage source={{ uri: HIM_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l }}>
               <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'STREET_UNIFORM'}</Text>
@@ -1582,7 +1595,7 @@ export function OccasionShoppingScreen() {
         {OCCASIONS.map((o, i) => (
           <FadeInUp key={o.id} delay={i * 50}>
             <Pressable onPress={() => nav.navigate('Category', { id: o.id, label: o.label })} style={[{ marginTop: SP.m, height: 160, overflow: 'hidden', backgroundColor: C.white }, BORDER(1)]}>
-              <Image source={{ uri: o.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+              <CachedImage source={{ uri: o.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
               <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)' }]} />
               <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
                 <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`MODE_0${i + 1}`}</Text>

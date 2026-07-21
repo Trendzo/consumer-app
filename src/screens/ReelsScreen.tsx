@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, Modal, TextInput, Share, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -11,7 +11,7 @@ import SearchScreen from './SearchScreen';
 import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
 import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
-import { useGenderCurve } from '../components/Brutal';
+import { useGenderCurve, CachedImage } from '../components/Brutal';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
 const { height, width } = Dimensions.get('window');
@@ -49,6 +49,9 @@ const PAGE_SIZE = 12;
 
 export default function ReelsScreen() {
   const nav = useNavigation<any>();
+  // Drops isActive on every player the moment the tab blurs → videos pause
+  // instead of looping/decoding in the background on other tabs.
+  const isFocused = useIsFocused();
   const { addToCart, toggleFavorite, isFavorite, night, showToast } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const [active, setActive] = useState(0);
@@ -106,7 +109,8 @@ export default function ReelsScreen() {
         renderItem={({ item, index }) => (
           <ReelItem
             reel={item}
-            isActive={index === active}
+            isActive={index === active && isFocused}
+            distance={Math.abs(index - active)}
             onLike={() => toggleFavorite(item.product)}
             isLiked={isFavorite(item.product.id)}
             onAdd={() => {
@@ -175,7 +179,7 @@ function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
   );
 }
 
-function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
+function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct }: any) {
   const { night } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const { ref: prodRef, open: openProd } = useZoomCard();
@@ -185,10 +189,11 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState(SEED_COMMENTS);
   const [draft, setDraft] = useState('');
-  // Track if this reel has ever been active so we mount the video player once
-  // and keep it alive (avoids re-buffering on quick swipes back).
-  const [wasActive, setWasActive] = useState(isActive);
-  useEffect(() => { if (isActive) setWasActive(true); }, [isActive]);
+  // Player mounting window: active reel ± 1 neighbor. The old `wasActive`
+  // latch kept EVERY previously-viewed player mounted (and decoding) forever;
+  // the window preserves the no-re-buffer-on-swipe-back behavior with at most
+  // 3 live players. isActive also drops on tab blur, pausing playback.
+  const mountVideo = distance <= 1;
 
   // HER-mode curves for all the overlay cards on the reel
   const prodCurve = useGenderCurve(14);
@@ -245,8 +250,8 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
     <View style={{ height, width, backgroundColor: '#000' }}>
       <GestureDetector gesture={doubleTap}>
         <View style={StyleSheet.absoluteFillObject}>
-          {/* Only mount the video player after this reel first becomes active */}
-          {wasActive && <ReelVideo url={reel.video} isActive={isActive} />}
+          {/* Only the active reel ± 1 neighbor keep a live player */}
+          {mountVideo && <ReelVideo url={reel.video} isActive={isActive} />}
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
           {/* Double-tap heart — blooms at the tap position and fades */}
           <Animated.View style={[{ width: 120, height: 120, alignItems: 'center', justifyContent: 'center' }, heartStyle]} pointerEvents="none">
@@ -317,7 +322,7 @@ function ReelItem({ reel, isActive, onLike, isLiked, onAdd, onProduct }: any) {
       {/* PRODUCT TAG */}
       <Animated.View style={[s.prodTag, prodCurve]}>
         <Pressable onPress={() => reel.product?.img ? openProd(reel.product.img, reel.product) : onProduct()} style={{ flex: 1, flexDirection: 'row' }}>
-          <View ref={prodRef} collapsable={false}><Image source={{ uri: reel.product.img }} style={s.prodTagImg} /></View>
+          <View ref={prodRef} collapsable={false}><CachedImage source={{ uri: reel.product.img }} style={s.prodTagImg} resizeMode="cover" /></View>
           <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
             <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
             <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>

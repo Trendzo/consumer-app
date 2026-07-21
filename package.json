@@ -9,13 +9,9 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@expo-google-fonts/dm-serif-display": "^0.4.2",
     "@expo-google-fonts/inter": "^0.4.2",
-    "@expo-google-fonts/playfair-display": "^0.4.2",
-    "@expo-google-fonts/poppins": "^0.4.1",
     "@expo-google-fonts/space-mono": "^0.4.2",
     "@expo/vector-icons": "^15.0.3",
-    "@gradio/client": "^2.2.0",
     "@msg91comm/sendotp-react-native": "^2.1.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.9",

@@ -7,7 +7,7 @@ import { MotiView } from 'moti';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
+import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -508,7 +508,7 @@ function QSwipe({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'swipe' }>; onAnswe
   return (
     <View>
       <Animated.View style={[{ width: '100%', height: 360, backgroundColor: C.white, transform: [{ translateX: x }, { rotate: rot }], overflow: 'hidden' }, BORDER(1)]}>
-        <Image source={{ uri: q.card.img }} style={{ width: '100%', height: '70%' }} resizeMode="cover" />
+        <CachedImage source={{ uri: q.card.img }} style={{ width: '100%', height: '70%' }} resizeMode="cover" />
         <View style={{ padding: SP.m }}>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }}>{q.card.label}</Text>
           <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{q.card.sub}</Text>
@@ -545,7 +545,7 @@ function QPair({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'pair' }>; onAnswer:
   const tile = (k: 'a' | 'b', o: typeof q.a) => (
     <Pressable onPress={() => pick(k)} style={{ flex: 1 }}>
       <MotiView animate={{ scale: tapped === k ? 1.04 : 1 }} transition={{ type: 'spring', damping: 12 }} style={[{ height: 320, overflow: 'hidden', backgroundColor: tapped === k ? C.ink : C.white }, BORDER(1)]}>
-        <Image source={{ uri: o.img }} style={{ width: '100%', height: '70%', opacity: tapped === k ? 0.6 : 1 }} resizeMode="cover" />
+        <CachedImage source={{ uri: o.img }} style={{ width: '100%', height: '70%', opacity: tapped === k ? 0.6 : 1 }} resizeMode="cover" />
         <View style={{ padding: SP.s }}>
           <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: tapped === k ? C.white : C.ink, letterSpacing: -0.5 }}>{o.label}</Text>
           <Text style={[T.mono, { color: tapped === k ? C.white : C.dim, fontSize: 9, marginTop: 2 }]}>{o.sub}</Text>
@@ -587,7 +587,7 @@ function QGrid({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'grid' }>; onAnswer:
       {q.opts.map((o, i) => (
         <Pressable key={i} onPress={() => pick(i)} style={{ width: '48.5%' }}>
           <MotiView animate={{ scale: tapped === i ? 1.06 : tapped !== null ? 0.94 : 1, opacity: tapped !== null && tapped !== i ? 0.3 : 1 }} transition={{ type: 'spring', damping: 13 }} style={[{ aspectRatio: 1, backgroundColor: tapped === i ? C.ink : C.white, overflow: 'hidden' }, BORDER(1)]}>
-            <Image source={{ uri: o.img }} style={{ width: '100%', height: '75%', opacity: tapped === i ? 0.5 : 1 }} resizeMode="cover" />
+            <CachedImage source={{ uri: o.img }} style={{ width: '100%', height: '75%', opacity: tapped === i ? 0.5 : 1 }} resizeMode="cover" />
             <View style={{ padding: 6, alignItems: 'center' }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: tapped === i ? C.white : C.ink, letterSpacing: 1 }}>{o.label}</Text>
             </View>
@@ -1015,7 +1015,7 @@ export function TryOnScreen() {
               <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject as any} facing={facing} />
               {/* Garment overlay — the chosen product hovers over the user's torso area */}
               <View pointerEvents="none" style={{ position: 'absolute', top: '18%', left: '10%', right: '10%', bottom: '22%' }}>
-                <Image
+                <CachedImage
                   source={{ uri: pick.img }}
                   style={{ width: '100%', height: '100%', opacity: 0.88 }}
                   resizeMode="contain"
@@ -1044,22 +1044,22 @@ export function TryOnScreen() {
             <>
               {/* Generated try-on wins over the quick overlay preview when ready */}
               {generatedPhoto ? (
-                <Image
+                <CachedImage
                   source={{ uri: generatedPhoto }}
                   style={StyleSheet.absoluteFillObject as any}
                   resizeMode="cover"
-                  onError={(e) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
+                  onError={(e: any) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
                 />
               ) : (
                 <>
-                  <Image
+                  <CachedImage
                     source={{ uri: uploadedPhoto }}
                     style={StyleSheet.absoluteFillObject as any}
                     resizeMode="cover"
-                    onError={(e) => openErrorInspector(`Uploaded photo failed to load: ${e.nativeEvent?.error || 'unknown'}\nURI: ${uploadedPhoto}`)}
+                    onError={(e: any) => openErrorInspector(`Uploaded photo failed to load: ${e.nativeEvent?.error || 'unknown'}\nURI: ${uploadedPhoto}`)}
                   />
                   <View pointerEvents="none" style={{ position: 'absolute', top: '18%', left: '10%', right: '10%', bottom: '22%' }}>
-                    <Image source={{ uri: pick.img }} style={{ width: '100%', height: '100%', opacity: 0.88 }} resizeMode="contain" />
+                    <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%', opacity: 0.88 }} resizeMode="contain" />
                   </View>
                 </>
               )}
@@ -1086,7 +1086,7 @@ export function TryOnScreen() {
               )}
             </>
           ) : (
-            <Image source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           )}
           {/* Corner marks */}
           {['┌','┐','└','┘'].map((ch, i) => (
@@ -1144,7 +1144,7 @@ export function TryOnScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
           {picks.map(p => (
             <Pressable key={p.id} onPress={() => { setPick(p); setGeneratedPhoto(null); }} style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, pick.id === p.id ? BORDER(2) : BORDER(1)]}>
-              <Image source={{ uri: p.img }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
+              <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
               <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: pick.id === p.id ? C.ink : C.white, borderTopWidth: 1, borderColor: C.ink }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: pick.id === p.id ? C.white : C.ink }} numberOfLines={1}>{p.brand}</Text>
               </View>

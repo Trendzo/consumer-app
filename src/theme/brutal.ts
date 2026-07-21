@@ -115,6 +115,9 @@ export function setGenderCurve(on: boolean) {
   _isHer = on;
   subscribers.forEach(fn => fn());
 }
+/** Current gender-curve state — pairs with subscribeTheme for
+ *  useSyncExternalStore consumers (see useGenderCurve). */
+export const isHer = () => _isHer;
 function curveRadius(w: number) {
   if (!_isHer) return 0;
   // Heavier borders (hero cards) get slightly tighter radius to avoid
@@ -122,34 +125,46 @@ function curveRadius(w: number) {
   return w >= 2 ? 16 : 14;
 }
 
-// BORDER now returns a getter-backed borderRadius so every re-render
-// (on gender toggle or theme toggle) re-reads the current value.
-export const BORDER = (w = 1) => ({
+// BORDER is cached per width — it used to allocate a fresh object on every
+// call (hundreds of call sites × every render). borderColor joined
+// borderRadius as a getter so the cached object still resolves the palette
+// and curve at READ time — behavior on night/gender flips is unchanged
+// (screens re-render via nonce/remount and re-read the getters).
+const _borderCache: Record<number, any> = {};
+export const BORDER = (w = 1) => (_borderCache[w] ??= {
   borderWidth: w,
-  borderColor: C.ink,
+  get borderColor() { return _active.ink; },
   get borderRadius() { return curveRadius(w); },
 });
 // Getter-based so `HAIRLINE.borderColor` reads C.hairline at access time, not module-load time.
 export const HAIRLINE = { borderWidth: 1, get borderColor() { return C.hairline; } };
 
-// T is built lazily via getters so each access pulls the current C.
+// T maps are PRECOMPUTED once per palette. The old trap rebuilt an 11-entry
+// map (with rf() calls) on EVERY property access — 500 T.* sites in render
+// paths made that constant allocation/GC churn on every frame of every
+// screen. rf() depends only on Dimensions captured at module load, so both
+// palettes can be built at init; the trap is now a cached property read and
+// night flips simply select the other prebuilt map (call sites unchanged).
+const buildT = (P: Palette) => ({
+  display: { fontFamily: 'Inter_900Black', fontSize: rf(36), color: P.ink, letterSpacing: -1.2, lineHeight: rf(38) },
+  h1: { fontFamily: 'Inter_900Black', fontSize: rf(26), color: P.ink, letterSpacing: -0.8 },
+  h2: { fontFamily: 'Inter_900Black', fontSize: rf(20), color: P.ink, letterSpacing: -0.5 },
+  h3: { fontFamily: 'Inter_700Bold', fontSize: rf(16), color: P.ink, letterSpacing: -0.2 },
+  body: { fontFamily: 'Inter_400Regular', fontSize: rf(13), color: P.ink, lineHeight: rf(18) },
+  bodyB: { fontFamily: 'Inter_700Bold', fontSize: rf(13), color: P.ink },
+  caption: { fontFamily: 'Inter_500Medium', fontSize: rf(11), color: P.dim },
+  label: { fontFamily: 'Inter_900Black', fontSize: rf(10), color: P.ink, letterSpacing: 1 },
+  mono: { fontFamily: 'SpaceMono_400Regular', fontSize: rf(10), color: P.ink, letterSpacing: 0.5 },
+  monoB: { fontFamily: 'SpaceMono_700Bold', fontSize: rf(10), color: P.ink, letterSpacing: 0.5 },
+});
+const T_LIGHT = buildT(LIGHT);
+const T_DARK = buildT(DARK);
+
 export const T: any = new Proxy(
   {},
   {
     get(_, key: string) {
-      const map: any = {
-        display: { fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.ink, letterSpacing: -1.2, lineHeight: rf(38) },
-        h1: { fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 },
-        h2: { fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 },
-        h3: { fontFamily: 'Inter_700Bold', fontSize: rf(16), color: C.ink, letterSpacing: -0.2 },
-        body: { fontFamily: 'Inter_400Regular', fontSize: rf(13), color: C.ink, lineHeight: rf(18) },
-        bodyB: { fontFamily: 'Inter_700Bold', fontSize: rf(13), color: C.ink },
-        caption: { fontFamily: 'Inter_500Medium', fontSize: rf(11), color: C.dim },
-        label: { fontFamily: 'Inter_900Black', fontSize: rf(10), color: C.ink, letterSpacing: 1 },
-        mono: { fontFamily: 'SpaceMono_400Regular', fontSize: rf(10), color: C.ink, letterSpacing: 0.5 },
-        monoB: { fontFamily: 'SpaceMono_700Bold', fontSize: rf(10), color: C.ink, letterSpacing: 0.5 },
-      };
-      return map[key];
+      return (_active === DARK ? T_DARK : T_LIGHT)[key as keyof typeof T_LIGHT];
     },
   },
 );

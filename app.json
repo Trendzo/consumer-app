@@ -29,6 +29,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withReleaseSlimming",
       "expo-font",
       [
         "expo-video",

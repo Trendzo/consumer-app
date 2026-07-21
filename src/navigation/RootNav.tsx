@@ -11,7 +11,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Feather } from '@expo/vector-icons';
+import { RealIcon, RealIconName } from '../components/RealIcon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
@@ -20,9 +20,8 @@ import { useApp } from '../state/AppState';
 
 import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
-import { LoginScreen, SignupScreen, EmailLoginScreen } from '../screens/AuthScreens';
-import PhoneAuthScreen from '../screens/PhoneAuthScreen';
 import CompleteProfileScreen from '../screens/CompleteProfileScreen';
+import { AuthSheet } from '../components/AuthSheet';
 import HomeScreen from '../screens/HomeScreen';
 import ReelsScreen from '../screens/ReelsScreen';
 import CartScreen from '../screens/CartScreen';
@@ -56,10 +55,10 @@ const Tab = createBottomTabNavigator();
 
 // ─── BOTTOM TAB BAR — Liquid Glass, edge-to-edge ────────────
 function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
-  const items: { name: string; label: string; icon: any }[] = [
+  const items: { name: string; label: string; icon: RealIconName }[] = [
     { name: 'HomeTab', label: 'HOME', icon: 'home' },
-    { name: 'ReelsTab', label: 'REELS', icon: 'play' },
-    { name: 'CartTab', label: 'BAG', icon: 'shopping-bag' },
+    { name: 'ReelsTab', label: 'REELS', icon: 'reels' },
+    { name: 'CartTab', label: 'BAG', icon: 'bag' },
     { name: 'ProfileTab', label: 'ME', icon: 'user' },
   ];
   const { cartCount, night, curveProgress } = useApp();
@@ -145,7 +144,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               style={tabStyles.btn}
             >
               <View style={tabStyles.iconWrap}>
-                <Feather name={it.icon} size={22} color={active ? C.white : C.ink} />
+                <RealIcon name={it.icon} size={22} color={active ? C.white : C.ink} />
               </View>
               <Text style={[tabStyles.lbl, active && tabStyles.lblActive, active && { color: C.white }]}>{it.label}</Text>
               {it.name === 'CartTab' && cartCount > 0 && (
@@ -269,7 +268,10 @@ function MainTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} />
-      <Tab.Screen name="ReelsTab" component={ReelsScreen} />
+      {/* freezeOnBlur: suspend Reels' JS render tree while another tab is
+          shown — its players are already paused on blur; this stops re-renders
+          from reaching the offscreen feed too. Scoped to Reels only. */}
+      <Tab.Screen name="ReelsTab" component={ReelsScreen} options={{ freezeOnBlur: true }} />
       <Tab.Screen name="CartTab" component={CartScreen} />
       <Tab.Screen name="ProfileTab" component={ProfileScreen} />
     </Tab.Navigator>
@@ -284,27 +286,19 @@ export default function RootNav() {
   // splashDone: the splash animation has finished. We still wait on
   // authHydrated before routing so a persisted session isn't missed.
   const [splashDone, setSplashDone] = useState(false);
-  // pendingLogin: once we land on 'main' as a guest, auto-present the Login
-  // screen over the tabs (so "Start Browsing" / back returns to the tabs).
-  const [pendingLogin, setPendingLogin] = useState(false);
   const { onboarded, setOnboarded, token, authHydrated, night } = useApp();
   const lastBackRef = React.useRef(0);
 
   // Decide where a new launch goes once the splash is done AND the persisted
-  // session/onboarding flags have been read from disk:
-  //   • logged in            → straight to the app (skip onboarding + login)
-  //   • onboarded, guest      → login (onboarding only shows once)
-  //   • brand new             → onboarding → login
+  // session/onboarding flags have been read from disk. There's no forced
+  // login page any more — guests (onboarded or not) land straight in the app
+  // and only get prompted to sign in when they try to buy (see requireAuth
+  // in AppState, surfaced via AuthSheet).
+  //   • logged in OR already onboarded → straight to the app
+  //   • brand new                       → onboarding → app
   useEffect(() => {
     if (phase !== 'splash' || !splashDone || !authHydrated) return;
-    if (token) {
-      setPhase('main');
-    } else if (onboarded) {
-      setPendingLogin(true);
-      setPhase('main');
-    } else {
-      setPhase('onboarding');
-    }
+    setPhase(token || onboarded ? 'main' : 'onboarding');
   }, [phase, splashDone, authHydrated, token, onboarded]);
 
   // Android hardware back: route → Home tab → "press again to exit"
@@ -356,7 +350,7 @@ export default function RootNav() {
   if (phase === 'onboarding') {
     return (
       <View style={{ flex: 1 }}>
-        <OnboardingScreen onDone={() => { setOnboarded(true); setPendingLogin(true); setPhase('main'); }} />
+        <OnboardingScreen onDone={() => { setOnboarded(true); setPhase('main'); }} />
         <NightOverlay />
       </View>
     );
@@ -365,32 +359,9 @@ export default function RootNav() {
   return (
     <ZoomProvider navRef={navigationRef}>
     <View style={{ flex: 1, backgroundColor: night ? '#000' : '#fff' }} key={night ? 'dark' : 'light'}>
-    <NavigationContainer
-      ref={navigationRef}
-      onReady={() => {
-        // Guest launch: present Login over the tabs. Reset the flag so it only
-        // fires once (the user can dismiss it to browse as a guest).
-        if (pendingLogin && navigationRef.isReady()) {
-          navigationRef.navigate('Login');
-          setPendingLogin(false);
-        }
-      }}
-    >
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
-        <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'none', presentation: 'fullScreenModal' }} />
-        <Stack.Screen
-          name="Signup"
-          component={SignupScreen}
-          options={{
-            presentation: 'formSheet',
-            sheetAllowedDetents: [0.85],
-            sheetCornerRadius: 0,
-            sheetGrabberVisible: false,
-          }}
-        />
-        <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-        <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} options={{ animation: 'slide_from_bottom' }} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
@@ -445,6 +416,7 @@ export default function RootNav() {
     <NightOverlay />
     <BrutalToast />
     <BrutalConfirm />
+    <AuthSheet />
     </View>
     </ZoomProvider>
   );

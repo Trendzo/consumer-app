@@ -50,7 +50,7 @@ export default function CheckoutScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const preMethod: Method | undefined = route.params?.preMethod;
-  const { cart, cartTotal, placeOrder, night, showToast } = useApp();
+  const { cart, cartTotal, placeOrder, night, showToast, requireAuth } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
   const [addr, setAddr] = useState('a1');
   const [method, setMethod] = useState<Method>(preMethod || 'express');
@@ -71,14 +71,18 @@ export default function CheckoutScreen() {
   const needsAddress = method !== 'pickup';
 
   const handlePlace = () => {
-    const pickedStore = method === 'pickup' ? STORES.find(st => st.id === store) || null : null;
-    placeOrder({
-      method,
-      store: pickedStore
-        ? { id: pickedStore.id, name: pickedStore.name, addr: pickedStore.addr, eta: pickedStore.eta, slot, code: pickupCode }
-        : null,
+    // Defense-in-depth: CartScreen already gates entry to this screen behind
+    // requireAuth, but re-check here in case the session was signed out mid-flow.
+    requireAuth(() => {
+      const pickedStore = method === 'pickup' ? STORES.find(st => st.id === store) || null : null;
+      placeOrder({
+        method,
+        store: pickedStore
+          ? { id: pickedStore.id, name: pickedStore.name, addr: pickedStore.addr, eta: pickedStore.eta, slot, code: pickupCode }
+          : null,
+      });
+      nav.replace('OrderSuccess');
     });
-    nav.replace('OrderSuccess');
   };
 
   return (

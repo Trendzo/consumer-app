@@ -12,11 +12,11 @@
 // entries is instant after the first load — no refetch, no spinner churn.
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, Dimensions, Platform, ActivityIndicator } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, T, SP, rf } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
+import { RealIcon } from '../components/RealIcon';
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { PRODUCTS, CATEGORIES } from '../data/mockData';
@@ -417,10 +417,10 @@ export default function CategoryBrowseScreen() {
             <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 15, color: C.dim }} numberOfLines={1}>Oversized t-shirt</Text>
           </Pressable>
           <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8} style={{ paddingHorizontal: 10 }}>
-            <Feather name="camera" size={20} color={C.ink} />
+            <RealIcon name="camera" size={20} />
           </Pressable>
           <Pressable onPress={() => nav.navigate('Search')} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
-            <Feather name="search" size={19} color={night ? '#000000' : '#FFFFFF'} />
+            <RealIcon name="search" size={19} color={C.white} />
           </Pressable>
         </View>
       </View>

@@ -29,7 +29,7 @@ function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
 
 export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
-  const { cart, cartTotal, placeOrder, showToast, token, user } = useApp();
+  const { cart, cartTotal, placeOrder, showToast, token, user, requireAuth } = useApp();
   const items = cart;
 
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -79,7 +79,7 @@ export default function ReviewOrderScreen() {
   // record the real order id for the success/tracking screens. Needs login + address.
   const placeIt = async () => {
     if (placing) return;
-    if (!token) { setPayOpen(false); showToast('Sign in to order', 'Please log in first', 'lock'); return; }
+    if (!token) { setPayOpen(false); requireAuth(() => placeIt()); return; }
     if (!addr) { setPayOpen(false); showToast('Add an address', 'Add a delivery address', 'map-pin'); nav.navigate('SavedAddresses'); return; }
     if (!allPriceable || items.length === 0) { setPayOpen(false); showToast('Cart issue', "Some items can't be checked out", 'x'); return; }
     const method: 'express' | 'try_and_buy' = tryBuy ? 'try_and_buy' : 'express';

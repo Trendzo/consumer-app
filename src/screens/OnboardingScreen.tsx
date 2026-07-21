@@ -10,6 +10,7 @@ import {
   StatusBar,
   Pressable,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -133,8 +134,15 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
       {/* ── Stacked reveal: each image slides in from the right
               over the previous one and stays put. Going back, it
               slides back out to the right. ──────────────────── */}
+      {/* PERF: only the active slide and its neighbors mount — a slide's
+          worklet derives position purely from scrollX, so a neighbor mounting
+          mid-gesture lands at the correct translateX on its first frame. The
+          animation is identical; steady-state overdraw drops from 3 stacked
+          full-screen images to at most 2. */}
       {SLIDES.map((s, i) => (
-        <SlideBackground key={i} slide={s} index={i} scrollX={scrollX} />
+        Math.abs(i - page) <= 1
+          ? <SlideBackground key={i} slide={s} index={i} scrollX={scrollX} />
+          : null
       ))}
 
       {/* heavy bottom-up gradient so text reads */}
@@ -256,7 +264,12 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
 
         {/* CTA — glass morphism */}
         <Pressable onPress={next} style={styles.cta}>
-          <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+          {/* iOS: real glass blur. Android: expo-blur was already a translucent
+              fallback (no actual blur) — a plain view drops the extra native
+              platform-view from the frame without changing a pixel. */}
+          {Platform.OS === 'ios'
+            ? <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+            : <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.45)' }]} />}
           <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.9)' }} />
           <View style={[StyleSheet.absoluteFill, { borderWidth: 1, borderColor: '#000' }]} pointerEvents="none" />

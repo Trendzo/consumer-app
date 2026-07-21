@@ -96,7 +96,7 @@ export default function SearchScreen() {
                 <MotiView key={p.id} from={{ opacity: 0, translateX: -10 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: i * 60 }}>
                   <Pressable onPress={() => openZoom(zoomRefs.current['pd' + p.id], p.img, p)} style={s.row}>
                     <View ref={(el) => { zoomRefs.current['pd' + p.id] = el; }} collapsable={false} style={[{ width: 50, height: 50, overflow: 'hidden' }, BORDER(1)]}>
-                      <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={[T.bodyB]} numberOfLines={1}>{p.name}</Text>
