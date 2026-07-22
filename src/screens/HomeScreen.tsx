@@ -1,7 +1,7 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager } from 'react-native';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Vibration } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
@@ -9,40 +9,115 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { AsciiDivider, BrutalButton, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
 import { RealIcon, RealIconName, categoryIconName } from '../components/RealIcon';
 import {
-  PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, HERO_IMG, HERO_IMG_2,
+  PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, REELS, HERO_IMG, HERO_IMG_2,
   HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
   HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
-  categoryPng,
 } from '../data/mockData';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
-import { listCategories, listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
+import { listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
 import { warmCatalog } from '../services/prefetch';
 import { useApp } from '../state/AppState';
 
 const HOME_HERO = require('../../assets/home.jpeg');
+
+// FEATURED CATEGORIES — the horizontal swipeable row only. Local cutout art
+// (not the pngimg.com hotlinks the grid below still uses), one set per gender.
+const HER_FEATURED_CATEGORIES = [
+  { id: 'feat-her-dress', label: 'Dresses',  img: require('../../assets/github-import/women/dress.png') },
+  { id: 'feat-her-ethnic', label: 'Ethnic',   img: require('../../assets/github-import/women/ethenic.png') },
+  { id: 'feat-her-glasses', label: 'Eyewear', img: require('../../assets/github-import/women/glasses.png') },
+  { id: 'feat-her-heels', label: 'Heels',     img: require('../../assets/github-import/women/heels.png') },
+  { id: 'feat-her-jwellery', label: 'Jewelry', img: require('../../assets/github-import/women/jwellery.png') },
+  { id: 'feat-her-pants', label: 'Pants',     img: require('../../assets/github-import/women/pants.png') },
+  { id: 'feat-her-skirts', label: 'Skirts',   img: require('../../assets/github-import/women/skirts.png') },
+  { id: 'feat-her-top', label: 'Tops',        img: require('../../assets/github-import/women/top.png') },
+];
+const HIM_FEATURED_CATEGORIES = [
+  { id: 'feat-him-cap', label: 'Caps',       img: require('../../assets/github-import/men/cap.png') },
+  { id: 'feat-him-jackets', label: 'Jackets', img: require('../../assets/github-import/men/jackets.png') },
+  { id: 'feat-him-jeans', label: 'Jeans',     img: require('../../assets/github-import/men/jeans.png') },
+  { id: 'feat-him-shirt', label: 'Shirts',    img: require('../../assets/github-import/men/shirt.png') },
+  { id: 'feat-him-shoes', label: 'Shoes',     img: require('../../assets/github-import/men/shoes.png') },
+  { id: 'feat-him-short', label: 'Shorts',    img: require('../../assets/github-import/men/short.png') },
+  { id: 'feat-him-tshirt', label: 'Tees',     img: require('../../assets/github-import/men/tshirt.png') },
+  { id: 'feat-him-watchs', label: 'Watches',  img: require('../../assets/github-import/men/watchs.png') },
+];
+
+// STEALS — bento grid of price-banded deals, one big hero tile + two smaller
+// tiles per gender, real catalog images/prices (no invented pricing).
+const HER_STEALS = [
+  { id: 'steal-her-1', label: 'Beauty',  priceLine: 'Under ₹999',  img: require('../../assets/steals/her/beauty.jpeg') },
+  { id: 'steal-her-2', label: 'Jewelry', priceLine: 'Under ₹1499', img: require('../../assets/steals/her/jewelry.jpeg') },
+  { id: 'steal-her-3', label: 'Tops',    priceLine: 'Under ₹1999', img: require('../../assets/steals/her/tops.jpeg') },
+];
+const HIM_STEALS = [
+  { id: 'steal-him-1', label: 'Tees',    priceLine: 'Under ₹1499', img: require('../../assets/steals/him/tee.jpeg') },
+  { id: 'steal-him-2', label: 'Eyewear', priceLine: 'Under ₹1999', img: require('../../assets/steals/him/eyewear.jpeg') },
+  { id: 'steal-him-3', label: 'Jackets', priceLine: 'Under ₹2499', img: require('../../assets/steals/him/jacket.jpeg') },
+];
+
+// SHOP BY OCCASION — a seasonal hero banner + a swipeable row of white
+// occasion cards (product cutout + label), one set per gender. Hero uses a
+// local campaign banner — these already carry their own baked-in typography
+// (same art used in the top hero carousel), so the card adds ONLY a small
+// corner CTA badge rather than a second competing headline on top of it.
+// Cards reuse the local github-import cutouts so nothing hits a slow/
+// blocked CDN. `hero` is a require() (local asset).
+const HER_OCCASION = {
+  hero: require('../../assets/banners/her-friday.jpg'),
+  cards: [
+    { id: 'occ-her-brunch',  label: 'Brunch',  img: require('../../assets/github-import/women/dress.png') },
+    { id: 'occ-her-party',   label: 'Party',   img: require('../../assets/github-import/women/top.png') },
+    { id: 'occ-her-date',    label: 'Date',    img: require('../../assets/github-import/women/heels.png') },
+    { id: 'occ-her-wedding', label: 'Wedding', img: require('../../assets/github-import/women/ethenic.png') },
+    { id: 'occ-her-casual',  label: 'Casual',  img: require('../../assets/github-import/women/pants.png') },
+  ],
+};
+const HIM_OCCASION = {
+  hero: require('../../assets/banners/him-friday.jpg'),
+  cards: [
+    { id: 'occ-him-office',  label: 'Office',     img: require('../../assets/github-import/men/shirt.png') },
+    { id: 'occ-him-street',  label: 'Streetwear', img: require('../../assets/github-import/men/jackets.png') },
+    { id: 'occ-him-gym',     label: 'Gym',        img: require('../../assets/github-import/men/tshirt.png') },
+    { id: 'occ-him-travel',  label: 'Travel',     img: require('../../assets/github-import/men/jeans.png') },
+    { id: 'occ-him-weekend', label: 'Weekend',    img: require('../../assets/github-import/men/shoes.png') },
+  ],
+};
+
 const { width: W } = Dimensions.get('window');
+// Featured Categories tile sizing — solved so exactly 4 tiles are fully
+// visible before scrolling, with a sliver of the 5th peeking at the edge as
+// a "swipe for more" affordance.
+const FEATURED_TILE_PAD = SP.l; // matches the SP.l edge padding every other section uses
+const FEATURED_TILE_GAP = SP.s;
+const FEATURED_TILE_W = (W - FEATURED_TILE_PAD * 2 - FEATURED_TILE_GAP * 4) / 4.3;
+// Steals bento grid — one tall hero tile + a stacked pair beside it, all the
+// same fixed 2-column width so the grid never depends on image aspect ratio.
+const STEAL_GAP = SP.s;
+const STEAL_COL_W = (W - SP.l * 2 - STEAL_GAP) / 2;
+const STEAL_SMALL_H = STEAL_COL_W * 0.95;
+const STEAL_BIG_H = STEAL_SMALL_H * 2 + STEAL_GAP;
+// Explore Reels poster row — roughly 2.3 cards visible so the next one peeks.
+const REEL_TILE_PAD = SP.l;
+const REEL_TILE_GAP = SP.s;
+const REEL_TILE_W = (W - REEL_TILE_PAD * 2 - REEL_TILE_GAP * 2) / 2.3;
+const REEL_TILE_H = REEL_TILE_W * 1.5;
+// Shop-by-Occasion card row — ~2.6 cards visible so the next one peeks.
+const OCC_CARD_PAD = SP.l;
+const OCC_CARD_GAP = SP.s;
+const OCC_CARD_W = (W - OCC_CARD_PAD * 2 - OCC_CARD_GAP * 2) / 2.6;
+const OCC_CARD_H = OCC_CARD_W * 1.15;
 // Text shadow for the header/search overlay now sitting on top of the hero
 // photo — keeps white text legible over whatever part of the image is behind it.
 const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
 
-// FEATURED CATEGORIES — swipeable PNG-cutout row under the banner marquee.
-// Reuses the same transparent product cutouts as "Shop by Vibe"; each tile
-// routes into the generic category browse screen like QuickCat/VibeTile do.
-const FEATURED_CATEGORIES = [
-  { id: 'new-arrivals', label: 'New Arrivals', img: categoryPng('tee') },
-  { id: 'her-c1', label: 'For Her', img: categoryPng('dress') },
-  { id: 'him-c3', label: 'For Him', img: categoryPng('jacket') },
-  { id: 'footwear', label: 'Footwear', img: categoryPng('sneaker') },
-  { id: 'bags', label: 'Bags', img: categoryPng('bag') },
-  { id: 'watches', label: 'Watches', img: categoryPng('watch') },
-  { id: 'eyewear', label: 'Eyewear', img: categoryPng('sunglass') },
-];
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
 // Expanded product list for the Explore More infinite feed — fake 24 items from PRODUCTS
 const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
@@ -104,7 +179,6 @@ export default function HomeScreen() {
     const put = (patch: GenderSlice) =>
       setApiCache((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
     void Promise.allSettled([
-      listCategories(g).then((v) => { if (!cancelled && v.length) put({ categories: v }); }),
       listProducts({ gender: g, limit: 50 }).then((v) => { if (!cancelled && v.length) put({ products: v }); }),
       listBrands().then((v) => { if (!cancelled && v.length) setApiCache((prev) => ({ ...prev, brands: v })); }),
       listBundles(g).then((v) => { if (!cancelled && v.length) put({ bundles: v }); }),
@@ -114,10 +188,11 @@ export default function HomeScreen() {
   }, [gender, reloadKey, homeArmed]);
 
   // Gender-specific data — backend cache when available, else the mock arrays.
-  // BOTH category lists are computed so the quick-category row and the vibe
-  // grid can crossfade HIM↔HER live while the gender bar is being dragged.
-  const herCategories = apiCache.her.categories ?? HER_CATEGORIES;
-  const himCategories = apiCache.him.categories ?? HIM_CATEGORIES;
+  // Categories are ALWAYS the local PNG sets (no backend/CDN fetch) so both
+  // the featured strip and the vibe grid can crossfade HIM↔HER live while the
+  // gender bar is being dragged.
+  const herCategories = HER_CATEGORIES;
+  const himCategories = HIM_CATEGORIES;
   const activeSlice = apiCache[gender];
   const activeProducts = activeSlice.products ?? (gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS);
   const activeBundles = activeSlice.bundles ?? (gender === 'her' ? HER_BUNDLES : HIM_BUNDLES);
@@ -135,6 +210,44 @@ export default function HomeScreen() {
   // live so cards/boxes curve in real time during the drag.
   const curveStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 18 }));
   const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
+  // Featured Categories pin: the row stays a NORMAL in-flow child pinned by
+  // native stickyHeaderIndices — no scroll-linked transform, so it scrolls in
+  // perfect lockstep with the page (a synced overlay lags native scroll by a
+  // frame on Android → visible jitter). The outer sticky wrapper is 100%
+  // static styles (safe-area padding + white bg fixed, always-on) because
+  // Reanimated-driven styles on the exact node stickyHeaderIndices manages
+  // don't reliably apply on Android (confirmed: animated backgroundColor and
+  // animated padding both silently no-op'd there). All animation instead
+  // targets a plain, non-sticky child ONE level in — a single scale transform
+  // on the whole row (not per-tile) so there's only one animated style
+  // computation total, not two per tile. pinP is a one-shot 220ms timing that
+  // fires only at the dock/undock instant, never during scroll itself.
+  const catSectionY = useSharedValue(999999);
+  const pinP = useSharedValue(0);
+  const wasPinned = useSharedValue(false);
+  const [catPinned, setCatPinned] = useState(false);
+  const onHomeScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const nowPinned = e.contentOffset.y >= catSectionY.value - 1;
+      if (nowPinned !== wasPinned.value) {
+        wasPinned.value = nowPinned;
+        pinP.value = withTiming(nowPinned ? 1 : 0, { duration: 220 });
+        runOnJS(setCatPinned)(nowPinned);
+      }
+    },
+  });
+  const FEATURED_PIN_SCALE = 0.62;
+  const featuredRowH = useSharedValue(0);
+  const featuredScaleStyle = useAnimatedStyle(() => ({
+    // Scaling around the centre left large fake gutters on both sides and kept
+    // the row's full, unscaled height in layout. Anchor the compact row to the
+    // leading edge, widen its pre-transform viewport so it still fills the
+    // screen, and give the released space back to the section below.
+    width: interpolate(pinP.value, [0, 1], [W, W / FEATURED_PIN_SCALE]),
+    marginBottom: -featuredRowH.value * (1 - interpolate(pinP.value, [0, 1], [1, FEATURED_PIN_SCALE])),
+    transformOrigin: 'left top',
+    transform: [{ scale: interpolate(pinP.value, [0, 1], [1, FEATURED_PIN_SCALE]) }],
+  }));
   // Collapsible top header (brand + ETA headline + address): it now scrolls away
   // NATIVELY (it's the first child of the ScrollView) while the search + quick-cats
   // row below it is a native stickyHeaderIndices header that pins to the top. No
@@ -251,7 +364,7 @@ export default function HomeScreen() {
           a transparent header overlaid on it, so status bar icons stay legible over
           the photo. (Was adaptive per night mode; the old dark/light logic is
           commented below in case the hero goes back to a white top section.) */}
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={catPinned ? 'dark-content' : 'light-content'} />
       {/* <StatusBar barStyle={night ? 'light-content' : 'dark-content'} /> */}
 
       {/* ═══ ADAPTIVE-TINT STRIP behind the status bar — commented out per redesign
@@ -270,12 +383,16 @@ export default function HomeScreen() {
           header+search now living INSIDE the hero overlay instead of their own
           white sticky row, there's no separate index to pin. */}
       <View style={{ flex: 1 }}>
-        <ScrollView
+        <AnimatedScrollView
           ref={scrollRef as any}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 120 }}
           overScrollMode="never"
           showsVerticalScrollIndicator={false}
+          onScroll={onHomeScroll}
+          scrollEventThrottle={16}
+          // Child 2 (hero → marquee → categories) pins natively at the top.
+          stickyHeaderIndices={[2]}
           onScrollBeginDrag={markScrollStart}
           onMomentumScrollBegin={markScrollStart}
           onScrollEndDrag={() => markScrollStop(1200)}
@@ -302,6 +419,14 @@ export default function HomeScreen() {
               style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 230 }}
             />
 
+            {/* Bottom scrim — keeps the HIM/HER switch legible now that it sits
+                on the banner's bottom edge instead of the plain page background. */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.75)']}
+              style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 130 }}
+            />
+
             {/* ═══ HEADER + SEARCH overlay — transparent, sits on top of the banner.
                 White text + shadow for legibility over the photo (was dark text on a
                 white bar before). Same fields as before, just restyled/repositioned.
@@ -310,31 +435,29 @@ export default function HomeScreen() {
             <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(9), color: '#fff', letterSpacing: 1, ...HERO_SHADOW }}>trendzo</Text>
+                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(9), color: '#fff', letterSpacing: 1, ...HERO_SHADOW }}>TRENDZO</Text>
                   {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 2 }}>
-                    <Text numberOfLines={1} style={{ fontFamily: 'Inter_900Black', fontSize: rf(16), color: '#fff', letterSpacing: -0.5, lineHeight: rf(18), flexShrink: 0, ...HERO_SHADOW }}>60 MIN</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                    <Text numberOfLines={1} style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: '#fff', letterSpacing: -0.2, lineHeight: rf(24), flexShrink: 0, ...HERO_SHADOW }}>60 minutes</Text>
                     <Text numberOfLines={1} style={[T.mono, { fontSize: 9, color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>3 STORES NEARBY</Text>
                   </View>
                   {/* Delivery location — tap to change (Myntra-style) */}
-                  <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 }}>
+                  <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
                     <RealIcon name="marker" size={13} color="#fff" />
-                    <Text style={[T.mono, { color: '#fff', opacity: 0.85, fontSize: 10 }, HERO_SHADOW]}>Deliver to</Text>
                     <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: '#fff', letterSpacing: -0.2, ...HERO_SHADOW }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
                     <Feather name="chevron-down" size={13} color="#fff" />
                   </Pressable>
                 </View>
                 <Pressable onPress={() => nav.navigate('ProfileTab')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                  <RealIcon name="user" size={22} color="#fff" />
+                  <Feather name="user" size={22} color="#fff" />
                 </Pressable>
               </View>
 
               {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
-              <AnimatedPressable onPress={() => nav.navigate('Search')} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 14 }}>
-                <RealIcon name="search" size={16} color="#fff" />
+              <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
+                <RealIcon name="search" size={22} color="#FFFFFF" />
                 <Text style={[T.mono, { flex: 1, color: '#fff' }]}>SEARCH 60-MIN DROPS...</Text>
                 <RealIcon name="mic" size={16} color="#fff" />
-                <View style={{ width: 1, height: 16, backgroundColor: 'rgba(255,255,255,0.4)' }} />
                 <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
                   <RealIcon name="camera" size={16} color="#fff" />
                 </Pressable>
@@ -364,11 +487,10 @@ export default function HomeScreen() {
               */}
             </View>
 
-            {/* ═══════════ GENDER SWITCH — Animated dot track ═══════════
-                Commented out for now (redesign request). State (gender/curveProgress)
-                is left live so this can be re-enabled later without other changes.
-            <GenderSwitch gender={gender} onSwitch={setGender} />
-            */}
+            {/* ═══════════ GENDER SWITCH — pinned to the banner's bottom edge, above the marquee ═══════════ */}
+            <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+              <GenderSwitch gender={gender} onSwitch={setGender} onPhoto />
+            </View>
           </View>
 
         {/* ═══ MARQUEE — sticks directly to the bottom of the banner, no gap ═══ */}
@@ -380,25 +502,160 @@ export default function HomeScreen() {
         ║  Image only (no card/border), label below     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <View style={{ marginTop: SP.xl }}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.3, paddingHorizontal: SP.l, textAlign: 'center' }}>FEATURED CATEGORIES</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.l, paddingTop: SP.m }}>
-            {FEATURED_CATEGORIES.map((c) => (
-              <Pressable key={c.id} onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })} style={{ alignItems: 'center', width: 108 }}>
-                <CachedImage source={{ uri: c.img }} style={{ width: 100, height: 124 }} resizeMode="contain" />
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 6, textAlign: 'center' }} numberOfLines={1}>{c.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+        {/* Sticky wrapper: STATIC styles only (see note above on why nothing
+            animated lives directly on this node). Safe-area padding is
+            always-on rather than animated in only while docked — a fixed
+            small gap under the marquee beats an unreliable animated one. */}
+        <View
+          style={{ backgroundColor: C.white, paddingTop: insets.top, paddingBottom: SP.xs }}
+          onLayout={(e) => { catSectionY.value = e.nativeEvent.layout.y; }}
+        >
+          <Animated.View
+            style={featuredScaleStyle}
+            onLayout={(e) => {
+              if (!featuredRowH.value) featuredRowH.value = e.nativeEvent.layout.height;
+            }}
+          >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.xs }}>
+              {(gender === 'her' ? HER_FEATURED_CATEGORIES : HIM_FEATURED_CATEGORIES).map((c) => (
+                <FeaturedCatTile
+                  key={c.id}
+                  item={c}
+                  onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
+                />
+              ))}
+            </ScrollView>
+          </Animated.View>
         </View>
 
         {/*
         ╔══════════════════════════════════════════════╗
-        ║  CATEGORIES — Grid with overflowing images    ║
-        ║  Images pop out of the top of each card       ║
-        ║  No swipe — all visible in a 4×2 grid         ║
+        ║  STEALS — price-banded bento grid             ║
+        ║  1 tall hero tile + 2 stacked tiles beside it ║
         ╚══════════════════════════════════════════════╝
         */}
+        <SectionHead title="STEALS" action="ALL" onAction={() => nav.navigate('Categories')} hideCaret hideBottomDivider />
+        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
+          {(() => {
+            const steals = gender === 'her' ? HER_STEALS : HIM_STEALS;
+            return (
+              <>
+                <StealTile
+                  label={steals[0].label}
+                  priceLine={steals[0].priceLine}
+                  img={steals[0].img}
+                  width={STEAL_COL_W}
+                  height={STEAL_BIG_H}
+                  curveSmStyle={curveSmStyle}
+                  onPress={() => nav.navigate('Categories', { id: steals[0].id, label: steals[0].label })}
+                />
+                <View style={{ gap: STEAL_GAP }}>
+                  {steals.slice(1, 3).map((s) => (
+                    <StealTile
+                      key={s.id}
+                      label={s.label}
+                      priceLine={s.priceLine}
+                      img={s.img}
+                      width={STEAL_COL_W}
+                      height={STEAL_SMALL_H}
+                      curveSmStyle={curveSmStyle}
+                      onPress={() => nav.navigate('Categories', { id: s.id, label: s.label })}
+                    />
+                  ))}
+                </View>
+              </>
+            );
+          })()}
+        </View>
+
+        {/*
+        ╔══════════════════════════════════════════════╗
+        ║  EXPLORE REELS — dark poster row + promo band ║
+        ║  Cards tease a reel, tap redirects to Reels   ║
+        ║  tab where it actually plays (nothing plays   ║
+        ║  inline here).                                ║
+        ╚══════════════════════════════════════════════╝
+        */}
+        <View style={{ marginTop: SP.xl, backgroundColor: '#0a0a0a', paddingVertical: SP.l }}>
+          <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(20), color: '#fff', letterSpacing: -0.3 }}>
+            EXPLORE <Text style={{ color: '#9fffb0', fontStyle: 'italic' }}>REELS</Text>
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: REEL_TILE_PAD, gap: REEL_TILE_GAP, paddingTop: SP.m }}>
+            {REELS.map((r) => (
+              <ReelPosterTile
+                key={r.id}
+                title={r.title}
+                user={r.user}
+                img={r.img}
+                curveSmStyle={curveSmStyle}
+                onPress={() => nav.navigate('ReelsTab')}
+              />
+            ))}
+          </ScrollView>
+          <PromoBanner
+            curveSmStyle={curveSmStyle}
+            onPress={() => nav.navigate('Categories')}
+            slides={[
+              {
+                id: 'promo-steals',
+                bg: '#FF7A1A',
+                title: (gender === 'her' ? HER_STEALS[0] : HIM_STEALS[0]).priceLine.toUpperCase() + '\nDEALS',
+                sub: 'Fresh steals, everyday',
+                cta: 'SHOP NOW',
+                img: (gender === 'her' ? HER_STEALS[0] : HIM_STEALS[0]).img,
+              },
+              {
+                id: 'promo-delivery',
+                bg: '#111',
+                title: '60-MINUTE\nDELIVERY',
+                sub: 'Straight to your door',
+                cta: 'ORDER NOW',
+                img: activeHero,
+              },
+            ]}
+          />
+        </View>
+
+        {/*
+        ╔══════════════════════════════════════════════╗
+        ║  SHOP BY OCCASION — seasonal hero + card row  ║
+        ╚══════════════════════════════════════════════╝
+        */}
+        <View style={{ marginTop: SP.xl }}>
+          {(() => {
+            const occ = gender === 'her' ? HER_OCCASION : HIM_OCCASION;
+            return (
+              <>
+                <AnimatedPressable
+                  onPress={() => nav.navigate('OccasionShopping')}
+                  style={[{ marginHorizontal: SP.l, height: 210, overflow: 'hidden' }, curveStyle]}
+                >
+                  <CachedImage source={occ.hero} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+                  {/* Small corner CTA only — the campaign art already carries its
+                      own headline, so this doesn't compete with a second one. */}
+                  <View style={{ position: 'absolute', right: SP.m, bottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8 }}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink, letterSpacing: 0.3 }}>SHOP NOW</Text>
+                    <Feather name="arrow-right" size={13} color={C.ink} />
+                  </View>
+                </AnimatedPressable>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: OCC_CARD_PAD, gap: OCC_CARD_GAP, paddingTop: SP.l }}>
+                  {occ.cards.map((c) => (
+                    <OccasionCard
+                      key={c.id}
+                      label={c.label}
+                      img={c.img}
+                      curveSmStyle={curveSmStyle}
+                      onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
+                    />
+                  ))}
+                </ScrollView>
+              </>
+            );
+          })()}
+        </View>
+
+        {/* ═══════════ SHOP BY VIBE — commented out for now (redesign request).
+            Kept intact below so it can be restored later; not deleted.
         <SectionHead title="SHOP BY" emphasis="VIBE" action="ALL" onAction={() => nav.navigate('Categories')} />
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.s }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -416,6 +673,7 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
+        ═══════════ */}
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -915,7 +1173,7 @@ export default function HomeScreen() {
         </View>
         </>)}
         </Animated.View>
-      </ScrollView>
+        </AnimatedScrollView>
       </View>
     </View>
   );
@@ -959,12 +1217,13 @@ const HER_CAMPAIGNS = [
 ];
 const HIM_CAMPAIGNS = [
   require('../../assets/banners/him-new1.png'),
+  require('../../assets/banners/him-traditional.jpg'),
 ];
 // LIGHT pastel of each poster's dominant colour (sampled from the actual art,
 // lifted to high lightness) — drives the Amazon/Blinkit-style adaptive top
 // gradient. Order matches the campaign arrays above.
 export const HER_CAMPAIGN_TINTS = ['#f4e6c3', '#efcdc8'];
-export const HIM_CAMPAIGN_TINTS = ['#ebe5cb'];
+export const HIM_CAMPAIGN_TINTS = ['#ebe5cb', '#f2ddc4'];
 const hexA = (hex: string, a: number) => {
   const h = hex.replace('#', '');
   return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
@@ -978,7 +1237,7 @@ const BANNER_W = W;
 // so the hero reads as a proper full banner, closer to the reference layout.
 // (0.78 was too tall — pushed Featured Categories off the first screen; dialed
 // back so the marquee + categories peek into view without scrolling.)
-const BANNER_H = Math.round(SCREEN_H * 0.62);
+const BANNER_H = Math.round(SCREEN_H * 0.8);
 // How far the adaptive tint reaches into the page: past the gender switch (~60)
 // and the banner's top margin, ending at the MIDDLE of the banner.
 const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
@@ -986,12 +1245,30 @@ const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
 // swallows any sub-pixel rounding gap between the two so there's never a seam.
 const SEAM_OVERLAP = 16;
 
+// One campaign poster inside the banner carousel — plain full-bleed slide,
+// no scale/fade (that left gaps around the shrinking art). The dots below
+// carry the "changing" feedback instead.
+function BannerSlide({ item, onPress }: { item: any; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={{ width: W }}>
+      {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design) */}
+      <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: C.white }}>
+        <CachedImage source={item.campaign} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+      </View>
+    </Pressable>
+  );
+}
+
 function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any; curveStyle: any; pausedRef?: React.MutableRefObject<boolean>; gender: 'her' | 'him'; onTint?: (hex: string) => void }) {
   // Campaign art only — full-bleed, the art carries its own typography.
   const tints = gender === 'her' ? HER_CAMPAIGN_TINTS : HIM_CAMPAIGN_TINTS;
   const data = (gender === 'her' ? HER_CAMPAIGNS : HIM_CAMPAIGNS).map((img, i) => ({ id: `camp-${gender}-${i}`, campaign: img, tint: tints[i] }));
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
+  // Drives the per-slide crossfade/scale below — the outgoing poster shrinks
+  // and fades while the incoming one grows to full size, instead of a flat cut.
+  const scrollX = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
 
   // Tell the header which colour the visible poster is (adaptive top gradient).
   useEffect(() => { onTint?.(tints[index] ?? tints[0]); }, [index, gender]);
@@ -1026,35 +1303,25 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
 
   return (
     <View>
-      <FlatList
+      <AnimatedFlatList
         ref={listRef}
         data={data}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(b) => b.id}
-        getItemLayout={(_, i) => ({ length: W, offset: W * i, index: i })}
+        keyExtractor={(b: any) => b.id}
+        getItemLayout={(_: any, i: number) => ({ length: W, offset: W * i, index: i })}
         // Android defaults list clipping ON — with the parent scroll translated it
         // blanks the posters after scrolling away and back. 3-4 slides; keep attached.
         removeClippedSubviews={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         onScrollBeginDrag={stop}
-        onMomentumScrollEnd={(e) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); }}
-        renderItem={({ item }) => (
-          <Pressable onPress={() => nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim')} style={{ width: W }}>
-            {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design) */}
-            <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: C.white }}>
-              <CachedImage source={item.campaign} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-            </View>
-          </Pressable>
+        onMomentumScrollEnd={(e: any) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); }}
+        renderItem={({ item }: { item: any }) => (
+          <BannerSlide item={item} onPress={() => nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim')} />
         )}
       />
-      {/* Page dots — overlaid inside the image at the bottom (not a separate row
-          below it), so the marquee can sit flush against the banner's edge. */}
-      <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-        {data.map((_, i) => (
-          <View key={i} style={{ width: i === index ? 18 : 6, height: 5, backgroundColor: i === index ? '#fff' : 'rgba(255,255,255,0.5)' }} />
-        ))}
-      </View>
     </View>
   );
 }
@@ -1228,15 +1495,15 @@ function PlayLabel({ progress }: { progress: any }) {
 }
 
 // ─── GENDER SWITCH — Animated dot sliding on a track ───────
-const DOT_SIZE = 28;
-const TRACK_H = 48;
+const DOT_SIZE = 20;
+const TRACK_H = 34;
 
 // Shared spring config — used by drag, taps, and the AppState sync effect so
-// every path into curveProgress feels identical. Tuned for zero overshoot and
-// a settle time that matches the 280ms base animation.
-const GENDER_SPRING = { damping: 22, stiffness: 180, mass: 0.7, overshootClamping: false } as const;
+// every path into curveProgress feels identical. High stiffness/low mass so a
+// tap snaps the puck across almost instantly instead of visibly travelling.
+const GENDER_SPRING = { damping: 26, stiffness: 500, mass: 0.5, overshootClamping: false } as const;
 
-function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (g: 'her' | 'him') => void }) {
+function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; onSwitch: (g: 'her' | 'him') => void; onPhoto?: boolean }) {
   // curveProgress = 0 → HIM (sharp square, left), = 1 → HER (round, right).
   // Single shared source of truth — drag updates it in real time and every
   // other UI element (cards, tab bar, buttons) reacts instantly.
@@ -1245,30 +1512,70 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
   const trackWShared = useSharedValue(0);
   const startProgress = useSharedValue(0);
   // Worklets can't call the C Proxy on the UI thread — snapshot the colors
-  // we need on the JS thread and pass them in as plain strings.
-  const activeColor = night ? '#FFFFFF' : '#000000';
-  const dimColor = night ? '#a0a0a0' : '#666666';
+  // we need on the JS thread and pass them in as plain strings. On the banner
+  // photo it's always white-on-dark regardless of night mode (matches the
+  // rest of the header overlay).
+  const activeColor = onPhoto ? '#FFFFFF' : (night ? '#FFFFFF' : '#000000');
+  const dimColor = onPhoto ? 'rgba(255,255,255,0.55)' : (night ? '#a0a0a0' : '#666666');
+  const lineColor = onPhoto ? 'rgba(255,255,255,0.75)' : C.ink;
+  const pukColor = onPhoto ? '#FFFFFF' : C.ink;
+  const gripColor = onPhoto ? '#000000' : '#FFFFFF';
+  // Pill backdrop — same frosted treatment as the search bar above it, so the
+  // switch reads as a defined control instead of bare text floating on the photo.
+  const pillStyle = useAnimatedStyle(() => ({ borderRadius: onPhoto ? curveProgress.value * 16 : 0 }));
+  // "Wheel" spin — a quick multi-turn flourish on the puck whenever a switch
+  // commits (tap OR drag release), on top of its normal slide.
+  const spin = useSharedValue(0);
+  const spinToggle = () => {
+    spin.value = withTiming(spin.value + 720, { duration: 420, easing: Easing.out(Easing.cubic) });
+    Vibration.vibrate(15);
+  };
 
-  // Square slides from left to right AND rounds itself based on progress.
+  // Square slides from left to right, rounds itself based on progress, and
+  // spins like a fast-rolling wheel on every commit.
   const dotStyle = useAnimatedStyle(() => {
     const maxX = Math.max(trackWShared.value - DOT_SIZE, 0);
     return {
-      transform: [{ translateX: curveProgress.value * maxX }],
+      transform: [{ translateX: curveProgress.value * maxX }, { rotate: `${spin.value}deg` }],
       borderRadius: curveProgress.value * (DOT_SIZE / 2),
     };
   });
 
-  // Labels dim / highlight smoothly — live interpolation, no timing jitter
+  // Labels + their outline boxes dim / highlight smoothly — live
+  // interpolation, no timing jitter.
   const himTextStyle = useAnimatedStyle(() => ({
     color: interpolateColor(curveProgress.value, [0, 1], [activeColor, dimColor]),
   }));
   const herTextStyle = useAnimatedStyle(() => ({
     color: interpolateColor(curveProgress.value, [0, 1], [dimColor, activeColor]),
   }));
+  // Same her=rounded/him=sharp rule as every other brutalist box on the page —
+  // both boxes round together since it's a global "her mode" style, not a
+  // per-side thing.
+  const himBoxStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(curveProgress.value, [0, 1], [activeColor, dimColor]),
+    borderRadius: curveProgress.value * 10,
+  }));
+  const herBoxStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(curveProgress.value, [0, 1], [dimColor, activeColor]),
+    borderRadius: curveProgress.value * 10,
+  }));
 
   // Committing from the drag path: set the ref flag via context so the
   // AppState effect does not re-spring curveProgress (the gesture already did).
   const commitFromDrag = (g: 'him' | 'her') => {
+    spinToggle();
+    setGenderFromDrag(g);
+  };
+
+  // Tapping a label or the track. Drives curveProgress directly on the UI
+  // thread — same as the drag path — instead of calling the plain setGender
+  // setter and waiting for AppState's effect to react after React's render
+  // commits. That extra render round-trip was the "takes so much time
+  // before it moves" lag; driving it here makes tap and drag feel identical.
+  const commitFromTap = (g: 'him' | 'her') => {
+    spinToggle();
+    curveProgress.value = withSpring(g === 'her' ? 1 : 0, GENDER_SPRING);
     setGenderFromDrag(g);
   };
 
@@ -1308,20 +1615,28 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
   // Runs through the normal setter so AppState's effect drives the spring.
   const handleTrackTap = (x: number) => {
     if (trackW <= 0) return;
-    onSwitch(x < trackW / 2 ? 'him' : 'her');
+    commitFromTap(x < trackW / 2 ? 'him' : 'her');
   };
 
   return (
-    <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
-        {/* HIM label — left side (tap to snap) */}
-        <Pressable onPress={() => onSwitch('him')} hitSlop={12}>
-          <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 18, letterSpacing: 1 }, himTextStyle]}>
-            ◀ HIM
-          </Animated.Text>
+    <View style={{ paddingHorizontal: SP.l, paddingBottom: onPhoto ? SP.m : 0, marginTop: SP.s }}>
+      <Animated.View style={[
+        { flexDirection: 'row', alignItems: 'center' },
+        onPhoto ? { paddingHorizontal: SP.m, paddingVertical: SP.s, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' } : null,
+        onPhoto ? pillStyle : null,
+      ]}>
+        {/* HIM — boxed outline instead of a floating arrow glyph, wired to
+            the track by a short connector so it reads as one drawn piece. */}
+        <Pressable onPress={() => commitFromTap('him')} hitSlop={12}>
+          <Animated.View style={[{ borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 3 }, himBoxStyle]}>
+            <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 12, letterSpacing: 0.5 }, himTextStyle, onPhoto ? HERO_SHADOW : null]}>
+              HIM
+            </Animated.Text>
+          </Animated.View>
         </Pressable>
+        <View style={{ width: SP.s, height: 1.5, backgroundColor: lineColor }} />
 
-        {/* Track: full tap target wrapping center line + draggable square */}
+        {/* Track: full tap target wrapping the middle line + draggable puck */}
         <Pressable
           onPress={(e) => handleTrackTap(e.nativeEvent.locationX)}
           style={{ flex: 1, height: TRACK_H, justifyContent: 'center' }}
@@ -1331,34 +1646,42 @@ function GenderSwitch({ gender, onSwitch }: { gender: 'her' | 'him'; onSwitch: (
             trackWShared.value = w;
           }}
         >
-          {/* Center line */}
-          <View style={{ position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: C.ink }} />
+          {/* Middle line — runs edge to edge, connecting straight into the HIM/HER boxes */}
+          <View style={{ position: 'absolute', left: 0, right: 0, height: 1.5, backgroundColor: lineColor }} />
 
-          {/* Draggable square — grows a border radius as it slides */}
+          {/* Draggable square — grows a border radius as it slides, spins on commit.
+              Three grip lines inside it are the "this is draggable" cue,
+              replacing the old MODE/TAP-OR-DRAG text hint below. */}
           <GestureDetector gesture={panGesture}>
             <Animated.View
               hitSlop={16}
               style={[{
                 width: DOT_SIZE,
                 height: DOT_SIZE,
-                backgroundColor: C.ink,
+                backgroundColor: pukColor,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 2,
               }, dotStyle]}
-            />
+            >
+              <View style={{ width: 1.5, height: DOT_SIZE * 0.4, backgroundColor: gripColor, opacity: 0.8 }} />
+              <View style={{ width: 1.5, height: DOT_SIZE * 0.4, backgroundColor: gripColor, opacity: 0.8 }} />
+              <View style={{ width: 1.5, height: DOT_SIZE * 0.4, backgroundColor: gripColor, opacity: 0.8 }} />
+            </Animated.View>
           </GestureDetector>
         </Pressable>
 
-        {/* HER label — right side (tap to snap) */}
-        <Pressable onPress={() => onSwitch('her')} hitSlop={12}>
-          <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 18, letterSpacing: 1 }, herTextStyle]}>
-            HER ▶
-          </Animated.Text>
+        {/* HER — boxed outline, mirrors HIM */}
+        <View style={{ width: SP.s, height: 1.5, backgroundColor: lineColor }} />
+        <Pressable onPress={() => commitFromTap('her')} hitSlop={12}>
+          <Animated.View style={[{ borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 3 }, herBoxStyle]}>
+            <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 12, letterSpacing: 0.5 }, herTextStyle, onPhoto ? HERO_SHADOW : null]}>
+              HER
+            </Animated.Text>
+          </Animated.View>
         </Pressable>
-      </View>
-
-      {/* Mode indicator */}
-      <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>
-        {`MODE: ${gender.toUpperCase()} · TAP OR DRAG`}
-      </Text>
+      </Animated.View>
     </View>
   );
 }
@@ -1443,6 +1766,182 @@ function QuickCat({ her, him, progress, active, curveSmStyle, onPress }: {
   );
 }
 
+// ─── FEATURED CAT TILE — plain, static-size tile. The dock shrink is a
+// single scale transform on the whole row's wrapper (featuredScaleStyle),
+// not per-tile animation, so this stays a cheap, ordinary component.
+function FeaturedCatTile({ item, onPress }: {
+  item: { id: string; label: string; img: string | number };
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={{ alignItems: 'center', width: FEATURED_TILE_W }}>
+      <CachedImage source={item.img} style={{ width: FEATURED_TILE_W, height: FEATURED_TILE_W * 1.24 }} resizeMode="contain" />
+      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 4, textAlign: 'center' }} numberOfLines={1}>{item.label}</Text>
+    </Pressable>
+  );
+}
+
+// ─── STEAL TILE — Steals bento card. Full-bleed image, editorial-style
+// caption pinned to the BOTTOM behind a gradient (never over the subject's
+// face/product like a top overlay would) — a thin tracked-caps label over
+// an italic price line, monochrome only. Border + radius are driven by
+// BORDER()/curveSmStyle like every other card in this screen, so it
+// sharpens/rounds with the same HIM↔HER gender curve as the rest of the app.
+function StealTile({ label, priceLine, img, height, width, curveSmStyle, onPress }: {
+  label: string;
+  priceLine: string;
+  img: string | number;
+  height: number;
+  width: number;
+  curveSmStyle: any;
+  onPress: () => void;
+}) {
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      style={[{ width, height, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), curveSmStyle]}
+    >
+      <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.65)']}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFillObject as any}
+      />
+      <View style={{ position: 'absolute', left: SP.s, right: SP.s, bottom: SP.s }}>
+        <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.8)', letterSpacing: 1.4 }}>{label.toUpperCase()}</Text>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: '#fff', letterSpacing: -0.3, marginTop: 1, ...HERO_SHADOW }}>{priceLine}</Text>
+      </View>
+    </AnimatedPressable>
+  );
+}
+
+// ─── REEL POSTER TILE — Explore Reels card. Full-bleed thumbnail, bottom
+// gradient for legibility, "REEL" badge, and an arrow CTA — tapping ANY part
+// jumps straight to the Reels tab (nothing plays inline here, this is just a
+// teaser rail). Border/radius share the same curveSmStyle as every other
+// card, so it rounds/sharpens with the gender curve like the rest of Home.
+function ReelPosterTile({ title, user, img, curveSmStyle, onPress }: {
+  title: string;
+  user: string;
+  img: string;
+  curveSmStyle: any;
+  onPress: () => void;
+}) {
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      style={[{ width: REEL_TILE_W, height: REEL_TILE_H, overflow: 'hidden', backgroundColor: '#111' }, BORDER(1), curveSmStyle]}
+    >
+      <CachedImage source={{ uri: img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.9)']}
+        start={{ x: 0, y: 0.35 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFillObject as any}
+      />
+      <View style={{ position: 'absolute', top: SP.s, left: SP.s, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 7, paddingVertical: 4 }}>
+        <Feather name="play" size={9} color="#fff" />
+        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 9, color: '#fff', letterSpacing: 0.5 }}>REEL</Text>
+      </View>
+      <View style={{ position: 'absolute', left: SP.s, right: SP.s, bottom: SP.s, flexDirection: 'row', alignItems: 'flex-end' }}>
+        <View style={{ flex: 1, marginRight: SP.s }}>
+          <Text numberOfLines={1} style={{ fontFamily: 'Inter_700Bold', fontSize: 10, color: '#9fffb0' }}>{user}</Text>
+          <Text numberOfLines={2} style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: '#fff', marginTop: 2 }}>{title}</Text>
+        </View>
+        <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+          <Feather name="arrow-up-right" size={14} color="#000" />
+        </View>
+      </View>
+    </AnimatedPressable>
+  );
+}
+
+// ─── OCCASION CARD — white product-cutout card with a label below, matching
+// the reference shot's "Retro Sneakers / Oversized Sweatshirts" row. Border/
+// radius ride the shared gender curve like every other card on Home.
+function OccasionCard({ label, img, curveSmStyle, onPress }: {
+  label: string;
+  img: string | number;
+  curveSmStyle: any;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={{ width: OCC_CARD_W }}>
+      <Animated.View style={[{ width: OCC_CARD_W, height: OCC_CARD_H, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, BORDER(1), curveSmStyle]}>
+        <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={{ width: '82%', height: '82%' }} resizeMode="contain" />
+      </Animated.View>
+      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 8, textAlign: 'center' }} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// ─── PROMO BANNER — small swipeable strip with pagination dots, sits under
+// the Explore Reels row. Each slide ties back to real content already on
+// Home (the active gender's Steals hero image, the delivery hero photo)
+// instead of inventing offers/pricing that don't exist elsewhere in the app.
+function PromoBanner({ slides, curveSmStyle, onPress }: {
+  slides: { id: string; bg: string; title: string; sub: string; cta: string; img: string | number }[];
+  curveSmStyle: any;
+  onPress: () => void;
+}) {
+  const [idx, setIdx] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const bw = W - SP.l * 2;
+  const goto = (i: number) => {
+    const next = Math.max(0, Math.min(slides.length - 1, i));
+    scrollRef.current?.scrollTo({ x: next * bw, animated: true });
+    setIdx(next);
+  };
+  return (
+    <View style={{ marginTop: SP.l, paddingHorizontal: SP.l }}>
+      <View>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / bw))}
+        >
+          {slides.map((s) => (
+            <AnimatedPressable
+              key={s.id}
+              onPress={onPress}
+              style={[{ width: bw, height: 148, backgroundColor: s.bg, flexDirection: 'row', overflow: 'hidden' }, BORDER(1), curveSmStyle]}
+            >
+              <View style={{ flex: 1, padding: SP.m, justifyContent: 'center' }}>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 19, color: '#fff', lineHeight: 21 }}>{s.title}</Text>
+                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 4 }}>{s.sub}</Text>
+                <View style={{ marginTop: 10, alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6 }}>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: '#000', letterSpacing: 0.3 }}>{s.cta} →</Text>
+                </View>
+              </View>
+              <CachedImage source={typeof s.img === 'string' ? { uri: s.img } : s.img} style={{ width: 128, height: '100%' }} resizeMode="cover" />
+            </AnimatedPressable>
+          ))}
+        </ScrollView>
+        {slides.length > 1 && (
+          <>
+            <Pressable onPress={() => goto(idx - 1)} hitSlop={10} style={{ position: 'absolute', left: 6, top: '50%', marginTop: -14, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+              <Feather name="chevron-left" size={16} color="#fff" />
+            </Pressable>
+            <Pressable onPress={() => goto(idx + 1)} hitSlop={10} style={{ position: 'absolute', right: 6, top: '50%', marginTop: -14, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+              <Feather name="chevron-right" size={16} color="#fff" />
+            </Pressable>
+          </>
+        )}
+      </View>
+      {slides.length > 1 && (
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
+          {slides.map((_, i) => (
+            <View key={i} style={{ width: i === idx ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: i === idx ? '#fff' : 'rgba(255,255,255,0.35)' }} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── VIBE TILE — Shop-by-Vibe grid card. Same conveyor motion as QuickCat:
 // the image wrapper clips its content, the HIM product slides out the left
 // edge while the HER product rides in from the right (label matches), all
@@ -1498,12 +1997,12 @@ function VibeTile({ her, him, index, progress, active, curveSmStyle, onPress }: 
           <View style={{ width: imgW, height: imgW, marginBottom: -cardW * 0.3, overflow: 'hidden' }}>
             {him && (
               <Animated.View style={[StyleSheet.absoluteFillObject, himStyle]}>
-                <CachedImage source={{ uri: categoryPng(him.label) }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                <CachedImage source={him.img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
               </Animated.View>
             )}
             {her && (
               <Animated.View style={[StyleSheet.absoluteFillObject, herStyle]}>
-                <CachedImage source={{ uri: categoryPng(her.label) }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                <CachedImage source={her.img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
               </Animated.View>
             )}
           </View>

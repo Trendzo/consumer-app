@@ -22,7 +22,7 @@ export type Product = {
   tag?: string;
 };
 
-export type Category = { id: string; label: string; icon: string; tint: string; img: string };
+export type Category = { id: string; label: string; icon: string; tint: string; img: string | number };
 export type Brand = { id: string; name: string; tint: string; logo: string; domain: string };
 export type Reel = { id: string; user: string; title: string; colors: [string, string]; img: string };
 export type Bundle = { id: string; title: string; price: number; pieces: number; colors: [string, string, string]; img: string };
@@ -153,28 +153,38 @@ export const HIM_PRODUCTS: Product[] = [
   { id: 'mp8', brand: 'KOH',      name: 'Aviator Shades',   price: 1599, original: 2499, rating: 4.4, img: png('sunglasses', 155),   category: 'Eyewear',  tag: 'NEW',      colors: ['#1a1a1a', '#3a3a3a'] },
 ];
 
-// HER categories — distinctly feminine, real product PNGs
+// HER categories — distinctly feminine. Local PNG cutouts (no backend/CDN
+// fetch) — drop your own art into assets/categories/her/<file>.png, same
+// filenames, to replace the placeholders.
 export const HER_CATEGORIES: Category[] = [
-  { id: 'her-c1', label: 'Dresses', icon: 'gift',         tint: '#ffafbd', img: png('dress', 197) },
-  { id: 'her-c2', label: 'Mini',    icon: 'scissors',     tint: '#f5e6d3', img: png('dress', 194) },
-  { id: 'her-c3', label: 'Heels',   icon: 'arrow-up',     tint: '#a8e6cf', img: png('women_shoes', 7473) },
-  { id: 'her-c4', label: 'Bags',    icon: 'briefcase',    tint: '#5d4037', img: png('women_bag', 6428) },
-  { id: 'her-c5', label: 'Beauty',  icon: 'shopping-bag', tint: '#ff6b9d', img: png('lipstick', 76278) },
-  { id: 'her-c6', label: 'Coats',   icon: 'cloud',        tint: '#fff',    img: png('coat', 79) },
-  { id: 'her-c7', label: 'Tops',    icon: 'shield',       tint: '#a78bfa', img: png('tshirt', 5452) },
-  { id: 'her-c8', label: 'Maxi',    icon: 'feather',      tint: '#feca57', img: png('dress', 196) },
+  { id: 'her-c1', label: 'Dresses', icon: 'gift',         tint: '#ffafbd', img: require('../../assets/categories/her/dresses.png') },
+  { id: 'her-c2', label: 'Mini',    icon: 'scissors',     tint: '#f5e6d3', img: require('../../assets/categories/her/mini.png') },
+  { id: 'her-c3', label: 'Heels',   icon: 'arrow-up',     tint: '#a8e6cf', img: require('../../assets/categories/her/heels.png') },
+  { id: 'her-c4', label: 'Bags',    icon: 'briefcase',    tint: '#5d4037', img: require('../../assets/categories/her/bags.png') },
+  { id: 'her-c5', label: 'Beauty',  icon: 'shopping-bag', tint: '#ff6b9d', img: require('../../assets/categories/her/beauty.png') },
+  { id: 'her-c6', label: 'Coats',   icon: 'cloud',        tint: '#fff',    img: require('../../assets/categories/her/coats.png') },
+  { id: 'her-c7', label: 'Tops',    icon: 'shield',       tint: '#a78bfa', img: require('../../assets/categories/her/tops.png') },
+  { id: 'her-c8', label: 'Maxi',    icon: 'feather',      tint: '#feca57', img: require('../../assets/categories/her/maxi.png') },
+  { id: 'her-c9', label: 'Jewelry',   icon: 'star',   tint: '#f7d774', img: require('../../assets/categories/her/jewelry.png') },
+  { id: 'her-c10', label: 'Necklaces', icon: 'circle', tint: '#e8c39e', img: require('../../assets/categories/her/necklaces.png') },
+  { id: 'her-c11', label: 'Scarves',   icon: 'wind',   tint: '#c3b1e1', img: require('../../assets/categories/her/scarves.png') },
+  { id: 'her-c12', label: 'Kimono',    icon: 'sun',    tint: '#f4a7b9', img: require('../../assets/categories/her/kimono.png') },
 ];
 
-// HIM categories — distinctly masculine, real product PNGs
+// HIM categories — distinctly masculine. Local PNG cutouts (no backend/CDN
+// fetch) — drop your own art into assets/categories/him/<file>.png, same
+// filenames, to replace the placeholders.
 export const HIM_CATEGORIES: Category[] = [
-  { id: 'him-c1', label: 'Tees',     icon: 'square',   tint: '#000',    img: png('tshirt', 5454) },
-  { id: 'him-c2', label: 'Jeans',    icon: 'minus',    tint: '#1a1a1a', img: png('jeans', 5779) },
-  { id: 'him-c3', label: 'Jackets',  icon: 'shield',   tint: '#111',    img: png('jacket', 8059) },
-  { id: 'him-c4', label: 'Sneakers', icon: 'play',     tint: '#fff',    img: png('women_shoes', 7472) },
-  { id: 'him-c5', label: 'Watches',  icon: 'clock',    tint: '#2c3e50', img: png('watches', 101457) },
-  { id: 'him-c6', label: 'Polos',    icon: 'square',   tint: '#000',    img: png('tshirt', 5453) },
-  { id: 'him-c7', label: 'Coats',    icon: 'cloud',    tint: '#5d4037', img: png('coat', 80) },
-  { id: 'him-c8', label: 'Shades',   icon: 'umbrella', tint: '#3e2723', img: png('sunglasses', 155) },
+  { id: 'him-c1', label: 'Tees',     icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/tees.png') },
+  { id: 'him-c2', label: 'Jeans',    icon: 'minus',    tint: '#1a1a1a', img: require('../../assets/categories/him/jeans.png') },
+  { id: 'him-c3', label: 'Jackets',  icon: 'shield',   tint: '#111',    img: require('../../assets/categories/him/jackets.png') },
+  { id: 'him-c4', label: 'Sneakers', icon: 'play',     tint: '#fff',    img: require('../../assets/categories/him/sneakers.png') },
+  { id: 'him-c5', label: 'Watches',  icon: 'clock',    tint: '#2c3e50', img: require('../../assets/categories/him/watches.png') },
+  { id: 'him-c6', label: 'Polos',    icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/polos.png') },
+  { id: 'him-c7', label: 'Coats',    icon: 'cloud',    tint: '#5d4037', img: require('../../assets/categories/him/coats.png') },
+  { id: 'him-c8', label: 'Shades',   icon: 'umbrella', tint: '#3e2723', img: require('../../assets/categories/him/shades.png') },
+  { id: 'him-c9', label: 'Hoodies',  icon: 'moon',     tint: '#37474f', img: require('../../assets/categories/him/hoodies.png') },
+  { id: 'him-c10', label: 'Sweaters', icon: 'thermometer', tint: '#4e342e', img: require('../../assets/categories/him/sweaters.png') },
 ];
 
 // Transparent product PNG (pngimg.com cut-outs) for a category LABEL. Home's
@@ -198,6 +208,12 @@ export function categoryPng(label: string): string {
   if (has('beauty', 'lip', 'makeup')) return png('lipstick', 76278);
   if (has('watch')) return png('watches', 101457);
   if (has('shade', 'sunglass', 'eyewear', 'glass')) return png('sunglasses', 155);
+  if (has('necklace')) return png('necklace', 1);
+  if (has('jewel', 'ring')) return png('ring', 1);
+  if (has('scarf')) return png('scarf', 1);
+  if (has('kimono')) return png('kimono', 1);
+  if (has('hoodie')) return png('hoodie', 1);
+  if (has('sweater')) return png('sweater', 1);
   if (has('tee', 'top', 'shirt')) return png('tshirt', 5454);
   return png('tshirt', 5454);
 }

@@ -324,13 +324,13 @@ export function AsciiDivider({ faint, style }: { faint?: boolean; style?: TextSt
 }
 
 // ─── SECTION HEAD ─────────────────────────────────────────
-export function SectionHead({ title, emphasis, action, onAction }: { title: string; emphasis?: string; action?: string; onAction?: () => void }) {
+export function SectionHead({ title, emphasis, action, onAction, hideCaret, hideBottomDivider }: { title: string; emphasis?: string; action?: string; onAction?: () => void; hideCaret?: boolean; hideBottomDivider?: boolean }) {
   return (
     <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
       <AsciiDivider />
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, flex: 1 }} numberOfLines={1}>
-          {ASCII.caret} {title}
+          {!hideCaret && `${ASCII.caret} `}{title}
           {emphasis && <Text style={{ fontStyle: 'italic' }}> {emphasis}</Text>}
         </Text>
         {action && (
@@ -340,7 +340,7 @@ export function SectionHead({ title, emphasis, action, onAction }: { title: stri
           </Pressable>
         )}
       </View>
-      <AsciiDivider faint style={{ marginTop: 4 }} />
+      {!hideBottomDivider && <AsciiDivider faint style={{ marginTop: 4 }} />}
     </View>
   );
 }

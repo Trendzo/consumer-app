@@ -175,7 +175,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     curveProgress.value = withSpring(gender === 'her' ? 1 : 0, {
-      damping: 22, stiffness: 180, mass: 0.7, overshootClamping: false,
+      damping: 26, stiffness: 500, mass: 0.5, overshootClamping: false,
     });
   }, [gender]);
 
