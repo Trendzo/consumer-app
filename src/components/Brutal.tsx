@@ -167,7 +167,9 @@ export function useGenderCurve(maxRadius = 14) {
   // but the primitives using this hook no longer re-render when unrelated
   // context state (cart, user, favorites…) changes.
   const her = useSyncExternalStore(subscribeTheme, isHer);
-  return { borderRadius: her ? maxRadius : 0 };
+  // Permanent soft corners: HER rounds fully to maxRadius; HIM/ALL keep a small
+  // base radius (never sharp) capped so it can't exceed the HER value.
+  return { borderRadius: her ? maxRadius : Math.min(maxRadius, 12) };
 }
 
 // ─── BRUTAL BOX — curve-aware bordered container ──────────────

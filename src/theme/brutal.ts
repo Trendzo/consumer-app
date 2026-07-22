@@ -104,7 +104,9 @@ export const C: Palette = new Proxy({} as Palette, {
 
 export const SP = { xs: 4, s: 8, m: 12, l: 16, xl: 24, xxl: 32, huge: 48 };
 
-export const RADIUS = { none: 0, sm: 0, md: 0, lg: 0 };
+// Soft-corner radii — the app no longer ships sharp brutalist cards; every
+// surface carries a little permanent radius.
+export const RADIUS = { none: 0, sm: 8, md: 12, lg: 16 };
 
 // Gender curve — globally applied to every BORDER() call so the entire app
 // rounds when HER is active without per-component wiring. AppState drives
@@ -119,7 +121,9 @@ export function setGenderCurve(on: boolean) {
  *  useSyncExternalStore consumers (see useGenderCurve). */
 export const isHer = () => _isHer;
 function curveRadius(w: number) {
-  if (!_isHer) return 0;
+  // Cards are permanently rounded now — a little base radius even in HIM/ALL,
+  // rounding a touch more when HER is active. No more sharp corners.
+  if (!_isHer) return w >= 2 ? 10 : 12;
   // Heavier borders (hero cards) get slightly tighter radius to avoid
   // the "pill" look; thin borders get a softer corner.
   return w >= 2 ? 16 : 14;

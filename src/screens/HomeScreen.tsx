@@ -48,6 +48,18 @@ const HIM_FEATURED_CATEGORIES = [
   { id: 'feat-him-tshirt', label: 'Tees',     img: require('../../assets/github-import/men/tshirt.png') },
   { id: 'feat-him-watchs', label: 'Watches',  img: require('../../assets/github-import/men/watchs.png') },
 ];
+// ALL = a genuine mix — interleave her/him (her, him, her, him…) so the ALL
+// tab looks distinct from WOMEN (which used to be the first half of a plain
+// concat) instead of "showing the same only".
+const ALL_FEATURED_CATEGORIES = (() => {
+  const out: typeof HER_FEATURED_CATEGORIES = [];
+  const n = Math.max(HER_FEATURED_CATEGORIES.length, HIM_FEATURED_CATEGORIES.length);
+  for (let i = 0; i < n; i++) {
+    if (HER_FEATURED_CATEGORIES[i]) out.push(HER_FEATURED_CATEGORIES[i]);
+    if (HIM_FEATURED_CATEGORIES[i]) out.push(HIM_FEATURED_CATEGORIES[i]);
+  }
+  return out;
+})();
 
 // STEALS — bento grid of price-banded deals, one big hero tile + two smaller
 // tiles per gender, real catalog images/prices (no invented pricing).
@@ -60,6 +72,17 @@ const HIM_STEALS = [
   { id: 'steal-him-1', label: 'Tees',    priceLine: 'Under ₹1499', img: require('../../assets/steals/him/tee.jpeg') },
   { id: 'steal-him-2', label: 'Eyewear', priceLine: 'Under ₹1999', img: require('../../assets/steals/him/eyewear.jpeg') },
   { id: 'steal-him-3', label: 'Jackets', priceLine: 'Under ₹2499', img: require('../../assets/steals/him/jacket.jpeg') },
+];
+
+// TOP STORIES OF THE WEEK — editorial "spotlight" carousel: tall photo cards
+// with a "TRENDING NOW" eyebrow and an overlaid title/subtitle.
+const STORIES = [
+  { id: 'story-1', img: require('../../assets/banners/her-new1.png'),        title: 'Festive Glow',     sub: 'Handpicked looks for the season' },
+  { id: 'story-2', img: require('../../assets/banners/him-traditional.jpg'), title: 'Heritage Threads', sub: 'Timeless artistry, modern soul' },
+  { id: 'story-3', img: require('../../assets/banners/her-friday.jpg'),      title: 'Friday Muse',      sub: 'Weekend-ready statement pieces' },
+  { id: 'story-4', img: require('../../assets/banners/him-coffee.jpg'),      title: 'Off-Duty Edit',    sub: 'Easy layers for slow mornings' },
+  { id: 'story-5', img: require('../../assets/banners/her-closet.jpg'),      title: 'The Capsule',      sub: 'Ten pieces, endless outfits' },
+  { id: 'story-6', img: require('../../assets/banners/him-new1.png'),        title: 'New Season',       sub: 'Fresh drops just landed' },
 ];
 
 // SHOP BY OCCASION — a seasonal hero banner + a swipeable row of white
@@ -95,6 +118,13 @@ const { width: W } = Dimensions.get('window');
 // visible before scrolling, with a sliver of the 5th peeking at the edge as
 // a "swipe for more" affordance.
 const FEATURED_TILE_PAD = SP.l; // matches the SP.l edge padding every other section uses
+// Pixel-block underline for the shop-by tabs (same square-pixel language as the
+// splash). N squares that slide under the active tab and re-form one by one.
+const IND_N = 5;
+const IND_PX = 5;
+const IND_GAP = 3;
+const IND_W = IND_N * IND_PX + (IND_N - 1) * IND_GAP;
+const CAT_ORDER = ['all', 'men', 'women'] as const;
 const FEATURED_TILE_GAP = SP.s;
 const FEATURED_TILE_W = (W - FEATURED_TILE_PAD * 2 - FEATURED_TILE_GAP * 4) / 5.1;
 // Steals bento grid — one tall hero tile + a stacked pair beside it, all the
@@ -148,6 +178,14 @@ export default function HomeScreen() {
   // Which set the featured-categories row shows — independent of the page's
   // gender slice. ALL merges women + men.
   const [catFilter, setCatFilter] = useState<'all' | 'women' | 'men'>('all');
+  // Measured width of the tabs row — used to slide the pixel underline under
+  // whichever tab is active.
+  const [tabsRowW, setTabsRowW] = useState(0);
+  // Previous active-tab index, so the pixel underline can lead its trail from
+  // the correct edge (rightmost dot first when moving right, leftmost first
+  // when moving left) and read the same in both directions.
+  const catIdxRef = useRef(CAT_ORDER.indexOf('all'));
+  useEffect(() => { catIdxRef.current = CAT_ORDER.indexOf(catFilter); }, [catFilter]);
 
   // Armed on the FIRST focus of the Home tab: on a guest launch the Login
   // modal covers the tabs, HomeTab is not focused, and neither the catalog
@@ -217,8 +255,9 @@ export default function HomeScreen() {
   // and every component in the app stays in sync during the gesture.
   // Smoothly round the page as the HIM/HER bar slides — borderRadius tracks curveProgress
   // live so cards/boxes curve in real time during the drag.
-  const curveStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 18 }));
-  const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: curveProgress.value * 10 }));
+  // Permanent base radius (never sharp) + a little extra rounding in HER.
+  const curveStyle = useAnimatedStyle(() => ({ borderRadius: 12 + curveProgress.value * 6 }));
+  const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: 8 + curveProgress.value * 4 }));
   // Featured Categories pin: the row stays a NORMAL in-flow child pinned by
   // native stickyHeaderIndices — no scroll-linked transform, so it scrolls in
   // perfect lockstep with the page (a synced overlay lags native scroll by a
@@ -515,19 +554,67 @@ export default function HomeScreen() {
             always-on rather than animated in only while docked — a fixed
             small gap under the marquee beats an unreliable animated one. */}
         <View
-          style={{ backgroundColor: C.white, paddingTop: insets.top, paddingBottom: SP.xs }}
+          // The section no longer docks to the top (see stickyHeader note above),
+          // so the old insets.top clearance is just dead space — a small gap
+          // under the marquee is all that's needed.
+          style={{ backgroundColor: C.white, paddingTop: SP.s, paddingBottom: SP.xs }}
           onLayout={(e) => { catSectionY.value = e.nativeEvent.layout.y; }}
         >
-          {/* Shop-by filter tabs — ALL / WOMEN / MEN, above the category row. */}
-          <View style={{ flexDirection: 'row', gap: SP.l, paddingHorizontal: FEATURED_TILE_PAD, paddingTop: SP.xs }}>
-            {([['all', 'ALL'], ['women', 'WOMEN'], ['men', 'MEN']] as const).map(([key, label]) => {
-              const on = catFilter === key;
-              return (
-                <Pressable key={key} onPress={() => setCatFilter(key)} hitSlop={8} style={{ paddingBottom: 4, borderBottomWidth: 2, borderColor: on ? C.ink : 'transparent' }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), letterSpacing: 0.2, color: on ? C.ink : C.dim }}>{label}</Text>
-                </Pressable>
-              );
-            })}
+          {/* Shop-by tabs — ALL · MEN · WOMEN, evenly centered. The active tab is
+              marked by a pixel-block underline (same squares as the splash) that
+              slides to the tapped tab and re-forms one square at a time. */}
+          <View style={{ paddingHorizontal: FEATURED_TILE_PAD, paddingTop: SP.xs }}>
+            <View
+              onLayout={(e) => setTabsRowW(e.nativeEvent.layout.width)}
+              style={{ flexDirection: 'row', position: 'relative' }}
+            >
+              {/* Pixel underline — rendered FIRST so it sits BEHIND the buttons
+                  (never intercepts a tap). Each dot travels independently to the
+                  active tab with a stagger, trailing one behind another (snake)
+                  whether you tap left or right. */}
+              {tabsRowW > 0 && (() => {
+                const tabW = tabsRowW / 3;
+                const idx = CAT_ORDER.indexOf(catFilter);
+                const baseX = tabW * idx + (tabW - IND_W) / 2;
+                const movingRight = idx > catIdxRef.current;
+                return (
+                  <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: IND_PX, zIndex: 0 }}>
+                    {Array.from({ length: IND_N }).map((_, i) => {
+                      const order = movingRight ? IND_N - 1 - i : i;
+                      return (
+                        <MotiView
+                          key={i}
+                          animate={{ translateX: baseX + i * (IND_PX + IND_GAP) }}
+                          transition={{ type: 'spring', damping: 16, stiffness: 180, mass: 0.7, delay: order * 55 }}
+                          style={{ position: 'absolute', left: 0, top: 0, width: IND_PX, height: IND_PX, borderRadius: 1, backgroundColor: C.ink }}
+                        />
+                      );
+                    })}
+                  </View>
+                );
+              })()}
+
+              {([['all', 'ALL'], ['men', 'MEN'], ['women', 'WOMEN']] as const).map(([key, label]) => {
+                const on = catFilter === key;
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => {
+                      setCatFilter(key);
+                      // Drive the rest of the page (hero banner, steals, campaigns,
+                      // occasions…) off the same tap — MEN → him, WOMEN → her.
+                      // ALL leaves the current slice so it stays a mix.
+                      if (key === 'men') setGender('him');
+                      else if (key === 'women') setGender('her');
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+                    style={{ flex: 1, alignItems: 'center', paddingTop: 4, paddingBottom: 16, zIndex: 1 }}
+                  >
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), letterSpacing: 1.5, color: on ? C.ink : C.dim }}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
           <Animated.View
             style={featuredScaleStyle}
@@ -535,18 +622,27 @@ export default function HomeScreen() {
               if (!featuredRowH.value) featuredRowH.value = e.nativeEvent.layout.height;
             }}
           >
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.s }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.xs }}>
               {(catFilter === 'women'
                 ? HER_FEATURED_CATEGORIES
                 : catFilter === 'men'
                 ? HIM_FEATURED_CATEGORIES
-                : [...HER_FEATURED_CATEGORIES, ...HIM_FEATURED_CATEGORIES]
-              ).map((c) => (
-                <FeaturedCatTile
-                  key={c.id}
-                  item={c}
-                  onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
-                />
+                : ALL_FEATURED_CATEGORIES
+              ).map((c, i) => (
+                // key includes catFilter so the tiles remount and replay the
+                // staggered pop-in every time the ALL/MEN/WOMEN tab changes —
+                // content swaps as a quick blocky transition, not an instant cut.
+                <MotiView
+                  key={`${catFilter}-${c.id}`}
+                  from={{ opacity: 0, scale: 0.6, translateY: 10 }}
+                  animate={{ opacity: 1, scale: 1, translateY: 0 }}
+                  transition={{ type: 'spring', delay: Math.min(i, 8) * 45, damping: 14, stiffness: 260, mass: 0.7 }}
+                >
+                  <FeaturedCatTile
+                    item={c}
+                    onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
+                  />
+                </MotiView>
               ))}
             </ScrollView>
           </Animated.View>
@@ -591,6 +687,13 @@ export default function HomeScreen() {
             );
           })()}
         </View>
+
+        {/*
+        ╔══════════════════════════════════════════════╗
+        ║  TOP STORIES OF THE WEEK — editorial carousel ║
+        ╚══════════════════════════════════════════════╝
+        */}
+        <TopStories nav={nav} />
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -1337,6 +1440,12 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
 
   // Auto-advance every 3.5s, looping back. Pauses while the user is swiping (otherwise the
   // timer fires mid-swipe and yanks the poster back, so swipes look like they do nothing).
+  // A swipe should never open the campaign page. Set true the moment a drag
+  // starts and clear it a beat after the drag/momentum ends, so the tap that
+  // fires on finger-lift after a swipe is ignored.
+  const swipingRef = useRef(false);
+  const clearSwipeSoon = () => { setTimeout(() => { swipingRef.current = false; }, 60); };
+
   const timer = useRef<any>(null);
   const stop = () => { if (timer.current) { clearInterval(timer.current); timer.current = null; } };
   const start = () => {
@@ -1357,12 +1466,24 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
   useFocusEffect(useCallback(() => { start(); return stop; }, [data.length]));
 
   return (
-    <View>
+    // Keyed by gender so switching the ALL/MEN/WOMEN tab crossfades the banner
+    // in with a gentle zoom instead of the old hard `animated:false` cut.
+    <MotiView
+      key={gender}
+      from={{ opacity: 0, scale: 1.06 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'timing', duration: 460, easing: Easing.out(Easing.cubic) }}
+    >
       <AnimatedFlatList
         ref={listRef}
         data={data}
         horizontal
         pagingEnabled
+        // No rubber-band past the first/last poster — overscroll was revealing
+        // the white page behind the banner.
+        bounces={false}
+        alwaysBounceHorizontal={false}
+        overScrollMode="never"
         showsHorizontalScrollIndicator={false}
         keyExtractor={(b: any) => b.id}
         getItemLayout={(_: any, i: number) => ({ length: W, offset: W * i, index: i })}
@@ -1371,12 +1492,127 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
         removeClippedSubviews={false}
         onScroll={onScroll}
         scrollEventThrottle={16}
-        onScrollBeginDrag={stop}
-        onMomentumScrollEnd={(e: any) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); }}
+        onScrollBeginDrag={() => { swipingRef.current = true; stop(); }}
+        onScrollEndDrag={clearSwipeSoon}
+        onMomentumScrollEnd={(e: any) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); clearSwipeSoon(); }}
         renderItem={({ item }: { item: any }) => (
-          <BannerSlide item={item} onPress={() => nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim')} />
+          <BannerSlide item={item} onPress={() => { if (swipingRef.current) return; nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim'); }} />
         )}
       />
+    </MotiView>
+  );
+}
+
+// ─── TOP STORIES — editorial "In the spotlight" carousel ─────────────────────
+// Centered heading + subheading, a snapping row of tall photo cards (white card,
+// "TRENDING NOW" eyebrow, image with an overlaid title/subtitle), and dots.
+const STORY_CARD_W = Math.round(W - 104);          // narrower so both neighbours peek in
+const STORY_IMG_H = Math.round(STORY_CARD_W * 1.32);
+const STORY_SNAP = STORY_CARD_W + STEAL_GAP; // same gutter as the STEALS bento grid
+
+const STORY_N = STORIES.length;
+// 3 back-to-back copies so the row can scroll forever — we sit in the middle
+// copy and silently jump back a copy-width whenever the user drifts into an
+// edge copy, which lands on a visually identical card (seamless loop).
+const STORY_LOOP = [...STORIES, ...STORIES, ...STORIES];
+const STORY_MID = STORY_N * STORY_SNAP; // offset that centres the middle copy's first card
+
+function StoryCard({ s, i, scrollX, nav }: { s: typeof STORIES[number]; i: number; scrollX: SharedValue<number>; nav: any }) {
+  // Smoothly grow the card as it reaches the centre and shrink the neighbours —
+  // driven off the live scroll offset, so it eases continuously (never a jump).
+  // No opacity change — side cards stay fully visible, just smaller.
+  const aStyle = useAnimatedStyle(() => {
+    const input = [(i - 1) * STORY_SNAP, i * STORY_SNAP, (i + 1) * STORY_SNAP];
+    const scale = interpolate(scrollX.value, input, [0.9, 1, 0.9], 'clamp');
+    const translateY = interpolate(scrollX.value, input, [8, 0, 8], 'clamp');
+    // Scale toward the INNER edge (the one facing the centre card) so the
+    // shrink never widens the gutter — the gap between cards stays constant
+    // (matches the STEALS bento). Right-side cards anchor left, left-side right.
+    const origin = i * STORY_SNAP - scrollX.value >= 0 ? 'left center' : 'right center';
+    return { transformOrigin: origin, transform: [{ scale }, { translateY }] };
+  });
+  return (
+    <Animated.View style={[{ width: STORY_CARD_W }, aStyle]}>
+      <Pressable
+        onPress={() => nav.navigate('Categories')}
+        style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
+      >
+        <Text style={{ textAlign: 'center', fontFamily: 'Inter_700Bold', fontSize: rf(12), letterSpacing: 6, color: C.dim, paddingVertical: 12 }}>
+          TRENDING NOW
+        </Text>
+        <View style={{ width: '100%', height: STORY_IMG_H }}>
+          <CachedImage source={s.img} style={{ width: '100%', height: '100%' } as any} resizeMode="cover" />
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', 'rgba(0,0,0,0.15)', 'rgba(0,0,0,0.8)']}
+            locations={[0, 0.5, 1]}
+            style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '60%' }}
+          />
+          <View style={{ position: 'absolute', left: SP.l, right: SP.l, bottom: SP.l }}>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: '#fff', letterSpacing: -0.4 }}>{s.title}</Text>
+            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(14), color: '#fff', marginTop: 2 }}>{s.sub}</Text>
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function TopStories({ nav }: { nav: any }) {
+  const [index, setIndex] = useState(0);
+  // Start at the middle-copy offset so the scale interpolation is correct on the
+  // very first frame — otherwise every visible card reads as "off-centre" and
+  // renders shrunk (too much gutter) until the first swipe syncs the real offset.
+  const scrollX = useSharedValue(STORY_MID);
+  const listRef = useRef<any>(null);
+  const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
+
+  const onSettle = (x: number) => {
+    const abs = Math.round(x / STORY_SNAP);
+    setIndex(((abs % STORY_N) + STORY_N) % STORY_N);
+    // Recenter into the middle copy so there's always room to swipe both ways.
+    if (abs < STORY_N || abs >= STORY_N * 2) {
+      const target = (abs % STORY_N) * STORY_SNAP + STORY_MID;
+      listRef.current?.scrollTo({ x: target, animated: false });
+    }
+  };
+
+  return (
+    <View style={{ marginTop: SP.xl }}>
+      <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(23), color: C.ink, letterSpacing: 0.2 }}>
+        TOP STORIES OF THE WEEK
+      </Text>
+      <Text style={{ textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: rf(14), color: C.dim, marginTop: 3 }}>
+        In the spotlight
+      </Text>
+
+      <Animated.ScrollView
+        ref={listRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={STORY_SNAP}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        contentOffset={{ x: STORY_MID, y: 0 }}
+        contentContainerStyle={{ paddingHorizontal: (W - STORY_CARD_W) / 2, gap: STEAL_GAP, paddingTop: SP.l, paddingBottom: SP.s }}
+        onMomentumScrollEnd={(e) => onSettle(e.nativeEvent.contentOffset.x)}
+      >
+        {STORY_LOOP.map((s, i) => (
+          <StoryCard key={`${s.id}-${i}`} s={s} i={i} scrollX={scrollX} nav={nav} />
+        ))}
+      </Animated.ScrollView>
+
+      {/* Pagination dots */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: SP.s }}>
+        {STORIES.map((_, i) => (
+          <View
+            key={i}
+            style={{ width: i === index ? 8 : 6, height: i === index ? 8 : 6, borderRadius: 4, backgroundColor: i === index ? C.ink : C.hairline }}
+          />
+        ))}
+      </View>
     </View>
   );
 }
