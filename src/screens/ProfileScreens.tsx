@@ -319,7 +319,7 @@ export function LoyaltyRewardsScreen() {
                 key={t.name}
                 style={[
                   { flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: isCurrent ? C.ink : C.white },
-                  i > 0 && { borderLeftWidth: 1, borderColor: C.ink },
+                  i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
                 ]}
               >
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: isCurrent ? C.white : reached ? C.ink : C.dim, letterSpacing: 0.6 }}>{t.name}</Text>
@@ -471,7 +471,7 @@ export function ReferralRewardsScreen() {
         <SectionLabel label="YOUR STATS" />
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
           {[{ label: 'INVITED', value: '7' }, { label: 'JOINED', value: '4' }, { label: 'EARNED', value: '₹800' }].map((s, i) => (
-            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
+            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 }}>{s.value}</Text>
               <Text style={[T.monoB, { fontSize: 9, marginTop: 4 }]}>{s.label}</Text>
             </View>
@@ -671,7 +671,7 @@ export function CustomerSupportScreen() {
             </FadeInUp>
           ))}
         </ScrollView>
-        <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.s, borderTopWidth: 1, borderColor: C.ink, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.s, borderTopWidth: 1, borderColor: C.hairline, backgroundColor: C.white }}>
           <TextInput
             value={message}
             onChangeText={setMessage}
@@ -789,7 +789,7 @@ export function MeasurementScreen() {
               onPress={() => setUnit(u)}
               style={[
                 { flex: 1, paddingVertical: 10, alignItems: 'center', backgroundColor: unit === u ? C.ink : C.white },
-                i > 0 && { borderLeftWidth: 1, borderColor: C.ink },
+                i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
               ]}
             >
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: unit === u ? C.white : C.ink, letterSpacing: 0.6 }}>{u}</Text>
@@ -907,7 +907,7 @@ export function SustainabilityScreen() {
         <SectionLabel label="YOUR IMPACT" />
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
           {impact.map((s, i) => (
-            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.ink }]}>
+            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, letterSpacing: -0.5 }}>{s.value}</Text>
               <Text style={[T.monoB, { fontSize: 8, marginTop: 4 }]}>{s.label}</Text>
             </View>
@@ -1034,7 +1034,7 @@ export function OrderReturnScreen() {
                 key={label}
                 style={[
                   { flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: active || done ? C.ink : C.white },
-                  i > 0 && { borderLeftWidth: 1, borderColor: C.ink },
+                  i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
                 ]}
               >
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: active || done ? C.white : C.ink, letterSpacing: 0.6 }}>{label}</Text>

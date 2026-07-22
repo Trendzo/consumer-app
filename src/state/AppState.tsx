@@ -81,6 +81,9 @@ type AppCtx = {
   // 0 = HIM (sharp brutalist), 1 = HER (soft rounded). Drag in GenderSwitch
   // updates this in real time so the whole UI morphs with the gesture.
   curveProgress: SharedValue<number>;
+  // Bottom tab-bar visibility, driven by scroll direction. 0 = fully shown,
+  // 1 = hidden (slid off the bottom). Screens push to it via useTabBarScroll.
+  tabBarOffset: SharedValue<number>;
 };
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -163,6 +166,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [token]);
   const curveProgress = useSharedValue(0);
+  const tabBarOffset = useSharedValue(0);
   // When the GenderSwitch drag settles (or hydration restores a saved value),
   // the caller updates curveProgress itself and flips this flag so the effect
   // below skips re-animating — otherwise two animations race to the same
@@ -371,7 +375,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount,
     favorites, toggleFavorite, isFavorite,
     lastOrder, placeOrder,
-    night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress,
+    night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, tabBarOffset,
     theme: night ? DARK : LIGHT,
     showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,
   }), [

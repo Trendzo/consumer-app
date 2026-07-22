@@ -245,7 +245,7 @@ function Stat({ label, value, sub, last }: { label: string; value: string; sub?:
     <View
       style={[
         { flex: 1, paddingVertical: SP.m, alignItems: 'center' },
-        !last && { borderRightWidth: 1, borderColor: C.ink },
+        !last && { borderRightWidth: 1, borderColor: C.hairline },
       ]}
     >
       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.8 }}>{value}</Text>

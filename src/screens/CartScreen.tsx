@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { PRODUCTS } from '../data/mockData';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 
@@ -23,6 +24,7 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, night, theme, showToast, requireAuth } = useApp();
   const s = React.useMemo(() => makeS(), [night]);
+  const tabScroll = useTabBarScroll();
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
   const [applied, setApplied] = useState(0);
@@ -85,7 +87,7 @@ export default function CartScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
+          <ScrollView {...tabScroll} contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
             {/* Top meta */}
             <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
               <Text style={[T.mono, { color: C.dim }]}>{`${cartCount} ITEMS · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} DELIVERY SPLIT${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 'S' : ''}`}</Text>
@@ -165,14 +167,14 @@ export default function CartScreen() {
                     ))}
 
                     {/* Per-bucket checkout footer */}
-                    <View style={{ borderTopWidth: 1, borderColor: C.ink, flexDirection: 'row', alignItems: 'stretch' }}>
+                    <View style={{ borderTopWidth: 1, borderColor: C.hairline, flexDirection: 'row', alignItems: 'stretch' }}>
                       <View style={{ flex: 1, paddingHorizontal: SP.m, paddingVertical: 10, justifyContent: 'center' }}>
                         <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>SUBTOTAL · {items.length} ITEM{items.length > 1 ? 'S' : ''}</Text>
                         <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, marginTop: 2 }}>₹{sub + fee}</Text>
                       </View>
                       <Pressable
                         onPress={() => checkoutBucket(m)}
-                        style={{ paddingHorizontal: SP.l, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.ink, flexDirection: 'row', gap: 6 }}
+                        style={{ paddingHorizontal: SP.l, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.hairline, flexDirection: 'row', gap: 6 }}
                       >
                         <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 12, letterSpacing: 0.5 }}>{bucketLabel.toUpperCase()}</Text>
                         <Feather name="arrow-right" size={14} color={C.white} />
@@ -212,7 +214,7 @@ export default function CartScreen() {
                 <Pressable
                   onPress={applied ? undefined : apply}
                   disabled={!!applied}
-                  style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? '#666' : C.ink, borderLeftWidth: 1, borderColor: C.ink }}
+                  style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? '#666' : C.ink, borderLeftWidth: 1, borderColor: C.hairline }}
                 >
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>
                     {applied ? 'APPLIED' : 'APPLY'}
@@ -274,7 +276,7 @@ const makeS = () => StyleSheet.create({
   row: { flexDirection: 'row', padding: SP.l, alignItems: 'flex-start' },
   imgBox: { width: 90, height: 110, overflow: 'hidden', backgroundColor: C.hairline },
   qtyWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, overflow: 'hidden' },
-  qtyBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.ink },
+  qtyBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline },
   removeBtn: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, marginLeft: 6 },
   sumRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
 });

@@ -263,7 +263,7 @@ export default function ReviewOrderScreen() {
           </ScrollView>
 
           {/* STICKY CONFIRM & PAY */}
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.ink, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }}>
             <View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink }}>₹{total}</Text>
               {totalSavings > 0 && <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>saved ₹{totalSavings}</Text>}
@@ -284,7 +284,7 @@ export default function ReviewOrderScreen() {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 300 }}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.bg, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 32, borderTopWidth: 2, borderColor: C.ink }}
+            style={{ backgroundColor: C.bg, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 32, borderTopWidth: 2, borderColor: C.hairline }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>PAYMENT METHOD</Text>

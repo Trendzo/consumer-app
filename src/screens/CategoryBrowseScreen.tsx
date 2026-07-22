@@ -22,6 +22,7 @@ import { useApp } from '../state/AppState';
 import { PRODUCTS, CATEGORIES } from '../data/mockData';
 import type { Product, Category, Occasion } from '../data/mockData';
 import { listCategories, listProducts, listOccasions, isBackendCategoryId } from '../services/catalog';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 
 const { width: W } = Dimensions.get('window');
 const RAIL_W = 118;
@@ -307,6 +308,7 @@ export default function CategoryBrowseScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { night, gender } = useApp();
+  const tabScroll = useTabBarScroll();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<Record<string, any>>({});
   const him = gender === 'him';
@@ -412,7 +414,7 @@ export default function CategoryBrowseScreen() {
 
       {/* ═══ SEARCH BAR — rounded pill, camera + search button ═══ */}
       <View style={{ paddingTop: 56, paddingHorizontal: SP.m, paddingBottom: SP.s, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', height: 50, borderWidth: 2, borderColor: C.ink, borderRadius: 25, paddingLeft: 18, paddingRight: 4, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', height: 50, borderWidth: 2, borderColor: C.hairline, borderRadius: 25, paddingLeft: 18, paddingRight: 4, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
           <Pressable onPress={() => nav.navigate('Search')} style={{ flex: 1, height: '100%', justifyContent: 'center' }}>
             <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 15, color: C.dim }} numberOfLines={1}>Oversized t-shirt</Text>
           </Pressable>
@@ -465,6 +467,7 @@ export default function CategoryBrowseScreen() {
 
         {/* ═══ RIGHT PANE — selected category page ═══ */}
         <ScrollView
+          {...tabScroll}
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={Platform.OS === 'android'}

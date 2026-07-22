@@ -23,6 +23,8 @@ import { warmCatalog } from '../services/prefetch';
 import { useApp } from '../state/AppState';
 
 const HOME_HERO = require('../../assets/home.jpeg');
+// Full-bleed campaign background for the "SHOP BY OCCASION" section.
+const OCC_HEAD_BG = require('../../assets/github-import/top/bg.png');
 
 // FEATURED CATEGORIES — the horizontal swipeable row only. Local cutout art
 // (not the pngimg.com hotlinks the grid below still uses), one set per gender.
@@ -94,7 +96,7 @@ const { width: W } = Dimensions.get('window');
 // a "swipe for more" affordance.
 const FEATURED_TILE_PAD = SP.l; // matches the SP.l edge padding every other section uses
 const FEATURED_TILE_GAP = SP.s;
-const FEATURED_TILE_W = (W - FEATURED_TILE_PAD * 2 - FEATURED_TILE_GAP * 4) / 4.3;
+const FEATURED_TILE_W = (W - FEATURED_TILE_PAD * 2 - FEATURED_TILE_GAP * 4) / 5.1;
 // Steals bento grid — one tall hero tile + a stacked pair beside it, all the
 // same fixed 2-column width so the grid never depends on image aspect ratio.
 const STEAL_GAP = SP.s;
@@ -111,6 +113,10 @@ const OCC_CARD_PAD = SP.l;
 const OCC_CARD_GAP = SP.s;
 const OCC_CARD_W = (W - OCC_CARD_PAD * 2 - OCC_CARD_GAP * 2) / 2.6;
 const OCC_CARD_H = OCC_CARD_W * 1.15;
+// Height of the SHOP BY OCCASION section — matches bg.png's 4:5 aspect at full
+// width, so the campaign models fill the frame with the empty lower area free
+// for the product cards to sit on.
+const OCC_SECTION_H = Math.round(W * 1.25);
 // Text shadow for the header/search overlay now sitting on top of the hero
 // photo — keeps white text legible over whatever part of the image is behind it.
 const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
@@ -128,7 +134,7 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 export default function HomeScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { night, gender, setGender, curveProgress, theme, showConfirm } = useApp();
+  const { night, gender, setGender, curveProgress, theme, showConfirm, tabBarOffset } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // Live catalog from the backend, cached PER GENDER. A missing slice = not
@@ -139,6 +145,9 @@ export default function HomeScreen() {
   // screen until a slow refetch landed, so the category boxes looked frozen.
   type GenderSlice = { categories?: Category[]; products?: Product[]; bundles?: Bundle[]; occasions?: Occasion[] };
   const [apiCache, setApiCache] = useState<{ her: GenderSlice; him: GenderSlice; brands?: Brand[] }>({ her: {}, him: {} });
+  // Which set the featured-categories row shows — independent of the page's
+  // gender slice. ALL merges women + men.
+  const [catFilter, setCatFilter] = useState<'all' | 'women' | 'men'>('all');
 
   // Armed on the FIRST focus of the Home tab: on a guest launch the Login
   // modal covers the tabs, HomeTab is not focused, and neither the catalog
@@ -226,9 +235,18 @@ export default function HomeScreen() {
   const pinP = useSharedValue(0);
   const wasPinned = useSharedValue(false);
   const [catPinned, setCatPinned] = useState(false);
+  const lastScrollY = useSharedValue(0);
   const onHomeScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
-      const nowPinned = e.contentOffset.y >= catSectionY.value - 1;
+      const y = e.contentOffset.y;
+      // Hide the floating tab bar on scroll-down, reveal on scroll-up / at top.
+      const dy = y - lastScrollY.value;
+      if (y <= 4) tabBarOffset.value = withTiming(0, { duration: 200 });
+      else if (dy > 8) tabBarOffset.value = withTiming(1, { duration: 220 });
+      else if (dy < -8) tabBarOffset.value = withTiming(0, { duration: 200 });
+      lastScrollY.value = y;
+
+      const nowPinned = y >= catSectionY.value - 1;
       if (nowPinned !== wasPinned.value) {
         wasPinned.value = nowPinned;
         pinP.value = withTiming(nowPinned ? 1 : 0, { duration: 220 });
@@ -236,18 +254,10 @@ export default function HomeScreen() {
       }
     },
   });
-  const FEATURED_PIN_SCALE = 0.62;
   const featuredRowH = useSharedValue(0);
-  const featuredScaleStyle = useAnimatedStyle(() => ({
-    // Scaling around the centre left large fake gutters on both sides and kept
-    // the row's full, unscaled height in layout. Anchor the compact row to the
-    // leading edge, widen its pre-transform viewport so it still fills the
-    // screen, and give the released space back to the section below.
-    width: interpolate(pinP.value, [0, 1], [W, W / FEATURED_PIN_SCALE]),
-    marginBottom: -featuredRowH.value * (1 - interpolate(pinP.value, [0, 1], [1, FEATURED_PIN_SCALE])),
-    transformOrigin: 'left top',
-    transform: [{ scale: interpolate(pinP.value, [0, 1], [1, FEATURED_PIN_SCALE]) }],
-  }));
+  // Categories row no longer shrinks on scroll — it stays at full size (was a
+  // scroll-linked scale transform tied to pinP).
+  const featuredScaleStyle = useAnimatedStyle(() => ({}));
   // Collapsible top header (brand + ETA headline + address): it now scrolls away
   // NATIVELY (it's the first child of the ScrollView) while the search + quick-cats
   // row below it is a native stickyHeaderIndices header that pins to the top. No
@@ -391,8 +401,8 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
-          // Child 2 (hero → marquee → categories) pins natively at the top.
-          stickyHeaderIndices={[2]}
+          // Categories no longer pin on scroll — they scroll away with the rest
+          // of the page (was stickyHeaderIndices={[2]}).
           onScrollBeginDrag={markScrollStart}
           onMomentumScrollBegin={markScrollStart}
           onScrollEndDrag={() => markScrollStop(1200)}
@@ -448,7 +458,7 @@ export default function HomeScreen() {
                     <Feather name="chevron-down" size={13} color="#fff" />
                   </Pressable>
                 </View>
-                <Pressable onPress={() => nav.navigate('ProfileTab')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                <Pressable onPress={() => nav.navigate('Profile')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
                   <Feather name="user" size={22} color="#fff" />
                 </Pressable>
               </View>
@@ -467,7 +477,7 @@ export default function HomeScreen() {
                   Kept intact below so it can be restored later; not deleted. ═══════════
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.m, paddingBottom: SP.s }}>
                 <Pressable onPress={() => nav.navigate('Categories')} style={{ alignItems: 'center', width: 60 }}>
-                  <Animated.View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink }, curveSmStyle]}>
+                  <Animated.View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderWidth: 1, borderColor: C.hairline }, curveSmStyle]}>
                     <RealIcon name="dashboard" size={22} color={C.white} />
                   </Animated.View>
                   <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
@@ -487,10 +497,8 @@ export default function HomeScreen() {
               */}
             </View>
 
-            {/* ═══════════ GENDER SWITCH — pinned to the banner's bottom edge, above the marquee ═══════════ */}
-            <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
-              <GenderSwitch gender={gender} onSwitch={setGender} onPhoto />
-            </View>
+            {/* GENDER SWITCH removed from the banner per redesign. `gender` state
+                still drives which campaigns/categories/steals show. */}
           </View>
 
         {/* ═══ MARQUEE — sticks directly to the bottom of the banner, no gap ═══ */}
@@ -510,14 +518,30 @@ export default function HomeScreen() {
           style={{ backgroundColor: C.white, paddingTop: insets.top, paddingBottom: SP.xs }}
           onLayout={(e) => { catSectionY.value = e.nativeEvent.layout.y; }}
         >
+          {/* Shop-by filter tabs — ALL / WOMEN / MEN, above the category row. */}
+          <View style={{ flexDirection: 'row', gap: SP.l, paddingHorizontal: FEATURED_TILE_PAD, paddingTop: SP.xs }}>
+            {([['all', 'ALL'], ['women', 'WOMEN'], ['men', 'MEN']] as const).map(([key, label]) => {
+              const on = catFilter === key;
+              return (
+                <Pressable key={key} onPress={() => setCatFilter(key)} hitSlop={8} style={{ paddingBottom: 4, borderBottomWidth: 2, borderColor: on ? C.ink : 'transparent' }}>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), letterSpacing: 0.2, color: on ? C.ink : C.dim }}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <Animated.View
             style={featuredScaleStyle}
             onLayout={(e) => {
               if (!featuredRowH.value) featuredRowH.value = e.nativeEvent.layout.height;
             }}
           >
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.xs }}>
-              {(gender === 'her' ? HER_FEATURED_CATEGORIES : HIM_FEATURED_CATEGORIES).map((c) => (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.s }}>
+              {(catFilter === 'women'
+                ? HER_FEATURED_CATEGORIES
+                : catFilter === 'men'
+                ? HIM_FEATURED_CATEGORIES
+                : [...HER_FEATURED_CATEGORIES, ...HIM_FEATURED_CATEGORIES]
+              ).map((c) => (
                 <FeaturedCatTile
                   key={c.id}
                   item={c}
@@ -576,16 +600,15 @@ export default function HomeScreen() {
         ║  inline here).                                ║
         ╚══════════════════════════════════════════════╝
         */}
-        <View style={{ marginTop: SP.xl, backgroundColor: '#0a0a0a', paddingVertical: SP.l }}>
-          <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(20), color: '#fff', letterSpacing: -0.3 }}>
-            EXPLORE <Text style={{ color: '#9fffb0', fontStyle: 'italic' }}>REELS</Text>
+        <View style={{ marginTop: SP.xl, paddingVertical: SP.l }}>
+          <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.3 }}>
+            EXPLORE REELS
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: REEL_TILE_PAD, gap: REEL_TILE_GAP, paddingTop: SP.m }}>
             {REELS.map((r) => (
               <ReelPosterTile
                 key={r.id}
                 title={r.title}
-                user={r.user}
                 img={r.img}
                 curveSmStyle={curveSmStyle}
                 onPress={() => nav.navigate('ReelsTab')}
@@ -612,6 +635,30 @@ export default function HomeScreen() {
                 cta: 'ORDER NOW',
                 img: activeHero,
               },
+              {
+                id: 'promo-steals-2',
+                bg: '#1E7A5A',
+                title: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).priceLine.toUpperCase() + '\nPICKS',
+                sub: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).label + ' you\'ll love',
+                cta: 'SHOP NOW',
+                img: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).img,
+              },
+              {
+                id: 'promo-steals-3',
+                bg: '#5A3AD1',
+                title: (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).priceLine.toUpperCase() + '\nEDIT',
+                sub: 'Trending ' + (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).label.toLowerCase(),
+                cta: 'SHOP NOW',
+                img: (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).img,
+              },
+              {
+                id: 'promo-occasion',
+                bg: '#B03A5B',
+                title: 'SHOP BY\nOCCASION',
+                sub: 'Festive & everyday looks',
+                cta: 'EXPLORE',
+                img: (gender === 'her' ? HER_OCCASION : HIM_OCCASION).hero,
+              },
             ]}
           />
         </View>
@@ -625,31 +672,39 @@ export default function HomeScreen() {
           {(() => {
             const occ = gender === 'her' ? HER_OCCASION : HIM_OCCASION;
             return (
-              <>
-                <AnimatedPressable
-                  onPress={() => nav.navigate('OccasionShopping')}
-                  style={[{ marginHorizontal: SP.l, height: 210, overflow: 'hidden' }, curveStyle]}
-                >
-                  <CachedImage source={occ.hero} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-                  {/* Small corner CTA only — the campaign art already carries its
-                      own headline, so this doesn't compete with a second one. */}
-                  <View style={{ position: 'absolute', right: SP.m, bottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8 }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink, letterSpacing: 0.3 }}>SHOP NOW</Text>
-                    <Feather name="arrow-right" size={13} color={C.ink} />
-                  </View>
-                </AnimatedPressable>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: OCC_CARD_PAD, gap: OCC_CARD_GAP, paddingTop: SP.l }}>
-                  {occ.cards.map((c) => (
-                    <OccasionCard
-                      key={c.id}
-                      label={c.label}
-                      img={c.img}
-                      curveSmStyle={curveSmStyle}
-                      onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
-                    />
-                  ))}
-                </ScrollView>
-              </>
+              // Full-bleed campaign background (bg.png). The centered heading sits
+              // near the top over the models, and the product cards sit ON the
+              // image's empty lower area.
+              <View style={{ height: OCC_SECTION_H, overflow: 'hidden' }}>
+                <CachedImage source={OCC_HEAD_BG} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+
+                {/* Centered heading + short black accent line (no ascii, no left bar). */}
+                <Pressable onPress={() => nav.navigate('OccasionShopping')} style={{ alignItems: 'center', paddingTop: SP.l }}>
+                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, textAlign: 'center' }}>
+                    SHOP BY OCCASION
+                  </Text>
+                  <View style={{ width: 48, height: 3, backgroundColor: '#000', marginTop: 8 }} />
+                </Pressable>
+
+                {/* Product cards pinned to the bottom, sitting on top of the image. */}
+                <View style={{ position: 'absolute', left: 0, right: 0, bottom: SP.l }}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: OCC_CARD_PAD, gap: OCC_CARD_GAP }}
+                  >
+                    {occ.cards.map((c) => (
+                      <OccasionCard
+                        key={c.id}
+                        label={c.label}
+                        img={c.img}
+                        curveSmStyle={curveSmStyle}
+                        onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
             );
           })()}
         </View>
@@ -741,7 +796,7 @@ export default function HomeScreen() {
         <SectionHead title="DISCOVER" emphasis="BRANDS" action="ALL" onAction={() => nav.navigate('DiscoverBrands')} />
         <View style={{ paddingHorizontal: SP.l }}>
           {/* Outer curved frame — clips all inner cell borders against the rounded outside */}
-          <Animated.View style={[{ borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveStyle]}>
+          <Animated.View style={[{ borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }, curveStyle]}>
             <FlatList
               ref={brandRef}
               data={[0, 1]}
@@ -755,7 +810,7 @@ export default function HomeScreen() {
                     {activeBrands.slice(page * 12, page * 12 + 12).map((b, i) => {
                       const cardW = (W - SP.l * 2) / 4;
                       return (
-                        <Pressable key={b.id} onPress={() => nav.navigate('Category', { id: 'brand-' + b.id, label: b.name })} style={{ width: cardW, height: cardW, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderRightWidth: (i % 4 < 3) ? 1 : 0, borderBottomWidth: i < 8 ? 1 : 0, borderColor: C.ink, backgroundColor: C.white }}>
+                        <Pressable key={b.id} onPress={() => nav.navigate('Category', { id: 'brand-' + b.id, label: b.name })} style={{ width: cardW, height: cardW, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderRightWidth: (i % 4 < 3) ? 1 : 0, borderBottomWidth: i < 8 ? 1 : 0, borderColor: C.hairline, backgroundColor: C.white }}>
                           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                             <CachedImage source={{ uri: b.logo }} style={{ width: cardW * 0.7, height: cardW * 0.5 }} resizeMode="contain" />
                           </View>
@@ -784,7 +839,7 @@ export default function HomeScreen() {
         <SectionHead title="VIRTUAL" emphasis="TRY-ON" />
         <Animated.View style={[{ paddingHorizontal: SP.l }, miniGapStyle]}>
           {/* HERO banner — high-contrast attention grab */}
-          <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+          <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
             {/* Info — explains what Virtual Try-On is */}
             <Pressable
               onPress={() => showConfirm({ title: 'Virtual Try-On', msg: 'See how an outfit looks on you before you buy.\n\n• AR Try-On — use your live camera\n• Photo Try-On — upload a photo\n\nSwap clothes in real time, then shop your favourites.', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'info' })}
@@ -811,14 +866,14 @@ export default function HomeScreen() {
 
           {/* Two-up: AR Try-On + Photo Try-On */}
           <Animated.View style={[{ flexDirection: 'row' }, rowGapStyle]}>
-            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
+            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
                 <RealIcon name="camcorder" size={22} color={C.white} />
               </Animated.View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, marginTop: 10, letterSpacing: -0.5 }}>AR TRY-ON</Text>
               <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Live camera</Text>
             </AnimatedPressable>
-            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.ink, minHeight: 120 }, curveStyle]}>
+            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.hairline, minHeight: 120 }, curveStyle]}>
               <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
                 <RealIcon name="photo" size={22} />
               </Animated.View>
@@ -828,7 +883,7 @@ export default function HomeScreen() {
           </Animated.View>
 
           {/* Image search — kept, re-styled as a supporting tool */}
-          <AnimatedPressable onPress={() => nav.navigate('ImageSearch')} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+          <AnimatedPressable onPress={() => nav.navigate('ImageSearch')} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
             <Animated.View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
               <RealIcon name="camera" size={22} color={C.white} />
             </Animated.View>
@@ -884,7 +939,7 @@ export default function HomeScreen() {
           {activeBundles.map((b, i) => (
             <FadeInUp key={b.id} delay={i * 40}>
               <AnimatedPressable onPress={() => nav.navigate('Category', { id: 'bundle-' + b.id, label: b.title })} style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                <View style={{ width: 130, height: 130, borderRightWidth: 1, borderColor: C.ink, overflow: 'hidden' }}>
+                <View style={{ width: 130, height: 130, borderRightWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}>
                   <CachedImage source={{ uri: b.img }} style={{ width: '100%', height: '100%' }} />
                 </View>
                 <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
@@ -958,7 +1013,7 @@ export default function HomeScreen() {
           ].map((c, i) => (
             <Pressable key={c.code} onPress={() => nav.navigate('CouponWallet')}>
               <FadeInUp delay={i * 40}>
-                <Animated.View style={[{ flexDirection: 'row', width: 240, height: 80, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+                <Animated.View style={[{ flexDirection: 'row', width: 240, height: 80, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
                   {/* Left — dark discount block. Fixed SQUARE (80×80) so every coupon matches,
                       and the text auto-fits so ₹500 OFF / 50% OFF / FREE SHIP all look uniform. */}
                   <View style={{ width: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, paddingHorizontal: 6 }}>
@@ -995,7 +1050,7 @@ export default function HomeScreen() {
         <View style={{ paddingHorizontal: SP.l }}>
           <Animated.View style={[{ flexDirection: 'row', height: 260 }, rowGapStyle]}>
             {/* Big left */}
-            <AnimatedPressable onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 2, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+            <AnimatedPressable onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 2, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
               <CachedImage source={{ uri: COMMUNITY[0].img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
               <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
               <View style={{ position: 'absolute', bottom: SP.s, left: SP.s }}>
@@ -1006,7 +1061,7 @@ export default function HomeScreen() {
             {/* 2 stacked right */}
             <Animated.View style={[{ flex: 1 }, miniGapStyle]}>
               {COMMUNITY.slice(1, 3).map((p, i) => (
-                <AnimatedPressable key={p.id} onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 1, overflow: 'hidden', borderWidth: 1, borderColor: C.ink }, curveStyle]}>
+                <AnimatedPressable key={p.id} onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 1, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
                   <CachedImage source={{ uri: p.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
                   <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
                   <View style={{ position: 'absolute', bottom: 4, left: 6 }}>
@@ -1028,12 +1083,12 @@ export default function HomeScreen() {
           <AnimatedPressable onPress={() => nav.navigate('MoodBoard')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), curveStyle]}>
             <View style={{ flexDirection: 'row', height: 100 }}>
               {activeProducts.slice(0, 4).map((p, j) => (
-                <View key={p.id} style={{ flex: 1, borderRightWidth: j < 3 ? 1 : 0, borderColor: C.ink, backgroundColor: C.hairline }}>
+                <View key={p.id} style={{ flex: 1, borderRightWidth: j < 3 ? 1 : 0, borderColor: C.hairline, backgroundColor: C.hairline }}>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                 </View>
               ))}
             </View>
-            <View style={{ padding: SP.m, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.ink }}>
+            <View style={{ padding: SP.m, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.hairline }}>
               <RealIcon name="palette" size={20} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SAVE OUTFIT COMBOS</Text>
@@ -1237,7 +1292,7 @@ const BANNER_W = W;
 // so the hero reads as a proper full banner, closer to the reference layout.
 // (0.78 was too tall — pushed Featured Categories off the first screen; dialed
 // back so the marquee + categories peek into view without scrolling.)
-const BANNER_H = Math.round(SCREEN_H * 0.8);
+const BANNER_H = Math.round(SCREEN_H * 0.72);
 // How far the adaptive tint reaches into the page: past the gender switch (~60)
 // and the banner's top margin, ending at the MIDDLE of the banner.
 const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
@@ -1738,7 +1793,7 @@ function QuickCat({ her, him, progress, active, curveSmStyle, onPress }: {
   const center = { alignItems: 'center' as const, justifyContent: 'center' as const };
   return (
     <Pressable onPress={() => onPress(cat)} style={{ alignItems: 'center', width: QC_LBL }}>
-      <Animated.View style={[{ width: QC_BOX, height: QC_BOX, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink, overflow: 'hidden' }, curveSmStyle]}>
+      <Animated.View style={[{ width: QC_BOX, height: QC_BOX, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }, curveSmStyle]}>
         {him && (
           <Animated.View style={[StyleSheet.absoluteFillObject, center, himStyle]}>
             <RealIcon name={categoryIconName(him.label)} size={24} />
@@ -1821,9 +1876,8 @@ function StealTile({ label, priceLine, img, height, width, curveSmStyle, onPress
 // jumps straight to the Reels tab (nothing plays inline here, this is just a
 // teaser rail). Border/radius share the same curveSmStyle as every other
 // card, so it rounds/sharpens with the gender curve like the rest of Home.
-function ReelPosterTile({ title, user, img, curveSmStyle, onPress }: {
+function ReelPosterTile({ title, img, curveSmStyle, onPress }: {
   title: string;
-  user: string;
   img: string;
   curveSmStyle: any;
   onPress: () => void;
@@ -1840,14 +1894,9 @@ function ReelPosterTile({ title, user, img, curveSmStyle, onPress }: {
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject as any}
       />
-      <View style={{ position: 'absolute', top: SP.s, left: SP.s, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 7, paddingVertical: 4 }}>
-        <Feather name="play" size={9} color="#fff" />
-        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 9, color: '#fff', letterSpacing: 0.5 }}>REEL</Text>
-      </View>
       <View style={{ position: 'absolute', left: SP.s, right: SP.s, bottom: SP.s, flexDirection: 'row', alignItems: 'flex-end' }}>
         <View style={{ flex: 1, marginRight: SP.s }}>
-          <Text numberOfLines={1} style={{ fontFamily: 'Inter_700Bold', fontSize: 10, color: '#9fffb0' }}>{user}</Text>
-          <Text numberOfLines={2} style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: '#fff', marginTop: 2 }}>{title}</Text>
+          <Text numberOfLines={2} style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: '#fff' }}>{title}</Text>
         </View>
         <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
           <Feather name="arrow-up-right" size={14} color="#000" />
@@ -1876,10 +1925,26 @@ function OccasionCard({ label, img, curveSmStyle, onPress }: {
   );
 }
 
-// ─── PROMO BANNER — small swipeable strip with pagination dots, sits under
-// the Explore Reels row. Each slide ties back to real content already on
-// Home (the active gender's Steals hero image, the delivery hero photo)
-// instead of inventing offers/pricing that don't exist elsewhere in the app.
+// ─── PROMO BANNER — auto-advancing strip that cycles through its slides slowly
+// and continuously (loops back to the start). Instead of pagination dots it
+// shows story-style progress bars: one thin bar per slide, the active one
+// filling left-to-right over the slide's duration. Each slide ties back to real
+// content already on Home (Steals hero image, delivery hero photo, occasion).
+const PROMO_SLIDE_MS = 4500; // how long each banner holds before advancing (slow)
+
+// One progress bar in the story-style indicator row. `done` slides read full,
+// the `active` slide fills over PROMO_SLIDE_MS, upcoming slides stay empty.
+function PromoProgressBar({ state, progress }: { state: 'done' | 'active' | 'todo'; progress: SharedValue<number> }) {
+  const fill = useAnimatedStyle(() => ({
+    width: state === 'done' ? '100%' : state === 'active' ? `${progress.value * 100}%` : '0%',
+  }));
+  return (
+    <View style={{ flex: 1, height: 3, backgroundColor: 'rgba(0,0,0,0.12)', overflow: 'hidden', borderRadius: 2 }}>
+      <Animated.View style={[{ height: '100%', backgroundColor: C.ink }, fill]} />
+    </View>
+  );
+}
+
 function PromoBanner({ slides, curveSmStyle, onPress }: {
   slides: { id: string; bg: string; title: string; sub: string; cta: string; img: string | number }[];
   curveSmStyle: any;
@@ -1888,11 +1953,24 @@ function PromoBanner({ slides, curveSmStyle, onPress }: {
   const [idx, setIdx] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const bw = W - SP.l * 2;
-  const goto = (i: number) => {
-    const next = Math.max(0, Math.min(slides.length - 1, i));
-    scrollRef.current?.scrollTo({ x: next * bw, animated: true });
-    setIdx(next);
-  };
+  const progress = useSharedValue(0);
+
+  // Auto-advance: whenever the active slide changes, restart its fill animation
+  // and schedule the jump to the next slide (looping back to the first).
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    progress.value = 0;
+    progress.value = withTiming(1, { duration: PROMO_SLIDE_MS, easing: Easing.linear });
+    const t = setTimeout(() => {
+      setIdx((prev) => {
+        const next = (prev + 1) % slides.length;
+        scrollRef.current?.scrollTo({ x: next * bw, animated: true });
+        return next;
+      });
+    }, PROMO_SLIDE_MS);
+    return () => clearTimeout(t);
+  }, [idx, slides.length, bw]);
+
   return (
     <View style={{ marginTop: SP.l, paddingHorizontal: SP.l }}>
       <View>
@@ -1901,6 +1979,8 @@ function PromoBanner({ slides, curveSmStyle, onPress }: {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
+          // Manual swipe just updates which slide is active — the effect above
+          // then restarts the timer/fill from there.
           onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / bw))}
         >
           {slides.map((s) => (
@@ -1920,21 +2000,15 @@ function PromoBanner({ slides, curveSmStyle, onPress }: {
             </AnimatedPressable>
           ))}
         </ScrollView>
-        {slides.length > 1 && (
-          <>
-            <Pressable onPress={() => goto(idx - 1)} hitSlop={10} style={{ position: 'absolute', left: 6, top: '50%', marginTop: -14, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
-              <Feather name="chevron-left" size={16} color="#fff" />
-            </Pressable>
-            <Pressable onPress={() => goto(idx + 1)} hitSlop={10} style={{ position: 'absolute', right: 6, top: '50%', marginTop: -14, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
-              <Feather name="chevron-right" size={16} color="#fff" />
-            </Pressable>
-          </>
-        )}
       </View>
       {slides.length > 1 && (
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 5, marginTop: SP.s }}>
           {slides.map((_, i) => (
-            <View key={i} style={{ width: i === idx ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: i === idx ? '#fff' : 'rgba(255,255,255,0.35)' }} />
+            <PromoProgressBar
+              key={i}
+              progress={progress}
+              state={i < idx ? 'done' : i === idx ? 'active' : 'todo'}
+            />
           ))}
         </View>
       )}

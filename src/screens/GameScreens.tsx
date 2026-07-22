@@ -204,7 +204,7 @@ export function SpinWheelScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
         {/* Counter strip */}
         <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
-          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.ink }]}>
+          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.hairline }]}>
             <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ SPINS_LEFT'}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 2, lineHeight: rf(46) }}>{spinsLeft}<Text style={{ fontSize: 18 }}>/3</Text></Text>
           </View>
@@ -236,7 +236,7 @@ export function SpinWheelScreen() {
 
               {/* ROTATING wheel — just slices + dividers */}
               <Animated.View style={{ marginTop: 18, width: WHEEL, height: WHEEL, transform: [{ rotate }] }}>
-                <View style={{ width: WHEEL, height: WHEEL, borderRadius: R, overflow: 'hidden', borderWidth: 3, borderColor: C.ink, backgroundColor: C.ink }}>
+                <View style={{ width: WHEEL, height: WHEEL, borderRadius: R, overflow: 'hidden', borderWidth: 3, borderColor: C.hairline, backgroundColor: C.ink }}>
                   {/* 8 pie-slice triangles with alternating colors */}
                   {SLICES.map((s, i) => {
                     const rot = i * sliceAngle;
@@ -283,7 +283,7 @@ export function SpinWheelScreen() {
               </Animated.View>
 
               {/* STATIC center hub — sits on top of the rotating wheel */}
-              <View pointerEvents="none" style={{ position: 'absolute', top: 18 + R - 34, left: 20 + R - 34, width: 68, height: 68, borderRadius: 34, backgroundColor: C.white, borderWidth: 3, borderColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
+              <View pointerEvents="none" style={{ position: 'absolute', top: 18 + R - 34, left: 20 + R - 34, width: 68, height: 68, borderRadius: 34, backgroundColor: C.white, borderWidth: 3, borderColor: C.hairline, alignItems: 'center', justifyContent: 'center' }}>
                 <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 1 }}>SPIN</Text>
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 1, marginTop: -2 }}>& WIN</Text>
@@ -452,7 +452,7 @@ export function StyleQuizScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
         {/* XP bar */}
         <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-          <View style={[{ padding: SP.s, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.ink }]}>
+          <View style={[{ padding: SP.s, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.hairline }]}>
             <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`Q${step + 1}/${QUIZ.length}`}</Text>
           </View>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
@@ -1099,7 +1099,7 @@ export function TryOnScreen() {
             </View>
           )}
           {/* Product caption */}
-          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.m, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink }}>
+          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.m, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline }}>
             <Text style={[T.monoB, { fontSize: 9 }]}>{pick.brand}</Text>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, marginTop: 2 }} numberOfLines={1}>{pick.name}</Text>
           </View>
@@ -1145,7 +1145,7 @@ export function TryOnScreen() {
           {picks.map(p => (
             <Pressable key={p.id} onPress={() => { setPick(p); setGeneratedPhoto(null); }} style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, pick.id === p.id ? BORDER(2) : BORDER(1)]}>
               <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
-              <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: pick.id === p.id ? C.ink : C.white, borderTopWidth: 1, borderColor: C.ink }}>
+              <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: pick.id === p.id ? C.ink : C.white, borderTopWidth: 1, borderColor: C.hairline }}>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: pick.id === p.id ? C.white : C.ink }} numberOfLines={1}>{p.brand}</Text>
               </View>
             </Pressable>

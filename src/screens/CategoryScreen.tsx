@@ -214,7 +214,7 @@ export default function CategoryScreen() {
               {sorted.map((p, i) => (
                 <FadeInUp key={p.id} delay={(i % 6) * 30}>
                   <Pressable onPress={() => openZoom(zoomRefs.current['l' + p.id], p.img, p, { brand: label })} style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-                    <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 160, backgroundColor: C.hairline, borderRightWidth: 1, borderColor: C.ink }}>
+                    <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 160, backgroundColor: C.hairline, borderRightWidth: 1, borderColor: C.hairline }}>
                       <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                       {p.tag && (
                         <View style={[{ position: 'absolute', top: 0, left: 0, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.ink }]}>
@@ -260,7 +260,7 @@ export default function CategoryScreen() {
       </ScrollView>
 
       {/* ═══ STICKY BOTTOM BAR — Sort · Men/Women · Filter (Myntra-style) ═══ */}
-      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink, paddingBottom: insets.bottom }}>
+      <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline, paddingBottom: insets.bottom }}>
         <Pressable onPress={() => openSheet('sort')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
           <Feather name="sliders" size={15} color={C.ink} />
           <Text style={[T.monoB, { fontSize: 11, color: C.ink }]} numberOfLines={1}>SORT</Text>
@@ -293,9 +293,9 @@ export default function CategoryScreen() {
             from={{ translateY: H }}
             animate={{ translateY: shown ? 0 : H }}
             transition={{ type: 'timing', duration: 260 }}
-            style={{ backgroundColor: C.white, borderTopWidth: 1, borderColor: C.ink, paddingBottom: insets.bottom + SP.m, maxHeight: '55%' }}
+            style={{ backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline, paddingBottom: insets.bottom + SP.m, maxHeight: '55%' }}
           >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.ink }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: 1 }}>
               {activeSheet === 'sort' ? 'SORT BY' : activeSheet === 'gender' ? 'SHOP FOR' : 'FILTER'}
             </Text>

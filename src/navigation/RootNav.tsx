@@ -1,18 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Platform, LayoutChangeEvent, DeviceEventEmitter, BackHandler, ToastAndroid } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withSequence,
-} from 'react-native-reanimated';
+import { View, Text, Pressable, StyleSheet, Platform, DeviceEventEmitter, BackHandler, ToastAndroid } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { RealIcon, RealIconName } from '../components/RealIcon';
-import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { PixelIcon, PixelIconName } from '../components/PixelIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
 import { BrutalToast, BrutalConfirm } from '../components/Brutal';
@@ -53,82 +46,45 @@ import {
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// ─── BOTTOM TAB BAR — Liquid Glass, edge-to-edge ────────────
+// ─── BOTTOM TAB BAR — floating pixel-art pill ───────────────
+// A white rounded pill that floats above the home indicator. Four pixel-art
+// tabs (Home · Reel · Category · Bag); the active one glows hot-pink, the rest
+// sit in ink. No blur, no blob — just crisp bitmap glyphs on a solid surface.
+const PINK = '#FF1E8E';
+
 function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
-  const items: { name: string; label: string; icon: RealIconName }[] = [
-    { name: 'HomeTab', label: 'HOME', icon: 'home' },
-    { name: 'ReelsTab', label: 'REELS', icon: 'reels' },
-    { name: 'CartTab', label: 'BAG', icon: 'bag' },
-    { name: 'ProfileTab', label: 'ME', icon: 'user' },
+  const items: { name: string; label: string; icon: PixelIconName }[] = [
+    { name: 'HomeTab', label: 'Home', icon: 'home' },
+    { name: 'ReelsTab', label: 'Reel', icon: 'reel' },
+    { name: 'CategoryTab', label: 'Category', icon: 'category' },
+    { name: 'CartTab', label: 'Bag', icon: 'bag' },
   ];
-  const { cartCount, night, curveProgress } = useApp();
+  const { cartCount, night, tabBarOffset } = useApp();
   const insets = useSafeAreaInsets();
-  const tabStyles = React.useMemo(() => makeTabStyles(), [night]);
+  const tabStyles = React.useMemo(() => makeTabStyles(night), [night]);
 
-  // ── Venom blob: slides between tabs with stretch/squish, big square pill
-  const PILL_W = 72;
-  const PILL_H = 64;
-  const [innerW, setInnerW] = useState(0);
-  const H_PAD = 6;
-  const itemW = innerW > 0 ? (innerW - H_PAD * 2) / items.length : 0;
-
-  const tx = useSharedValue(0);
-  const sx = useSharedValue(1);
-  const sy = useSharedValue(1);
-
+  // Switching tabs should always reveal the bar, even if it was hidden by a
+  // scroll on the previous tab.
   useEffect(() => {
-    if (!itemW) return;
-    const target = H_PAD + itemW * state.index + (itemW - PILL_W) / 2;
-    sx.value = withSequence(
-      withTiming(1.85, { duration: 160 }),
-      withSpring(1, { damping: 11, stiffness: 170, mass: 0.9 }),
-    );
-    sy.value = withSequence(
-      withTiming(0.75, { duration: 160 }),
-      withSpring(1, { damping: 9, stiffness: 200, mass: 0.8 }),
-    );
-    tx.value = withSpring(target, { damping: 15, stiffness: 130, mass: 1 });
-  }, [state.index, itemW]);
+    tabBarOffset.value = 0;
+  }, [state.index]);
 
-  const blobStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: tx.value },
-      { scaleX: sx.value },
-      { scaleY: sy.value },
-    ],
-    borderRadius: curveProgress.value * (PILL_H / 2),
-  }));
-  const blobInnerStyle = useAnimatedStyle(() => ({
-    borderRadius: curveProgress.value * (PILL_H / 2),
+  // Slide the whole bar off the bottom when tabBarOffset → 1 (scrolling down).
+  const HIDE_DISTANCE = 78 + (insets.bottom > 0 ? insets.bottom : 10);
+  const hideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: tabBarOffset.value * HIDE_DISTANCE }],
+    opacity: 1 - tabBarOffset.value * 0.15,
   }));
 
   return (
-    <View style={tabStyles.wrap} pointerEvents="box-none">
-      {/* Solid tab surface — the live BlurView was re-compositing on every
-          scroll/drag frame and tanking perf. A solid fill matches the rest of
-          the brutalist UI and costs nothing to render. */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: night ? '#000000' : '#FFFFFF' }]} />
-
-      <View
-        style={[tabStyles.inner, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}
-        onLayout={(e: LayoutChangeEvent) => setInnerW(e.nativeEvent.layout.width)}
-      >
-        {/* ── Venom blob indicator (big square, slides + stretches) ── */}
-        {innerW > 0 && (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              tabStyles.blob,
-              { width: PILL_W, height: PILL_H, top: tabStyles.inner.paddingTop - 8 },
-              blobStyle,
-            ]}
-          >
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.ink }, blobInnerStyle]} />
-          </Animated.View>
-        )}
-
+    <Animated.View
+      style={[tabStyles.wrap, { paddingBottom: insets.bottom > 0 ? insets.bottom - 4 : 10 }, hideStyle]}
+      pointerEvents="box-none"
+    >
+      <View style={tabStyles.pill}>
         {items.map((it, i) => {
           const active = state.index === i;
+          const tint = active ? PINK : C.ink;
           return (
             <Pressable
               key={it.name}
@@ -144,118 +100,86 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               style={tabStyles.btn}
             >
               <View style={tabStyles.iconWrap}>
-                <RealIcon name={it.icon} size={22} color={active ? C.white : C.ink} />
+                <PixelIcon name={it.icon} size={22} color={tint} />
+                {it.name === 'CartTab' && cartCount > 0 && (
+                  <View style={tabStyles.badge}>
+                    <Text style={tabStyles.badgeTxt}>{cartCount}</Text>
+                  </View>
+                )}
               </View>
-              <Text style={[tabStyles.lbl, active && tabStyles.lblActive, active && { color: C.white }]}>{it.label}</Text>
-              {it.name === 'CartTab' && cartCount > 0 && (
-                <View style={tabStyles.badge}>
-                  <Text style={tabStyles.badgeTxt}>{cartCount}</Text>
-                </View>
-              )}
+              <Text
+                numberOfLines={1}
+                style={[tabStyles.lbl, { color: tint }, active && tabStyles.lblActive]}
+              >
+                {it.label}
+              </Text>
             </Pressable>
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-const makeTabStyles = () => StyleSheet.create({
+const makeTabStyles = (night: boolean) => StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    overflow: 'hidden',
-    // soft drop shadow under the glass
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
-  topRule: {
-    height: 1,
-    backgroundColor: C.ink,
-  },
-  highlight: {
-    position: 'absolute',
-    top: 1,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-  },
-  inner: {
+  pill: {
     flexDirection: 'row',
-    paddingTop: 8,
+    width: '100%',
+    backgroundColor: night ? '#141414' : '#FFFFFF',
+    borderRadius: 30,
+    paddingVertical: 6,
     paddingHorizontal: 6,
-  },
-  blob: {
-    position: 'absolute',
-    left: 0,
-    overflow: 'hidden',
+    // floating drop shadow
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: night ? 0.5 : 0.14,
+    shadowRadius: 14,
+    elevation: 14,
   },
   btn: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    paddingVertical: 4,
-    marginTop: -6,
-    gap: 3,
+    gap: 4,
+    paddingVertical: 2,
   },
   iconWrap: {
-    width: 36,
-    height: 32,
+    width: 24,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  iconWrapActive: {
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.6)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  iconHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   lbl: {
-    fontFamily: 'SpaceMono_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.5,
-    color: C.ink,
+    fontFamily: 'Inter_700Bold',
+    fontSize: 9.5,
+    letterSpacing: -0.1,
+    textAlign: 'center',
   },
   lblActive: {
-    color: C.ink,
     fontFamily: 'Inter_900Black',
   },
   badge: {
     position: 'absolute',
-    top: 0,
-    right: '24%',
+    top: -6,
+    right: -10,
     minWidth: 16,
     height: 16,
-    backgroundColor: C.ink,
+    borderRadius: 8,
+    backgroundColor: PINK,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.white,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
   },
-  badgeTxt: { color: C.white, fontFamily: 'Inter_900Black', fontSize: 9 },
+  badgeTxt: { color: '#fff', fontFamily: 'Inter_900Black', fontSize: 9 },
 });
 
 const navigationRef = createNavigationContainerRef<any>();
@@ -272,8 +196,8 @@ function MainTabs() {
           shown — its players are already paused on blur; this stops re-renders
           from reaching the offscreen feed too. Scoped to Reels only. */}
       <Tab.Screen name="ReelsTab" component={ReelsScreen} options={{ freezeOnBlur: true }} />
+      <Tab.Screen name="CategoryTab" component={CategoryBrowseScreen} />
       <Tab.Screen name="CartTab" component={CartScreen} />
-      <Tab.Screen name="ProfileTab" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -362,6 +286,9 @@ export default function RootNav() {
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
+        {/* Profile moved out of the bottom tabs — still reachable as a pushed
+            screen (opened from the Home header). */}
+        <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />

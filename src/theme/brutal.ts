@@ -130,10 +130,15 @@ function curveRadius(w: number) {
 // borderRadius as a getter so the cached object still resolves the palette
 // and curve at READ time — behavior on night/gender flips is unchanged
 // (screens re-render via nonce/remount and re-read the getters).
+//
+// De-brutalised: the border colour is now the soft hairline (light gray in
+// light mode, near-black-gray in dark) instead of the hard black `ink`, so
+// every card/button reads as a subtle outline rather than the old brutalist
+// black frame. Width/radius are unchanged so layouts don't shift.
 const _borderCache: Record<number, any> = {};
 export const BORDER = (w = 1) => (_borderCache[w] ??= {
   borderWidth: w,
-  get borderColor() { return _active.ink; },
+  get borderColor() { return _active.hairline; },
   get borderRadius() { return curveRadius(w); },
 });
 // Getter-based so `HAIRLINE.borderColor` reads C.hairline at access time, not module-load time.

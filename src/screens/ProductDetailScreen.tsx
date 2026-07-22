@@ -291,7 +291,7 @@ export default function ProductDetailScreen() {
         onScroll={scrollHandler}
       >
         {/* IMAGE GALLERY - hidden during the fly, revealed instantly at handoff */}
-        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.hairline, borderBottomWidth: 1, borderColor: C.ink }, galleryStyle]}>
+        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.hairline, borderBottomWidth: 1, borderColor: C.hairline }, galleryStyle]}>
           <ScrollView
             ref={galleryRef}
             horizontal
@@ -414,7 +414,7 @@ export default function ProductDetailScreen() {
           {/* Real parked CTA. The fixed overlay fades away as this reaches the bottom. */}
           <Animated.View
             onLayout={(e) => setCtaY(e.nativeEvent.layout.y)}
-            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.ink, paddingHorizontal: SP.m, paddingTop: SP.m, paddingBottom: 28, marginTop: SP.xl }, inlineCtaStyle]}
+            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.m, paddingTop: SP.m, paddingBottom: 28, marginTop: SP.xl }, inlineCtaStyle]}
           >
             <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
             <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -463,7 +463,7 @@ export default function ProductDetailScreen() {
           </MotiView>
 
           {/* SIMILAR */}
-          <Text style={[T.h2, { marginTop: SP.xl }]}>{`▌ YOU MAY ALSO LIKE`}</Text>
+          <Text style={[T.h2, { marginTop: SP.xl }]}>{`YOU MAY ALSO LIKE`}</Text>
           <AsciiDivider faint style={{ marginTop: 4 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
             {similarList.slice(0, 5).map(p => (
@@ -473,7 +473,7 @@ export default function ProductDetailScreen() {
 
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
-            <Text style={T.h2}>{`▌ RATINGS & REVIEWS`}</Text>
+            <Text style={T.h2}>{`RATINGS & REVIEWS`}</Text>
             <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
               <Text style={[T.monoB, { fontSize: 10 }]}>VIEW ALL ──▶</Text>
             </Pressable>
@@ -515,8 +515,8 @@ export default function ProductDetailScreen() {
         </View>
 
         {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it. */}
-        <View style={{ backgroundColor: night ? '#000000' : '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.ink }}>
-          <Text style={T.h2}>{`▌ MORE TO LOVE`}</Text>
+        <View style={{ backgroundColor: night ? '#000000' : '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
+          <Text style={T.h2}>{`MORE TO LOVE`}</Text>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
           {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
@@ -531,7 +531,7 @@ export default function ProductDetailScreen() {
       <Animated.View
         pointerEvents={fixedCtaInteractive ? 'auto' : 'none'}
         onLayout={(e) => setBarH(e.nativeEvent.layout.height)}
-        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.ink, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }, fixedCtaStyle]}
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }, fixedCtaStyle]}
       >
         <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
         <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -555,7 +555,7 @@ export default function ProductDetailScreen() {
               {/* The circular FAB */}
               <View style={{
                 width: 60, height: 60, borderRadius: 30,
-                backgroundColor: C.ink, borderWidth: 2, borderColor: C.ink,
+                backgroundColor: C.ink, borderWidth: 2, borderColor: C.hairline,
                 alignItems: 'center', justifyContent: 'center',
                 shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6,
                 elevation: 8,
@@ -591,7 +591,7 @@ export default function ProductDetailScreen() {
             exit={{ translateY: 400 }}
             transition={{ type: 'timing', duration: 300 }}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: night ? '#0a0a0a' : '#FFFFFF', paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
+            style={{ backgroundColor: night ? '#0a0a0a' : '#FFFFFF', paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SELECT_A_SIZE'}</Text>

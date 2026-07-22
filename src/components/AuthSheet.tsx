@@ -57,7 +57,7 @@ function OtpBoxes({
               style={[
                 { width: 52, height: 60, alignItems: 'center', justifyContent: 'center' },
                 BORDER(error || active ? 2 : 1),
-                error ? { borderColor: '#c1121f' } : active ? { borderColor: C.ink } : null,
+                error ? { borderColor: '#c1121f' } : active ? { borderColor: C.dim } : null,
               ]}
             >
               <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 24, color: C.ink }}>{d}</Text>

@@ -272,7 +272,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
             : <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.45)' }]} />}
           <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.25)' }]} />
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, backgroundColor: 'rgba(255,255,255,0.9)' }} />
-          <View style={[StyleSheet.absoluteFill, { borderWidth: 1, borderColor: '#000' }]} pointerEvents="none" />
+          <View style={[StyleSheet.absoluteFill, { borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }]} pointerEvents="none" />
           <Text style={styles.ctaText}>{isLast ? 'ENTER' : 'NEXT'}</Text>
           <Feather name={isLast ? 'check' : 'arrow-right'} size={16} color="#000" />
         </Pressable>

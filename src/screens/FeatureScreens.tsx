@@ -211,7 +211,7 @@ export function ImageSearchScreen() {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 320 }}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
+            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'IMAGE_SOURCE'}</Text>
@@ -396,7 +396,7 @@ export function CommunityFeedScreen() {
                 <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 10, marginTop: 6 }]}>{lead.caption}</Text>
               </View>
             </View>
-            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.ink }}>
+            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.hairline }}>
               <CommunityAction icon={liked[lead.id] ? 'heart' : 'heart'} label={`${lead.likes + (liked[lead.id] ? 1 : 0)}`} active={!!liked[lead.id]} onPress={() => toggleLike(lead.id)} />
               <CommunityAction icon="message-square" label={`${lead.comments}`} />
               <CommunityAction icon="bookmark" label={`${lead.saves}`} active={!!saved[lead.id]} onPress={() => toggleSave(lead.id)} />
@@ -440,7 +440,7 @@ export function CommunityFeedScreen() {
                 <View style={{ height: 112, backgroundColor: C.hairline }}>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                 </View>
-                <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.ink }}>
+                <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.hairline }}>
                   <Text style={[T.monoB, { fontSize: 9 }]} numberOfLines={1}>{p.user}</Text>
                   <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{`#${i + 1} · ${p.city}`}</Text>
                 </View>
@@ -472,7 +472,7 @@ function CommunityStat({ value, label }: { value: string; label: string }) {
 
 function CommunityAction({ icon, label, active, onPress }: { icon: keyof typeof Feather.glyphMap; label: string; active?: boolean; onPress?: () => void }) {
   return (
-    <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.ink, backgroundColor: active ? C.ink : C.white, gap: 3 }}>
+    <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline, backgroundColor: active ? C.ink : C.white, gap: 3 }}>
       <Feather name={icon} size={15} color={active ? C.white : C.ink} />
       <Text style={[T.monoB, { fontSize: 8, color: active ? C.white : C.ink }]} numberOfLines={1}>{label}</Text>
     </Pressable>
@@ -494,7 +494,7 @@ function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare 
           </View>
         </View>
 
-        <View style={{ height: index % 2 === 0 ? 340 : 290, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.ink, backgroundColor: C.hairline }}>
+        <View style={{ height: index % 2 === 0 ? 340 : 290, borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.hairline, backgroundColor: C.hairline }}>
           <CachedImage source={{ uri: post.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           <View style={{ position: 'absolute', top: SP.s, left: SP.s, flexDirection: 'row', gap: 6 }}>
             {post.tags.slice(0, 2).map(tag => (
@@ -508,7 +508,7 @@ function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare 
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: C.ink }}>
+        <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: C.hairline }}>
           <CommunityAction icon="heart" label={`${post.likes + (liked ? 1 : 0)}`} active={liked} onPress={onLike} />
           <CommunityAction icon="message-square" label={`${post.comments}`} />
           <CommunityAction icon="bookmark" label={`${post.saves}`} active={saved} onPress={onSave} />
@@ -702,7 +702,7 @@ export function MoodBoardScreen() {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 280 }}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
+            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>NEW_BOARD</Text>
@@ -743,14 +743,14 @@ function MoodPin({ pin, tall, saved, onPress }: { pin: typeof MOOD_PINS[number];
     <Pressable onPress={onPress} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
       <View style={{ height: tall ? 235 : 178, backgroundColor: C.hairline }}>
         <CachedImage source={{ uri: pin.img }} style={{ width: '100%', height: '100%' }} resizeMode={pin.fit as any} />
-        <View style={{ position: 'absolute', top: 7, left: 7, backgroundColor: C.white, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.ink }}>
+        <View style={{ position: 'absolute', top: 7, left: 7, backgroundColor: C.white, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.hairline }}>
           <Text style={[T.monoB, { fontSize: 8 }]}>{pin.type}</Text>
         </View>
-        <View style={{ position: 'absolute', right: 7, bottom: 7, backgroundColor: saved ? C.ink : C.white, paddingHorizontal: 9, paddingVertical: 6, borderWidth: 1, borderColor: C.ink }}>
+        <View style={{ position: 'absolute', right: 7, bottom: 7, backgroundColor: saved ? C.ink : C.white, paddingHorizontal: 9, paddingVertical: 6, borderWidth: 1, borderColor: C.hairline }}>
           <Text style={[T.monoB, { fontSize: 8, color: saved ? C.white : C.ink }]}>{saved ? 'REMOVE' : 'PIN'}</Text>
         </View>
       </View>
-      <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.ink }}>
+      <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.hairline }}>
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }} numberOfLines={2}>{pin.title}</Text>
         <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 3 }]} numberOfLines={1}>{pin.source}</Text>
       </View>
@@ -840,14 +840,8 @@ export function LuckyDrawScreen() {
                   ) : (
                     <View style={[{ height: 180, padding: SP.s, alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.white, opacity: played ? 0.3 : 1 }, BORDER(1)]}>
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>?</Text>
-                      {/* Hatching pattern */}
-                      <View style={{ flex: 1, alignSelf: 'stretch', overflow: 'hidden', marginVertical: 8 }}>
-                        {[...Array(14)].map((_, j) => (
-                          <Text key={j} style={[T.mono, { color: C.ink, lineHeight: 13, letterSpacing: 1 }]} numberOfLines={1}>
-                            {j % 2 === 0 ? '▓░▓░▓░▓░▓░' : '░▓░▓░▓░▓░▓'}
-                          </Text>
-                        ))}
-                      </View>
+                      {/* Covered tile — plain solid fill (was an ascii hatching pattern). */}
+                      <View style={{ flex: 1, alignSelf: 'stretch', overflow: 'hidden', marginVertical: 8, backgroundColor: C.hairline }} />
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }}>{played ? '—' : 'TAP'}</Text>
                     </View>
                   )}
@@ -961,7 +955,7 @@ export function InviteFriendsScreen() {
               { label: 'JOINED', val: joined, sub: 'VERIFIED' },
               { label: 'EARNED', val: `₹${joined * 200}`, sub: 'CASHBACK' },
             ].map((s, i) => (
-              <View key={i} style={{ flex: 1, padding: SP.m, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.ink, backgroundColor: i === 1 ? C.ink : C.white }}>
+              <View key={i} style={{ flex: 1, padding: SP.m, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.hairline, backgroundColor: i === 1 ? C.ink : C.white }}>
                 <Text style={[T.monoB, { fontSize: 8, color: i === 1 ? C.white : C.dim }]}>{s.label}</Text>
                 <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: i === 1 ? C.white : C.ink, marginTop: 4 }}>{s.val}</Text>
                 <Text style={[T.mono, { fontSize: 8, color: i === 1 ? C.white : C.dim, marginTop: 2 }]}>{s.sub}</Text>
@@ -984,11 +978,11 @@ export function InviteFriendsScreen() {
                 ))}
               </View>
             </View>
-            <View style={{ flexDirection: 'row', gap: 0, marginTop: 0, borderTopWidth: 1, borderColor: C.ink }}>
+            <View style={{ flexDirection: 'row', gap: 0, marginTop: 0, borderTopWidth: 1, borderColor: C.hairline }}>
               <Pressable onPress={copyCode} style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white }}>
                 <Text style={[T.monoB, { fontSize: 11 }]}>{copied ? '✓ COPIED' : '⟡ COPY CODE'}</Text>
               </Pressable>
-              <Pressable onPress={() => setShareOpen(true)} style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.ink }}>
+              <Pressable onPress={() => setShareOpen(true)} style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.hairline }}>
                 <Text style={[T.monoB, { fontSize: 11, color: C.white }]}>◆ SHARE LINK</Text>
               </Pressable>
             </View>
@@ -1005,7 +999,7 @@ export function InviteFriendsScreen() {
           </View>
           <View style={[{ marginTop: 8, height: 10, flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
             {[...Array(nextTier.need)].map((_, i) => (
-              <View key={i} style={{ flex: 1, backgroundColor: i < joined ? C.ink : 'transparent', borderRightWidth: i < nextTier.need - 1 ? 1 : 0, borderColor: C.ink }} />
+              <View key={i} style={{ flex: 1, backgroundColor: i < joined ? C.ink : 'transparent', borderRightWidth: i < nextTier.need - 1 ? 1 : 0, borderColor: C.hairline }} />
             ))}
           </View>
           <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 6 }]}>
@@ -1060,7 +1054,7 @@ export function InviteFriendsScreen() {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 320 }}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
+            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
           >
             <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
             <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SHARE_INVITE'}</Text>
@@ -1172,7 +1166,7 @@ export function AppChallengesScreen() {
         {/* Tab switcher */}
         <View style={[{ flexDirection: 'row', marginTop: SP.l, overflow: 'hidden' }, BORDER(1)]}>
           {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map((t, i) => (
-            <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, padding: SP.s, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.ink }]}>
+            <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, padding: SP.s, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.hairline }]}>
               <Text style={[T.monoB, { fontSize: 10, color: tab === t ? C.white : C.ink }]}>{t}</Text>
               <Text style={[T.mono, { fontSize: 8, color: tab === t ? C.white : C.dim, marginTop: 2 }]}>{QUESTS[t].filter(q => q.done || claimed[q.id]).length}/{QUESTS[t].length}</Text>
             </Pressable>
@@ -1394,7 +1388,7 @@ export function ForHerScreen() {
         <SectionHead title="IT" emphasis="BAGS" action="VIEW" onAction={() => nav.navigate('Category', { id: 'bags', label: 'Bags' })} />
         <View style={{ paddingHorizontal: SP.l }}>
           <Pressable onPress={() => goToProduct(HER_PRODUCTS[2])} style={[{ flexDirection: 'row', backgroundColor: C.white, height: 160, overflow: 'hidden' }, BORDER(1)]}>
-            <View style={{ width: 160, backgroundColor: '#f9f3ed', borderRightWidth: 1, borderColor: C.ink }}>
+            <View style={{ width: 160, backgroundColor: '#f9f3ed', borderRightWidth: 1, borderColor: C.hairline }}>
               <CachedImage source={{ uri: HER_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
             </View>
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>

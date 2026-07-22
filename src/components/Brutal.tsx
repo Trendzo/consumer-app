@@ -5,7 +5,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { C, T, BORDER, SP, ASCII, HAIRLINE, rf, subscribeTheme, isHer } from '../theme/brutal';
+import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { toastBus, confirmBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
@@ -77,10 +77,10 @@ export function BrutalConfirm() {
             </View>
           )}
           {/* Action bar */}
-          <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.ink }}>
+          <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.hairline }}>
             <Pressable
               onPress={hideConfirm}
-              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: night ? '#0a0a0a' : C.white, borderRightWidth: 1, borderColor: C.ink }}
+              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: night ? '#0a0a0a' : C.white, borderRightWidth: 1, borderColor: C.hairline }}
             >
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink, letterSpacing: 0.5 }}>{(confirm.cancelLabel || 'CANCEL').toUpperCase()}</Text>
             </Pressable>
@@ -140,7 +140,7 @@ export function BrutalToast() {
         {toast.action && (
           <Pressable
             onPress={() => { toast.action!.onPress(); hideToast(); }}
-            style={{ paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.ink }}
+            style={{ paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.hairline }}
           >
             <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink, letterSpacing: 0.6 }}>{toast.action.label.toUpperCase()}</Text>
           </Pressable>
@@ -192,7 +192,7 @@ export function BrutalBox({ children, style, maxRadius = 14, padded, solid, bord
           backgroundColor: transparent ? 'transparent' : solid ? C.ink : C.white,
           overflow: 'hidden',
         },
-        border > 0 && { borderWidth: border, borderColor: C.ink },
+        border > 0 && { borderWidth: border, borderColor: C.hairline },
         padded && { padding: SP.l },
         curve,
         style,
@@ -319,8 +319,10 @@ export function BrutalInput({ value, onChangeText, placeholder, label, secureTex
 }
 
 // ─── ASCII DIVIDER ────────────────────────────────────────
-export function AsciiDivider({ faint, style }: { faint?: boolean; style?: TextStyle }) {
-  return <Text numberOfLines={1} style={[{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: faint ? C.dim : C.ink }, style]}>{faint ? ASCII.hrFaint : ASCII.hr}</Text>;
+// Retired: the brutalist ascii rule lines are no longer drawn anywhere. Kept as
+// a no-op so the many call sites across the app don't need to be touched.
+export function AsciiDivider(_props: { faint?: boolean; style?: TextStyle }) {
+  return null;
 }
 
 // ─── SECTION HEAD ─────────────────────────────────────────
@@ -330,8 +332,8 @@ export function SectionHead({ title, emphasis, action, onAction, hideCaret, hide
       <AsciiDivider />
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, flex: 1 }} numberOfLines={1}>
-          {!hideCaret && `${ASCII.caret} `}{title}
-          {emphasis && <Text style={{ fontStyle: 'italic' }}> {emphasis}</Text>}
+          {title}
+          {emphasis && <Text> {emphasis}</Text>}
         </Text>
         {action && (
           <Pressable onPress={onAction} hitSlop={8} style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}>
@@ -457,8 +459,9 @@ export function Chip({ label, active, onPress }: { label: string; active?: boole
 }
 
 // ─── DOTTED LINE ──────────────────────────────────────────
+// Retired along with AsciiDivider — no-op so any call sites stay valid.
 export function DottedRule() {
-  return <Text numberOfLines={1} style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim }}>{ASCII.hrDot}</Text>;
+  return null;
 }
 
 export const styles = StyleSheet.create({});

@@ -117,7 +117,7 @@ export default function CheckoutScreen() {
         {/* ─── STEP 1: ADDRESS ─── */}
         {step === 1 && !needsAddress && (
           <FadeInUp>
-            <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ NO ADDRESS NEEDED'}</Text>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{'NO ADDRESS NEEDED'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
             <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
               <Feather name="map-pin" size={22} color={C.white} />
@@ -131,7 +131,7 @@ export default function CheckoutScreen() {
         )}
         {step === 1 && needsAddress && (
           <FadeInUp>
-            <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ DELIVERY ADDRESS'}</Text>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{'DELIVERY ADDRESS'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
             {ADDRESSES.map(a => (
               <Pressable key={a.id} onPress={() => setAddr(a.id)} style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: addr === a.id ? C.ink : C.white }, BORDER(1)]}>
@@ -154,7 +154,7 @@ export default function CheckoutScreen() {
         {/* ─── STEP 2: DELIVERY METHOD ─── */}
         {step === 2 && (
           <FadeInUp>
-            <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ HOW YOU GETTING IT?'}</Text>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{'HOW YOU GETTING IT?'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
 
             {/* Deliver-to-you block (Express + Standard) — grouped and headlined as "the common two" */}
@@ -291,7 +291,7 @@ export default function CheckoutScreen() {
         {/* ─── STEP 3: PAYMENT ─── */}
         {step === 3 && (
           <FadeInUp>
-            <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ PAYMENT METHOD'}</Text>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{'PAYMENT METHOD'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
             {PAYMENTS.map(p => (
               <Pressable key={p.id} onPress={() => setPay(p.id)} style={[{ marginTop: SP.m, padding: SP.m, flexDirection: 'row', alignItems: 'center', backgroundColor: pay === p.id ? C.ink : C.white }, BORDER(1)]}>
@@ -311,7 +311,7 @@ export default function CheckoutScreen() {
         {/* ─── STEP 4: CONFIRM ─── */}
         {step === 4 && (
           <FadeInUp>
-            <Text style={[T.h2, { marginTop: SP.xl }]}>{'▌ CONFIRM ORDER'}</Text>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{'CONFIRM ORDER'}</Text>
             <AsciiDivider faint style={{ marginTop: 4 }} />
             <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
               <Text style={[T.monoB, { fontSize: 10 }]}>{'ORDER SUMMARY'}</Text>
