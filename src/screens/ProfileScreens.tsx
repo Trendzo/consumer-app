@@ -1,11 +1,11 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Modal } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, BrutalBox, FadeInUp, BrutalInput, Chip } from '../components/Brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, BrutalInput, Chip, OptionSheet } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import {
   listAddresses, createAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
@@ -15,10 +15,20 @@ import {
 // SHARED PRIMITIVES — unique hero per screen, shared shell
 // ═══════════════════════════════════════════════════════════
 
+const TILE = '#F4F4F4'; // grey icon-tile / accent surface
+
+// Turn an ALL-CAPS chip label into sentence case, while preserving short
+// acronyms (PCI, DSS, UPI…) and tokens that contain digits or symbols.
+function sentence(label: string) {
+  return label
+    .split(' ')
+    .map(w => (/^[A-Z]{4,}$/.test(w) ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
+
 function PageShell({ children }: { children: React.ReactNode }) {
-  const { night } = useApp();
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
       {children}
     </View>
@@ -26,55 +36,52 @@ function PageShell({ children }: { children: React.ReactNode }) {
 }
 
 type HeroProps = {
-  code: string;           // e.g. "ADDRESSES_v1"
+  code: string;           // legacy system-ID eyebrow — no longer rendered
   title: string;          // big display copy (can contain \n)
   intro?: string;         // one-line subhead
   chips?: { label: string; solid?: boolean }[];
-  inverted?: boolean;     // black bg instead of white
+  inverted?: boolean;     // legacy — heroes are always light now
 };
-function Hero({ code, title, intro, chips, inverted }: HeroProps) {
-  const fg = inverted ? C.white : C.ink;
-  const bg = inverted ? C.ink : C.white;
-  const dim = inverted ? 'rgba(255,255,255,0.6)' : C.dim;
+function Hero({ title, intro, chips }: HeroProps) {
   return (
     <FadeInUp>
-      <BrutalBox padded solid={inverted} maxRadius={18}>
-        <Text style={[T.mono, { color: dim, fontSize: 9, letterSpacing: 0.6 }]}>{code}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: fg, letterSpacing: -1.4, marginTop: 6, lineHeight: rf(38) }}>
+      <View style={[{ backgroundColor: C.white, padding: SP.l, overflow: 'hidden' }, BORDER(1)]}>
+        <Text style={[T.h1, { textTransform: 'uppercase' }]}>
           {title}
         </Text>
-        {intro && <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: inverted ? 'rgba(255,255,255,0.75)' : C.dim, marginTop: 8, lineHeight: 17 }}>{intro}</Text>}
+        {intro && <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>{intro}</Text>}
         {chips && chips.length > 0 && (
           <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m, flexWrap: 'wrap' }}>
             {chips.map((ch, i) => (
-              <ChipPill key={i} label={ch.label} solid={ch.solid} fg={fg} bg={bg} />
+              <ChipPill key={i} label={ch.label} solid={ch.solid} />
             ))}
           </View>
         )}
-      </BrutalBox>
+      </View>
     </FadeInUp>
   );
 }
 
-function ChipPill({ label, solid, fg, bg }: { label: string; solid?: boolean; fg: string; bg: string }) {
+function ChipPill({ label, solid }: { label: string; solid?: boolean }) {
   return (
-    <BrutalBox
-      maxRadius={10}
-      style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: solid ? fg : 'transparent', borderColor: fg }}
+    <View
+      style={[
+        { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: solid ? C.ink : C.white },
+        BORDER(1),
+      ]}
     >
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: solid ? bg : fg }}>{label}</Text>
-    </BrutalBox>
+      <Text style={[T.caption, { color: solid ? C.white : C.ink }]}>{sentence(label)}</Text>
+    </View>
   );
 }
 
 function SectionLabel({ label, right }: { label: string; right?: string }) {
   return (
     <View style={{ marginTop: SP.xl }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={[T.monoB, { fontSize: 10 }]}>{`${label.toUpperCase()}`}</Text>
-        {right && <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{right}</Text>}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <Text style={[T.h2, { textTransform: 'uppercase' }]}>{label}</Text>
+        {right && <Text style={[T.caption, { color: C.dim }]}>{sentence(right)}</Text>}
       </View>
-      <AsciiDivider faint style={{ marginTop: 4 }} />
     </View>
   );
 }
@@ -133,28 +140,28 @@ export function SavedAddressesScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={`ADDRESSES · ${addresses.length} SAVED`}
-          title={'YOUR\nADDRESSES.'}
+          title={'Your\naddresses.'}
           intro="Deliver to home, office, or anywhere else. One tap to switch."
           chips={[{ label: 'DELIVERY' }]}
         />
 
         <SectionLabel label="SAVED" right={`${addresses.length} ENTRIES`} />
-        {loading && addresses.length === 0 && <Text style={[T.mono, { color: C.dim, marginTop: SP.m }]}>Loading…</Text>}
+        {loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>Loading…</Text>}
         {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
         {addresses.map((a, i) => (
           <FadeInUp key={a.id} delay={i * 60}>
             <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.ink }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{a.label || 'ADDRESS'}</Text>
+                <View style={[{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: TILE }, BORDER(1)]}>
+                  <Text style={[T.caption, { color: C.ink }]}>{a.label || 'Address'}</Text>
                 </View>
                 {a.isDefault ? (
                   <View style={[{ paddingHorizontal: 6, paddingVertical: 3, marginLeft: 6 }, BORDER(1)]}>
-                    <Text style={[T.monoB, { fontSize: 8 }]}>DEFAULT</Text>
+                    <Text style={T.micro}>Default</Text>
                   </View>
                 ) : (
                   <Pressable onPress={() => onSetDefault(a)} style={{ marginLeft: 6 }}>
-                    <Text style={[T.mono, { fontSize: 9, color: C.dim, textDecorationLine: 'underline' }]}>Set default</Text>
+                    <Text style={[T.micro, { textDecorationLine: 'underline' }]}>Set default</Text>
                   </Pressable>
                 )}
                 <View style={{ flex: 1 }} />
@@ -163,8 +170,8 @@ export function SavedAddressesScreen() {
                 </Pressable>
               </View>
               <View style={{ padding: SP.m }}>
-                <Text style={[T.body, { color: C.dim, lineHeight: 18 }]}>{formatAddress(a)}</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>{a.stateCode} · {a.pincode}</Text>
+                <Text style={[T.body, { color: C.dim }]}>{formatAddress(a)}</Text>
+                <Text style={[T.micro, { marginTop: 4 }]}>{a.stateCode} · {a.pincode}</Text>
               </View>
             </View>
           </FadeInUp>
@@ -172,30 +179,24 @@ export function SavedAddressesScreen() {
         <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
       </ScrollView>
 
-      <Modal transparent visible={formOpen} animationType="slide" onRequestClose={() => setFormOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <View style={[{ backgroundColor: C.bg, padding: SP.l, paddingBottom: 40 }, BORDER(1)]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SP.m }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink }}>NEW ADDRESS</Text>
-              <Pressable onPress={() => setFormOpen(false)} hitSlop={10}><Feather name="x" size={22} color={C.ink} /></Pressable>
+      <OptionSheet visible={formOpen} title="New address" onClose={() => setFormOpen(false)}>
+        <View style={{ padding: SP.l, paddingBottom: 40 }}>
+          <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
+          <BrutalInput label="Address line 1" value={form.line1} onChangeText={(v: string) => setForm(f => ({ ...f, line1: v }))} placeholder="Flat, building, street" />
+          <BrutalInput label="Address line 2" value={form.line2} onChangeText={(v: string) => setForm(f => ({ ...f, line2: v }))} placeholder="Area, landmark (optional)" />
+          <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
+          <View style={{ flexDirection: 'row', gap: SP.m }}>
+            <View style={{ flex: 1 }}>
+              <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
             </View>
-            <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
-            <BrutalInput label="Address line 1" value={form.line1} onChangeText={(v: string) => setForm(f => ({ ...f, line1: v }))} placeholder="Flat, building, street" />
-            <BrutalInput label="Address line 2" value={form.line2} onChangeText={(v: string) => setForm(f => ({ ...f, line2: v }))} placeholder="Area, landmark (optional)" />
-            <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
-            <View style={{ flexDirection: 'row', gap: SP.m }}>
-              <View style={{ flex: 1 }}>
-                <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
-              </View>
-              <View style={{ width: 110 }}>
-                <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
-              </View>
+            <View style={{ width: 110 }}>
+              <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
             </View>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
-            <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
           </View>
+          <Text style={[T.micro, { marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
+          <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
         </View>
-      </Modal>
+      </OptionSheet>
     </PageShell>
   );
 }
@@ -219,7 +220,7 @@ export function PaymentMethodsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'PAYMENT_METHODS_v2'}
-          title={'YOUR\nWALLETS.'}
+          title={'Your\nwallets.'}
           intro="UPI, cards, wallets. Pick your default — we remember for next time."
           chips={[{ label: 'SECURE' }, { label: '256-BIT' }, { label: 'PCI DSS' }]}
         />
@@ -234,9 +235,9 @@ export function PaymentMethodsScreen() {
                   <Feather name={p.icon as any} size={18} color={on ? C.ink : C.white} />
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[T.monoB, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{p.type}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 14, color: on ? C.white : C.ink, marginTop: 2 }}>{p.label}</Text>
-                  <Text style={[T.mono, { fontSize: 9, color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>{p.sub}</Text>
+                  <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{p.type}</Text>
+                  <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{p.label}</Text>
+                  <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>{p.sub}</Text>
                 </View>
                 <View style={[{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
                   {on && <Feather name="check" size={13} color={C.ink} />}
@@ -255,7 +256,7 @@ export function PaymentMethodsScreen() {
           ].map(o => (
             <Pressable key={o.label} onPress={() => showToast('Add ' + o.label, 'Coming soon', 'plus')} style={[{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
               <Feather name={o.icon as any} size={18} color={C.ink} />
-              <Text style={[T.monoB, { fontSize: 10, marginTop: 6 }]}>{o.label}</Text>
+              <Text style={[T.caption, { color: C.ink, marginTop: 6 }]}>{o.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -286,24 +287,24 @@ export function LoyaltyRewardsScreen() {
       <ScreenHeader title="Loyalty" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
+          <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'LOYALTY · TIER: ' + currentTier.name}</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{new Date().toLocaleDateString()}</Text>
+              <Text style={[T.caption, { color: C.dim }]}>{'Tier · ' + sentence(currentTier.name)}</Text>
+              <Text style={[T.caption, { color: C.dim }]}>{new Date().toLocaleDateString()}</Text>
             </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(72), color: C.white, letterSpacing: -3, marginTop: 6, lineHeight: rf(72) }}>{points.toLocaleString()}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1, marginTop: 4 }}>LOYALTY POINTS</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.ink, letterSpacing: -2, marginTop: 6, lineHeight: rf(52) }}>{points.toLocaleString()}</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>Loyalty points</Text>
 
             {nextTier && (
               <View style={{ marginTop: SP.l }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{currentTier.name}</Text>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{nextTier.name}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{sentence(currentTier.name)}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{sentence(nextTier.name)}</Text>
                 </View>
-                <View style={{ marginTop: 6, height: 6, backgroundColor: 'rgba(255,255,255,0.2)' }}>
-                  <View style={{ width: `${Math.min(progress * 100, 100)}%`, height: '100%', backgroundColor: C.white }} />
+                <View style={{ marginTop: 6, height: 6, backgroundColor: TILE }}>
+                  <View style={{ width: `${Math.min(progress * 100, 100)}%`, height: '100%', backgroundColor: C.ink }} />
                 </View>
-                <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 6, fontSize: 10 }]}>{nextTier.min - points} pts to {nextTier.name}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>{nextTier.min - points} pts to {sentence(nextTier.name)}</Text>
               </View>
             )}
           </View>
@@ -322,8 +323,8 @@ export function LoyaltyRewardsScreen() {
                   i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
                 ]}
               >
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: isCurrent ? C.white : reached ? C.ink : C.dim, letterSpacing: 0.6 }}>{t.name}</Text>
-                <Text style={[T.mono, { fontSize: 8, color: isCurrent ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{t.min >= 1000 ? `${t.min / 1000}K+` : t.min + '+'}</Text>
+                <Text style={[T.caption, { color: isCurrent ? C.white : reached ? C.ink : C.dim }]}>{t.name}</Text>
+                <Text style={[T.micro, { color: isCurrent ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{t.min >= 1000 ? `${t.min / 1000}K+` : t.min + '+'}</Text>
               </View>
             );
           })}
@@ -339,12 +340,12 @@ export function LoyaltyRewardsScreen() {
         ].map((r, i) => (
           <FadeInUp key={i} delay={60 + i * 30}>
             <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-              <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
+              <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
                 <Feather name={r.icon as any} size={14} color={C.ink} />
               </View>
-              <Text style={[T.bodyB, { flex: 1, marginLeft: 12 }]}>{r.label}</Text>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{r.pts} PTS</Text>
+              <Text style={[T.body, { flex: 1, marginLeft: 12 }]}>{r.label}</Text>
+              <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: TILE }, BORDER(1)]}>
+                <Text style={[T.caption, { color: C.ink }]}>{r.pts} pts</Text>
               </View>
             </View>
           </FadeInUp>
@@ -356,8 +357,8 @@ export function LoyaltyRewardsScreen() {
           'Free shipping above ₹999',
           'Birthday surprise gift',
         ].map((p, i) => (
-          <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-            <Text style={[T.monoB, { fontSize: 12 }]}>▸</Text>
+          <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: 8, alignItems: 'center' }}>
+            <Feather name="check" size={14} color={C.ink} />
             <Text style={[T.body, { flex: 1 }]}>{p}</Text>
           </View>
         ))}
@@ -383,27 +384,27 @@ export function GiftCardScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'GIFT_CARD · DIGITAL'}
-          title={'GIVE THE\nGIFT OF FIT.'}
+          title={'Give the\ngift of fit.'}
           intro="Send a Trendzo gift card to anyone. Redeemable across the entire catalog."
           chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
         />
 
         {/* Live preview card */}
-        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink, minHeight: 180 }, BORDER(1)]}>
+        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.white, minHeight: 180 }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO · GIFT CARD'}</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>PREVIEW</Text>
+            <Text style={[T.caption, { color: C.dim }]}>{'Trendzo · Gift card'}</Text>
+            <Text style={[T.caption, { color: C.dim }]}>Preview</Text>
           </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
-          <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 8 }]}>TO: {toEmail || '—'}</Text>
-          <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 2 }]}>NOTE: {note || '—'}</Text>
+          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.ink, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>To: {toEmail || '—'}</Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>Note: {note || '—'}</Text>
         </View>
 
         <SectionLabel label="SELECT AMOUNT" />
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
           {amounts.map(a => (
             <Pressable key={a} onPress={() => setAmount(String(a))} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: amount === String(a) ? C.ink : C.white }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: amount === String(a) ? C.white : C.ink }}>₹{a}</Text>
+              <Text style={[T.bodyB, { color: amount === String(a) ? C.white : C.ink }]}>₹{a}</Text>
             </Pressable>
           ))}
         </View>
@@ -432,16 +433,16 @@ export function ReferralRewardsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'REFERRAL · ₹200 EACH'}
-          title={'SHARE THE\nDRIP.'}
+          title={'Share the\ndrip.'}
           intro="Give ₹200, get ₹200 when your friend makes their first order."
           chips={[{ label: '7 INVITED' }, { label: '4 JOINED' }, { label: '₹800 EARNED', solid: true }]}
         />
 
         <FadeInUp delay={60}>
-          <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'YOUR CODE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
-            <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 6, fontSize: 10 }]}>TAP COPY TO SHARE</Text>
+          <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+            <Text style={[T.caption, { color: C.dim }]}>{'Your code'}</Text>
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.ink, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>Tap copy to share</Text>
           </View>
         </FadeInUp>
 
@@ -458,12 +459,12 @@ export function ReferralRewardsScreen() {
           { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
         ].map(s => (
           <View key={s.i} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-            <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.white }}>{s.i}</Text>
+            <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+              <Text style={[T.bodyB, { color: C.ink }]}>{s.i}</Text>
             </View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={[T.bodyB]}>{s.t}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{s.sub}</Text>
+              <Text style={[T.micro, { marginTop: 2 }]}>{s.sub}</Text>
             </View>
           </View>
         ))}
@@ -472,8 +473,8 @@ export function ReferralRewardsScreen() {
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
           {[{ label: 'INVITED', value: '7' }, { label: 'JOINED', value: '4' }, { label: 'EARNED', value: '₹800' }].map((s, i) => (
             <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.8 }}>{s.value}</Text>
-              <Text style={[T.monoB, { fontSize: 9, marginTop: 4 }]}>{s.label}</Text>
+              <Text style={T.h1}>{s.value}</Text>
+              <Text style={[T.caption, { marginTop: 4 }]}>{s.label}</Text>
             </View>
           ))}
         </View>
@@ -524,7 +525,7 @@ export function NotificationSettingsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'PUSH_SETTINGS'}
-          title={'STAY IN\nTHE LOOP.'}
+          title={'Stay in\nthe loop.'}
           intro="Control exactly what pings your phone. Turn off the noise, keep what matters."
           chips={[{ label: `${activeCount}/${total} ACTIVE`, solid: true }]}
         />
@@ -535,12 +536,12 @@ export function NotificationSettingsScreen() {
             <View style={[{ marginTop: 8, backgroundColor: C.white }, BORDER(1)]}>
               {grp.items.map((item, i) => (
                 <Pressable key={item.key} onPress={() => toggle(item.key)} style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center' }, i < grp.items.length - 1 && { borderBottomWidth: 1, borderColor: C.hairline }]}>
-                  <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
+                  <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
                     <Feather name={item.icon as any} size={14} color={C.ink} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={[T.bodyB]}>{item.label}</Text>
-                    <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 2 }]}>{item.sub}</Text>
+                    <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{item.sub}</Text>
                   </View>
                   <View style={[{ width: 44, height: 24, justifyContent: 'center', padding: 2, backgroundColor: settings[item.key] ? C.ink : C.white }, BORDER(1)]}>
                     <View style={{ width: 16, height: 16, backgroundColor: settings[item.key] ? C.white : C.ink, alignSelf: settings[item.key] ? 'flex-end' : 'flex-start' }} />
@@ -579,9 +580,9 @@ export function LanguageScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'LOCALE · 8 LANGUAGES'}
-          title={'CHOOSE\nLANGUAGE.'}
+          title={'Choose\nlanguage.'}
           intro="Switch the app interface to your preferred language. Changes apply immediately."
-          chips={[{ label: 'CURRENT: ' + (LANGUAGES.find(l => l.code === selected)?.label || 'English').toUpperCase(), solid: true }]}
+          chips={[{ label: 'Current: ' + (LANGUAGES.find(l => l.code === selected)?.label || 'English'), solid: true }]}
         />
 
         <SectionLabel label="ALL LANGUAGES" right={`${LANGUAGES.length} AVAILABLE`} />
@@ -598,13 +599,13 @@ export function LanguageScreen() {
                 ]}
               >
                 <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : C.white }, BORDER(1), on && { borderColor: C.white }]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }}>{lang.code.toUpperCase()}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{lang.code.toUpperCase()}</Text>
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 14, color: on ? C.white : C.ink }}>{lang.label}</Text>
-                  <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }}>{lang.native}</Text>
+                  <Text style={[T.body, { color: on ? C.white : C.ink }]}>{lang.label}</Text>
+                  <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{lang.native}</Text>
                 </View>
-                <Text style={[T.mono, { fontSize: 9, color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginRight: 10 }]}>{lang.region}</Text>
+                <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginRight: 10 }]}>{lang.region}</Text>
                 {on && <Feather name="check" size={16} color={C.white} />}
               </Pressable>
             );
@@ -644,7 +645,7 @@ export function CustomerSupportScreen() {
         <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 20 }}>
           <Hero
             code={'CX_BOT_v2 · 24×7'}
-            title={'WE GOT\nYOU.'}
+            title={'We got\nyou.'}
             intro="Live chat with CX-Bot. Escalates to a human agent in seconds."
             chips={[{ label: 'ONLINE NOW', solid: true }, { label: 'AVG 2 MIN' }]}
           />
@@ -653,7 +654,7 @@ export function CustomerSupportScreen() {
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             {quick.map(q => (
               <Pressable key={q} onPress={() => send(q)} style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink }}>{q}</Text>
+                <Text style={[T.caption, { color: C.ink }]}>{q}</Text>
               </Pressable>
             ))}
           </View>
@@ -662,8 +663,8 @@ export function CustomerSupportScreen() {
           {messages.map((m, i) => (
             <FadeInUp key={i} delay={i * 40}>
               <View style={{ marginTop: SP.s, alignItems: m.from === 'bot' ? 'flex-start' : 'flex-end' }}>
-                {m.from === 'bot' && <Text style={[T.mono, { color: C.dim, fontSize: 9, marginBottom: 4 }]}>CX-BOT</Text>}
-                {m.from === 'user' && <Text style={[T.mono, { color: C.dim, fontSize: 9, marginBottom: 4 }]}>YOU</Text>}
+                {m.from === 'bot' && <Text style={[T.micro, { marginBottom: 4 }]}>CX-Bot</Text>}
+                {m.from === 'user' && <Text style={[T.micro, { marginBottom: 4 }]}>You</Text>}
                 <View style={[{ padding: SP.m, maxWidth: '85%', backgroundColor: m.from === 'bot' ? C.white : C.ink }, BORDER(1)]}>
                   <Text style={[T.body, { color: m.from === 'bot' ? C.ink : C.white }]}>{m.text}</Text>
                 </View>
@@ -677,7 +678,7 @@ export function CustomerSupportScreen() {
             onChangeText={setMessage}
             placeholder="Type your message..."
             placeholderTextColor={C.dim}
-            style={[{ flex: 1, padding: SP.m, fontFamily: 'Inter_400Regular', fontSize: 14, color: C.ink }, BORDER(1)]}
+            style={[T.body, { flex: 1, padding: SP.m }, BORDER(1)]}
           />
           <BrutalButton label="Send" icon="send" small onPress={() => send()} />
         </View>
@@ -707,7 +708,7 @@ export function StylePreferencesScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'STYLE_DNA'}
-          title={'YOUR\nAESTHETIC.'}
+          title={'Your\naesthetic.'}
           intro="Pick your vibes, sizes, and colors. Your feed tunes itself to match."
           chips={[{ label: `${vibes.length} VIBES` }, { label: `${sizes.length} SIZES` }, { label: `${colors.length} COLORS` }]}
         />
@@ -776,7 +777,7 @@ export function MeasurementScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'BODY_SCAN · 8 POINTS'}
-          title={'YOUR\nMEASUREMENTS.'}
+          title={'Your\nmeasurements.'}
           intro="Accurate sizing means fewer returns. Update anytime — we use this to recommend fits."
           chips={[{ label: 'MALE · 28Y' }, { label: 'SIZE M / L' }]}
         />
@@ -792,7 +793,7 @@ export function MeasurementScreen() {
                 i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
               ]}
             >
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: unit === u ? C.white : C.ink, letterSpacing: 0.6 }}>{u}</Text>
+              <Text style={[T.caption, { color: unit === u ? C.white : C.ink }]}>{u}</Text>
             </Pressable>
           ))}
         </View>
@@ -804,9 +805,9 @@ export function MeasurementScreen() {
               <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Feather name={m.icon as any} size={12} color={C.dim} />
-                  <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{m.label.toUpperCase()}</Text>
+                  <Text style={T.caption}>{m.label}</Text>
                 </View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.8, marginTop: 6 }}>{convert(m.valueCm)}</Text>
+                <Text style={[T.h1, { marginTop: 6 }]}>{convert(m.valueCm)}</Text>
               </View>
             </FadeInUp>
           ))}
@@ -827,12 +828,12 @@ export function MeasurementScreen() {
 export function FashionCalendarScreen() {
   const nav = useNavigation<any>();
   const events = [
-    { date: 'APR 15', day: 'TUE', title: 'SUMMER DROP', sub: 'New arrivals from 12 brands', icon: 'sun', tag: 'NEW' },
-    { date: 'APR 20', day: 'SUN', title: 'FLASH SALE', sub: 'Up to 70% off · 24 hours only', icon: 'zap', tag: 'HOT' },
-    { date: 'MAY 01', day: 'THU', title: 'BRAND COLLAB', sub: 'NORTH. × AZUKI limited edition', icon: 'star', tag: 'EXCLUSIVE' },
-    { date: 'MAY 10', day: 'SAT', title: 'FESTIVAL EDIT', sub: 'Curated festive collection', icon: 'gift', tag: 'CURATED' },
-    { date: 'MAY 25', day: 'SUN', title: 'END OF SEASON', sub: 'Clearance sale starts', icon: 'tag', tag: 'SALE' },
-    { date: 'JUN 01', day: 'SUN', title: 'MONSOON READY', sub: 'Waterproof & layering essentials', icon: 'cloud', tag: 'PREVIEW' },
+    { date: 'APR 15', day: 'TUE', title: 'Summer Drop', sub: 'New arrivals from 12 brands', icon: 'sun', tag: 'NEW' },
+    { date: 'APR 20', day: 'SUN', title: 'Flash Sale', sub: 'Up to 70% off · 24 hours only', icon: 'zap', tag: 'HOT' },
+    { date: 'MAY 01', day: 'THU', title: 'Brand Collab', sub: 'NORTH. × AZUKI limited edition', icon: 'star', tag: 'EXCLUSIVE' },
+    { date: 'MAY 10', day: 'SAT', title: 'Festival Edit', sub: 'Curated festive collection', icon: 'gift', tag: 'CURATED' },
+    { date: 'MAY 25', day: 'SUN', title: 'End of Season', sub: 'Clearance sale starts', icon: 'tag', tag: 'SALE' },
+    { date: 'JUN 01', day: 'SUN', title: 'Monsoon Ready', sub: 'Waterproof & layering essentials', icon: 'cloud', tag: 'PREVIEW' },
   ];
 
   return (
@@ -841,7 +842,7 @@ export function FashionCalendarScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'UPCOMING · 6 EVENTS'}
-          title={'FASHION\nCALENDAR.'}
+          title={'Fashion\ncalendar.'}
           intro="Drops, sales, collabs — everything we've got lined up."
           chips={[{ label: 'APR—JUN 2026', solid: true }]}
         />
@@ -852,19 +853,19 @@ export function FashionCalendarScreen() {
             <FadeInUp key={i} delay={i * 50}>
               <View style={[{ flexDirection: 'row', backgroundColor: C.white }, BORDER(1)]}>
                 {/* Date column */}
-                <View style={{ width: 80, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', padding: SP.s }}>
-                  <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{e.day}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, letterSpacing: 0.5, marginTop: 2 }}>{e.date}</Text>
+                <View style={{ width: 80, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline }}>
+                  <Text style={[T.micro, { color: C.dim }]}>{e.day}</Text>
+                  <Text style={[T.bodyB, { color: C.ink, marginTop: 2 }]}>{e.date}</Text>
                 </View>
                 {/* Content */}
                 <View style={{ flex: 1, padding: SP.m }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                     <View style={[{ paddingHorizontal: 6, paddingVertical: 2 }, BORDER(1)]}>
-                      <Text style={[T.monoB, { fontSize: 8 }]}>{e.tag}</Text>
+                      <Text style={T.micro}>{e.tag}</Text>
                     </View>
                     <Feather name={e.icon as any} size={12} color={C.dim} />
                   </View>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: -0.3 }}>{e.title}</Text>
+                  <Text style={T.h3}>{e.title}</Text>
                   <Text style={[T.body, { color: C.dim, marginTop: 3 }]}>{e.sub}</Text>
                 </View>
               </View>
@@ -887,11 +888,11 @@ export function SustainabilityScreen() {
     { label: 'WATER SAVED', value: '1.2K L' },
   ];
   const pillars = [
-    { title: 'ECO-FRIENDLY PACKAGING', sub: '100% recyclable materials for all shipments', icon: 'package' },
-    { title: 'CARBON NEUTRAL DELIVERY', sub: 'We offset every delivery with verified carbon credits', icon: 'wind' },
-    { title: 'ETHICAL SOURCING', sub: 'Fair wages and safe conditions for all workers', icon: 'heart' },
-    { title: 'SECOND LIFE PROGRAM', sub: 'Donate old clothes for Trendzo credits', icon: 'refresh-cw' },
-    { title: 'SUSTAINABLE BRANDS', sub: '40+ eco-conscious brands on the platform', icon: 'award' },
+    { title: 'Eco-friendly packaging', sub: '100% recyclable materials for all shipments', icon: 'package' },
+    { title: 'Carbon neutral delivery', sub: 'We offset every delivery with verified carbon credits', icon: 'wind' },
+    { title: 'Ethical sourcing', sub: 'Fair wages and safe conditions for all workers', icon: 'heart' },
+    { title: 'Second life program', sub: 'Donate old clothes for Trendzo credits', icon: 'refresh-cw' },
+    { title: 'Sustainable brands', sub: '40+ eco-conscious brands on the platform', icon: 'award' },
   ];
   return (
     <PageShell>
@@ -899,7 +900,7 @@ export function SustainabilityScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'ECO_MODE · IMPACT_2026'}
-          title={'FASHION\nFOR GOOD.'}
+          title={'Fashion\nfor good.'}
           intro="Our commitment to sustainable fashion and ethical production — measurable, not marketing."
           chips={[{ label: 'CARBON NEUTRAL', solid: true }, { label: 'B-CORP' }]}
         />
@@ -908,8 +909,8 @@ export function SustainabilityScreen() {
         <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
           {impact.map((s, i) => (
             <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, letterSpacing: -0.5 }}>{s.value}</Text>
-              <Text style={[T.monoB, { fontSize: 8, marginTop: 4 }]}>{s.label}</Text>
+              <Text style={T.h2}>{s.value}</Text>
+              <Text style={[T.caption, { marginTop: 4 }]}>{s.label}</Text>
             </View>
           ))}
         </View>
@@ -919,14 +920,14 @@ export function SustainabilityScreen() {
           <FadeInUp key={i} delay={i * 50}>
             <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
+                <View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
                   <Feather name={item.icon as any} size={16} color={C.ink} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, letterSpacing: 0.3 }}>{item.title}</Text>
+                  <Text style={T.h3}>{item.title}</Text>
                   <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{item.sub}</Text>
                 </View>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{String(i + 1).padStart(2, '0')}</Text>
+                <Text style={[T.micro, { color: C.dim }]}>{String(i + 1).padStart(2, '0')}</Text>
               </View>
             </View>
           </FadeInUp>
@@ -1011,7 +1012,7 @@ export function OrderReturnScreen() {
 
   // Progress bar — shows current step of 3
   const stepIndex = step === 'order' ? 0 : step === 'item' ? 1 : 2;
-  const stepLabels = ['ORDER', 'ITEM', 'REASON'];
+  const stepLabels = ['Order', 'Item', 'Reason'];
 
   return (
     <PageShell>
@@ -1019,7 +1020,7 @@ export function OrderReturnScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'RETURN_FLOW · 7D'}
-          title={'EASY\nRETURNS.'}
+          title={'Easy\nreturns.'}
           intro="7-day hassle-free returns. Pickup from your door. Refund in 3-5 days."
           chips={[{ label: `STEP ${stepIndex + 1}/3`, solid: true }, { label: 'FREE PICKUP' }]}
         />
@@ -1037,8 +1038,8 @@ export function OrderReturnScreen() {
                   i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
                 ]}
               >
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: active || done ? C.white : C.ink, letterSpacing: 0.6 }}>{label}</Text>
-                <Text style={[T.mono, { fontSize: 8, marginTop: 2, color: active || done ? 'rgba(255,255,255,0.6)' : C.dim }]}>0{i + 1}</Text>
+                <Text style={[T.caption, { color: active || done ? C.white : C.ink }]}>{label}</Text>
+                <Text style={[T.micro, { marginTop: 2, color: active || done ? 'rgba(255,255,255,0.6)' : C.dim }]}>0{i + 1}</Text>
               </View>
             );
           })}
@@ -1061,27 +1062,27 @@ export function OrderReturnScreen() {
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
                       <View style={{ flex: 1 }}>
-                        <Text style={[T.monoB, { fontSize: 10 }]}>{`#${o.id}`}</Text>
-                        <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{o.date} · {o.items.length} item{o.items.length !== 1 ? 's' : ''}</Text>
+                        <Text style={[T.caption, { color: C.ink }]}>{`#${o.id}`}</Text>
+                        <Text style={[T.micro, { marginTop: 2 }]}>{o.date} · {o.items.length} item{o.items.length !== 1 ? 's' : ''}</Text>
                       </View>
                       <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: expired ? C.white : C.ink }, BORDER(1)]}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: expired ? C.ink : C.white }}>
-                          {expired ? 'WINDOW CLOSED' : `${o.daysLeft}D LEFT`}
+                        <Text style={[T.caption, { color: expired ? C.ink : C.white }]}>
+                          {expired ? 'Window closed' : `${o.daysLeft}D LEFT`}
                         </Text>
                       </View>
                     </View>
                     <View style={{ padding: SP.m, gap: 6 }}>
                       {o.items.map(it => (
                         <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={[T.monoB, { fontSize: 8, color: C.dim, width: 48 }]}>{it.brand}</Text>
-                          <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: C.ink, flex: 1 }} numberOfLines={1}>{it.name}</Text>
-                          <Text style={[T.mono, { fontSize: 10 }]}>₹{it.price}</Text>
+                          <Text style={[T.micro, { color: C.dim, width: 48 }]}>{it.brand}</Text>
+                          <Text style={[T.productName, { flex: 1 }]} numberOfLines={1}>{it.name}</Text>
+                          <Text style={[T.caption, { color: C.ink }]}>₹{it.price}</Text>
                         </View>
                       ))}
                     </View>
                     {!expired && (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', padding: SP.m, borderTopWidth: 1, borderColor: C.hairline, gap: 4 }}>
-                        <Text style={[T.monoB, { fontSize: 10 }]}>CHOOSE ITEM</Text>
+                        <Text style={[T.caption, { color: C.ink }]}>Choose item</Text>
                         <Feather name="chevron-right" size={14} color={C.ink} />
                       </View>
                     )}
@@ -1095,10 +1096,10 @@ export function OrderReturnScreen() {
         {/* ── STEP 2: PICK ITEM ── */}
         {step === 'item' && selectedOrder && (
           <>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'SELECTED ORDER'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, marginTop: 4 }}>{`#${selectedOrder.id}`}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D LEFT IN WINDOW</Text>
+            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
+              <Text style={[T.caption, { color: C.dim }]}>{'Selected order'}</Text>
+              <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{`#${selectedOrder.id}`}</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D left in window</Text>
             </View>
 
             <SectionLabel label="SELECT ITEM TO RETURN" right={`${selectedOrder.items.length} ITEMS`} />
@@ -1111,9 +1112,9 @@ export function OrderReturnScreen() {
                       <Feather name="shopping-bag" size={16} color={on ? C.ink : C.ink} />
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[T.monoB, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{it.brand}</Text>
-                      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, marginTop: 2 }}>{it.name}</Text>
-                      <Text style={[T.mono, { fontSize: 10, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>₹{it.price}</Text>
+                      <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{it.brand}</Text>
+                      <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{it.name}</Text>
+                      <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>₹{it.price}</Text>
                     </View>
                     <Feather name={on ? 'check' : 'chevron-right'} size={16} color={on ? C.white : C.ink} />
                   </Pressable>
@@ -1126,10 +1127,10 @@ export function OrderReturnScreen() {
         {/* ── STEP 3: PICK REASON ── */}
         {step === 'reason' && selectedOrder && selectedItem && (
           <>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.6)' }]}>{'RETURNING'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, marginTop: 4 }}>{selectedItem.name}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: 'rgba(255,255,255,0.7)', marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
+            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
+              <Text style={[T.caption, { color: C.dim }]}>{'Returning'}</Text>
+              <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{selectedItem.name}</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
             </View>
 
             <SectionLabel label="WHY ARE YOU RETURNING?" />
@@ -1141,7 +1142,7 @@ export function OrderReturnScreen() {
                     <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
                       <Feather name={r.icon as any} size={14} color={C.ink} />
                     </View>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }}>{r.label}</Text>
+                    <Text style={[T.body, { color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }]}>{r.label}</Text>
                     {on && <Feather name="check" size={16} color={C.white} />}
                   </Pressable>
                 </FadeInUp>
@@ -1177,7 +1178,7 @@ export function ReviewsScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <Hero
           code={'YOUR_REVIEWS'}
-          title={'YOUR\nFEEDBACK.'}
+          title={'Your\nfeedback.'}
           intro="The reviews you've left. Brands listen — your words help others shop better."
           chips={[{ label: `${MOCK_REVIEWS.length} POSTED`, solid: true }, { label: `AVG ${avg}★` }, { label: 'HELPFUL' }]}
         />
@@ -1195,25 +1196,25 @@ export function ReviewsScreen() {
             <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[T.monoB, { fontSize: 9, color: C.dim }]}>{r.brand}</Text>
+                  <Text style={T.caption}>{r.brand}</Text>
                   <Text style={[T.bodyB, { marginTop: 2 }]}>{r.product}</Text>
                 </View>
-                <Text style={[T.mono, { color: C.dim }]}>{r.date}</Text>
+                <Text style={T.micro}>{r.date}</Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 2, marginTop: 8 }}>
                 {[1, 2, 3, 4, 5].map(s => (
-                  <Text key={s} style={{ fontSize: 16, color: s <= r.rating ? C.ink : C.hairline }}>★</Text>
+                  <Text key={s} style={[T.h3, { color: s <= r.rating ? C.ink : C.hairline }]}>★</Text>
                 ))}
               </View>
-              <Text style={[T.body, { marginTop: 8, lineHeight: 18 }]}>{r.text}</Text>
+              <Text style={[T.body, { marginTop: 8 }]}>{r.text}</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: C.hairline, gap: 16 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                   <Feather name="thumbs-up" size={12} color={C.ink} />
-                  <Text style={[T.mono, { fontSize: 10 }]}>{r.likes} HELPFUL</Text>
+                  <Text style={T.micro}>{r.likes} helpful</Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                   <Feather name="edit-2" size={12} color={C.dim} />
-                  <Text style={[T.mono, { fontSize: 10, color: C.dim }]}>EDIT</Text>
+                  <Text style={T.micro}>Edit</Text>
                 </View>
               </View>
             </View>
@@ -1244,7 +1245,7 @@ export function StorePickupScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         <Hero
           code={'PICKUP · ZERO_DELIVERY_FEE'}
-          title={'BUY ONLINE.\nPICK IT UP.'}
+          title={'Buy online.\nPick it up.'}
           intro="Skip delivery. Grab your order from your nearest store — usually ready in under an hour."
           chips={[{ label: 'FREE', solid: true }, { label: 'IN STORE' }, { label: '4 STORES' }]}
           inverted
@@ -1254,16 +1255,16 @@ export function StorePickupScreen() {
         <View style={{ marginTop: 8, gap: SP.s }}>
           {[
             { i: 1, t: 'Shop as normal', sub: 'Add anything from the app to your bag' },
-            { i: 2, t: 'Pick INSTORE PICKUP at checkout', sub: 'Choose your nearest store from the list' },
+            { i: 2, t: 'Pick in-store pickup at checkout', sub: 'Choose your nearest store from the list' },
             { i: 3, t: "We ping you when it's ready", sub: 'Show the QR at the counter — walk out with it' },
           ].map(step => (
             <View key={step.i} style={[{ flexDirection: 'row', padding: SP.s, gap: 10, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-              <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white }}>{step.i}</Text>
+              <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                <Text style={[T.bodyB, { color: C.ink }]}>{step.i}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink }}>{step.t}</Text>
-                <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{step.sub}</Text>
+                <Text style={[T.bodyB]}>{step.t}</Text>
+                <Text style={[T.micro, { marginTop: 2 }]}>{step.sub}</Text>
               </View>
             </View>
           ))}
@@ -1281,15 +1282,15 @@ export function StorePickupScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: on ? C.white : C.ink }}>{st.name}</Text>
+                      <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>{st.name}</Text>
                       <View style={[{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : C.ink }]}>
-                        <Text style={[T.monoB, { fontSize: 8, color: on ? C.ink : C.white }]}>{st.dist}</Text>
+                        <Text style={[T.micro, { color: on ? C.ink : C.white }]}>{st.dist}</Text>
                       </View>
                     </View>
-                    <Text style={[T.mono, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3 }]}>{st.addr}</Text>
+                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3 }]}>{st.addr}</Text>
                     <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
-                      <Text style={[T.monoB, { fontSize: 9, color: on ? C.white : C.ink }]}>◆ READY IN {st.eta}</Text>
-                      <Text style={[T.mono, { fontSize: 9, color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{st.open}</Text>
+                      <Text style={[T.caption, { color: on ? C.white : C.ink }]}>Ready in {st.eta}</Text>
+                      <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{st.open}</Text>
                     </View>
                   </View>
                 </View>
@@ -1315,7 +1316,7 @@ export function TryAndBuyScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         <Hero
           code={'TRY_AT_HOME // FREE_RETURNS'}
-          title={"TRY IT.\nKEEP IT.\nOR DON'T."}
+          title={"Try it.\nKeep it.\nOr don't."}
           intro="Order up to 5 items. Courier waits 15 min at your door. Keep what fits — return the rest on the spot."
           chips={[{ label: '₹99', solid: true }, { label: '15 MIN TRIAL' }, { label: 'FREE RETURNS' }]}
           inverted
@@ -1325,16 +1326,16 @@ export function TryAndBuyScreen() {
         <View style={{ marginTop: 8, gap: 8 }}>
           {[
             { i: 1, t: 'Add up to 5 items to your bag' },
-            { i: 2, t: 'Pick TRY & BUY at checkout' },
+            { i: 2, t: 'Pick Try & Buy at checkout' },
             { i: 3, t: 'Courier delivers next day, waits 15 min at your door' },
             { i: 4, t: 'Try everything on — keep what fits' },
             { i: 5, t: 'Return the rest on the spot · zero hassle, zero fee' },
           ].map(step => (
             <View key={step.i} style={[{ flexDirection: 'row', padding: SP.s, gap: 10, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-              <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white }}>{step.i}</Text>
+              <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                <Text style={[T.bodyB, { color: C.ink }]}>{step.i}</Text>
               </View>
-              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, flex: 1 }}>{step.t}</Text>
+              <Text style={[T.body, { flex: 1 }]}>{step.t}</Text>
             </View>
           ))}
         </View>
@@ -1347,9 +1348,9 @@ export function TryAndBuyScreen() {
             'Max trial slots per month: 3',
             'Must be home when the courier arrives',
           ].map((t, i) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: i === 0 ? 0 : 8 }}>
-              <Text style={[T.monoB, { fontSize: 11 }]}>▸</Text>
-              <Text style={[T.body, { flex: 1, fontSize: 12 }]}>{t}</Text>
+            <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: i === 0 ? 0 : 8, alignItems: 'center' }}>
+              <Feather name="check" size={14} color={C.ink} />
+              <Text style={[T.body, { flex: 1 }]}>{t}</Text>
             </View>
           ))}
         </View>

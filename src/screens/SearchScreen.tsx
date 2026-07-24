@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { AsciiDivider, Chip, CachedImage, ProductCard } from '../components/Brutal';
+import { Chip, CachedImage, ProductCard } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
@@ -18,7 +18,7 @@ const TRENDING = ['Y2K', 'wide leg', 'cargo', 'mesh', 'utility', 'denim', 'satin
 export default function SearchScreen() {
   const nav = useNavigation<any>();
   const [q, setQ] = useState('');
-  const { night, theme, gender } = useApp();
+  const { gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<{ [k: string]: any }>({});
 
@@ -44,8 +44,8 @@ export default function SearchScreen() {
   }, [q, gender]);
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      <StatusBar barStyle="dark-content" />
       {/* HEADER */}
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingTop: 56, paddingBottom: SP.m, gap: 10 }}>
         <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10 }, BORDER(1)]}>
@@ -54,24 +54,23 @@ export default function SearchScreen() {
             value={q}
             onChangeText={setQ}
             autoFocus
-            placeholder="SEARCH FITS, BRANDS, VIBES..."
+            placeholder="Search fits, brands, vibes..."
             placeholderTextColor={C.dim}
-            style={{ flex: 1, fontFamily: 'SpaceMono_700Bold', fontSize: 11, color: C.ink, padding: 0, letterSpacing: 0.5 }}
+            style={[T.body, { flex: 1, padding: 0 }]}
           />
           {q.length > 0 && <Pressable onPress={() => setQ('')}><Feather name="x" size={14} color={C.ink} /></Pressable>}
         </View>
         <Pressable onPress={() => { Keyboard.dismiss(); nav.goBack(); }}>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'[CANCEL]'}</Text>
+          <Text style={[T.button, { color: C.ink }]}>Cancel</Text>
         </Pressable>
       </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+      <View style={{ height: 1, backgroundColor: C.hairline }} />
 
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
         {q.length === 0 ? (
           <>
             <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-              <Text style={[T.label]}>{'RECENT'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
+              <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.s }]}>{'Recent'}</Text>
               {RECENT.map(r => (
                 <Pressable key={r} onPress={() => setQ(r)} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 }}>
                   <Feather name="clock" size={14} color={C.dim} />
@@ -81,17 +80,15 @@ export default function SearchScreen() {
               ))}
             </View>
 
-            <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-              <Text style={[T.label]}>{'TRENDING'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+              <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.m }]}>{'Trending'}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {TRENDING.map((t, i) => <Chip key={t} label={`#${t}`} onPress={() => setQ(t)} />)}
               </View>
             </View>
 
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-              <Text style={[T.label]}>{'POPULAR DROPS'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
+              <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.s }]}>{'Popular Drops'}</Text>
               {PRODUCTS.slice(0, 4).map((p, i) => (
                 <MotiView key={p.id} from={{ opacity: 0, translateX: -10 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: i * 60 }}>
                   <Pressable onPress={() => openZoom(zoomRefs.current['pd' + p.id], p.img, p)} style={s.row}>
@@ -100,7 +97,7 @@ export default function SearchScreen() {
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={[T.bodyB]} numberOfLines={1}>{p.name}</Text>
-                      <Text style={[T.mono, { color: C.dim }]}>{p.brand} · ₹{p.price}</Text>
+                      <Text style={[T.caption]}>{p.brand} · ₹{p.price}</Text>
                     </View>
                     <Feather name="arrow-up-right" size={14} color={C.ink} />
                   </Pressable>
@@ -110,8 +107,7 @@ export default function SearchScreen() {
           </>
         ) : (
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-            <Text style={[T.mono, { color: C.dim }]}>{searching ? `SEARCHING "${q.toUpperCase()}"…` : `${results.length} RESULTS FOR "${q.toUpperCase()}"`}</Text>
-            <AsciiDivider style={{ marginTop: 6 }} />
+            <Text style={[T.caption]}>{searching ? `Searching "${q}"…` : `${results.length} results for "${q}"`}</Text>
             {!searching && results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
               {results.map((p, i) => (

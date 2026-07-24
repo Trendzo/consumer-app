@@ -1,6 +1,6 @@
 // Vertical reels feed with snap-paging, brutalism overlay UI.
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, Modal, TextInput, Share, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, TextInput, Share, ScrollView } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -8,16 +8,16 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import SearchScreen from './SearchScreen';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { REELS, PRODUCTS } from '../data/mockData';
 import { useApp } from '../state/AppState';
-import { useGenderCurve, CachedImage } from '../components/Brutal';
+import { useGenderCurve, CachedImage, OptionSheet } from '../components/Brutal';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
 const { height, width } = Dimensions.get('window');
 
 // Fashion / clothing reels (Mixkit, royalty-free – verified URLs)
-const FASHION_VIDEOS = [
+const FASHION_VIDEOS: (string | number)[] = [
   'https://assets.mixkit.co/videos/23327/23327-720.mp4',  // Hand selecting through clothes
   'https://assets.mixkit.co/videos/33167/33167-720.mp4',  // Sweaters on coat rack
   'https://assets.mixkit.co/videos/21326/21326-720.mp4',  // Woman viewing discounted clothes
@@ -47,17 +47,37 @@ const buildPage = (offset: number, count: number) =>
 
 const PAGE_SIZE = 12;
 
-export default function ReelsScreen() {
+export default function ReelsScreen({ route }: { route: any }) {
   const nav = useNavigation<any>();
   // Drops isActive on every player the moment the tab blurs → videos pause
   // instead of looping/decoding in the background on other tabs.
   const isFocused = useIsFocused();
-  const { addToCart, toggleFavorite, isFavorite, night, showToast } = useApp();
-  const s = React.useMemo(() => makeS(), [night]);
+  const { addToCart, toggleFavorite, isFavorite, showToast } = useApp();
+  const s = React.useMemo(() => makeS(), []);
   const [active, setActive] = useState(0);
   const [seed, setSeed] = useState(0);
   const [data, setData] = useState(() => buildPage(0, PAGE_SIZE * 2));
   const listRef = useRef<FlatList>(null);
+
+  // A Home Reel card passes its exact local video source here. Put that video
+  // first and reset the feed so the card the user tapped starts immediately.
+  useEffect(() => {
+    const selectedVideo = route?.params?.selectedVideo as string | number | undefined;
+    if (!selectedVideo) return;
+    const selectedIndex = Number(route?.params?.selectedIndex ?? 0);
+    const base = REELS[selectedIndex % REELS.length];
+    const selected = {
+      ...base,
+      id: `selected-${route?.params?.selectedGender ?? 'reel'}-${route?.params?.selectionToken ?? Date.now()}`,
+      video: selectedVideo,
+      product: PRODUCTS[selectedIndex % PRODUCTS.length],
+      likes: 1240 + selectedIndex * 137,
+      comments: 89 + selectedIndex * 12,
+    };
+    setData([selected, ...buildPage(0, PAGE_SIZE * 2)]);
+    setActive(0);
+    requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }));
+  }, [route?.params?.selectionToken]);
 
   // Search drop-down (slides from top)
   const [searchMounted, setSearchMounted] = useState(false);
@@ -149,7 +169,7 @@ const SEED_COMMENTS = [
 
 // ── Isolated video component — only mounts when the reel is active so we
 //    never create multiple AVPlayer instances simultaneously (fixes TestFlight crash).
-function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
+function ReelVideo({ url, isActive }: { url: string | number; isActive: boolean }) {
   const player = useVideoPlayer(url, p => {
     p.loop = true;
     p.muted = true;
@@ -180,8 +200,7 @@ function ReelVideo({ url, isActive }: { url: string; isActive: boolean }) {
 }
 
 function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct }: any) {
-  const { night } = useApp();
-  const s = React.useMemo(() => makeS(), [night]);
+  const s = React.useMemo(() => makeS(), []);
   const { ref: prodRef, open: openProd } = useZoomCard();
 
   const [saved, setSaved] = useState(false);
@@ -194,12 +213,6 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct 
   // the window preserves the no-re-buffer-on-swipe-back behavior with at most
   // 3 live players. isActive also drops on tab blur, pausing playback.
   const mountVideo = distance <= 1;
-
-  // HER-mode curves for all the overlay cards on the reel
-  const prodCurve = useGenderCurve(14);
-  const inputCurve = useGenderCurve(10);
-  const sendCurve = useGenderCurve(21);
-  const avatarCurve = useGenderCurve(16);
 
   // Double-tap heart pop — tracks the tap location so the heart blooms where the user hit
   const heartX = useSharedValue(width / 2);
@@ -268,71 +281,59 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct 
         <ReelAction icon={saved ? 'bookmark' : 'bookmark-outline'} iconSet="ion" active={saved} onPress={() => setSaved(s => !s)} />
       </View>
 
-      {/* COMMENTS MODAL */}
-      <Modal visible={commentsOpen} animationType="slide" transparent onRequestClose={() => setCommentsOpen(false)}>
-        <Pressable style={s.modalBackdrop} onPress={() => setCommentsOpen(false)} />
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.modalSheet}>
-          <View style={s.modalHandle} />
-          <View style={s.modalHeader}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>{comments.length} COMMENTS</Text>
-            <Pressable onPress={() => setCommentsOpen(false)} hitSlop={10}>
-              <Feather name="x" size={22} color={C.ink} />
-            </Pressable>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 14 }}>
-            {comments.map((c, i) => (
-              <View key={i} style={{ flexDirection: 'row', gap: 10 }}>
-                <Animated.View style={[s.avatar, avatarCurve]}>
-                  <Text style={{ color: C.white, fontFamily: 'Inter_900Black', fontSize: 12 }}>{c.user[0].toUpperCase()}</Text>
-                </Animated.View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[T.monoB, { fontSize: 11, color: C.ink }]}>@{c.user}</Text>
-                  <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 13, color: C.ink, marginTop: 2 }}>{c.text}</Text>
-                </View>
+      {/* COMMENTS — shared light bottom sheet (children mode) */}
+      <OptionSheet visible={commentsOpen} title="Comments" onClose={() => setCommentsOpen(false)}>
+        <ScrollView style={{ maxHeight: height * 0.5 }} contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+          {comments.map((c, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={s.avatar}>
+                <Text style={[T.bodyB, { color: C.white }]}>{c.user[0].toUpperCase()}</Text>
               </View>
-            ))}
-          </ScrollView>
-          <View style={s.commentInputRow}>
-            <Animated.View style={[{ flex: 1, overflow: 'hidden' }, inputCurve]}>
-              <TextInput
-                value={draft}
-                onChangeText={setDraft}
-                placeholder="add a comment..."
-                placeholderTextColor="#888"
-                style={s.commentInput}
-                onSubmitEditing={submitComment}
-                returnKeyType="send"
-              />
-            </Animated.View>
-            <Animated.View style={[s.sendBtn, sendCurve]}>
-              <Pressable onPress={submitComment} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                <Feather name="send" size={18} color={C.white} />
-              </Pressable>
-            </Animated.View>
+              <View style={{ flex: 1 }}>
+                <Text style={[T.caption, { color: C.ink }]}>@{c.user}</Text>
+                <Text style={[T.body, { marginTop: 2 }]}>{c.text}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+        <View style={s.commentInputRow}>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="add a comment..."
+              placeholderTextColor={C.dim}
+              style={s.commentInput}
+              onSubmitEditing={submitComment}
+              returnKeyType="send"
+            />
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+          <Pressable onPress={submitComment} style={s.sendBtn}>
+            <Feather name="send" size={18} color={C.white} />
+          </Pressable>
+        </View>
+      </OptionSheet>
 
       {/* BOTTOM INFO — username + bio only */}
       <View style={s.bottom}>
-        <Text style={{ fontFamily: 'Inter_900Black', color: '#fff', fontSize: rf(22) }}>{reel.user}</Text>
-        <Text style={{ fontFamily: 'Inter_500Medium', color: '#fff', fontSize: 13, marginTop: 4 }}>{reel.title}</Text>
+        <Text style={[T.h2, { color: '#fff' }]}>{reel.user}</Text>
+        <Text style={[T.body, { color: '#fff', marginTop: 4 }]}>{reel.title}</Text>
       </View>
 
-      {/* PRODUCT TAG */}
-      <Animated.View style={[s.prodTag, prodCurve]}>
+      {/* PRODUCT TAG — mini product card (white bg over video, sharp, hairline) */}
+      <View style={s.prodTag}>
         <Pressable onPress={() => reel.product?.img ? openProd(reel.product.img, reel.product) : onProduct()} style={{ flex: 1, flexDirection: 'row' }}>
           <View ref={prodRef} collapsable={false}><CachedImage source={{ uri: reel.product.img }} style={s.prodTagImg} resizeMode="cover" /></View>
           <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
-            <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{reel.product.brand}</Text>
-            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink }} numberOfLines={1}>{reel.product.name}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{reel.product.price}</Text>
+            <Text style={[T.caption, { color: C.ink }]}>{reel.product.brand}</Text>
+            <Text style={[T.productName]} numberOfLines={1}>{reel.product.name}</Text>
+            <Text style={[T.price, { marginTop: 2 }]}>₹{reel.product.price}</Text>
           </View>
         </Pressable>
         <Pressable onPress={onAdd} style={s.prodAdd}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>+ ADD</Text>
+          <Text style={[T.caption, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>+ Add</Text>
         </Pressable>
-      </Animated.View>
+      </View>
 
     </View>
   );
@@ -355,7 +356,7 @@ function ReelAction({ icon, count, onPress, active, iconSet }: { icon: any; coun
   return (
     <Pressable onPress={onPress} style={{ alignItems: 'center', gap: 4, paddingVertical: 6 }} hitSlop={8}>
       <Icon name={icon} size={size} color="#fff" />
-      {count != null && <Text style={[T.monoB, { color: '#fff', fontSize: 10 }]}>{count > 999 ? `${(count / 1000).toFixed(1)}K` : count}</Text>}
+      {count != null && <Text style={[T.caption, { color: '#fff' }]}>{count > 999 ? `${(count / 1000).toFixed(1)}K` : count}</Text>}
     </Pressable>
   );
 }
@@ -367,14 +368,8 @@ const makeS = () => StyleSheet.create({
   prodTag: { position: 'absolute', bottom: 110, left: 16, right: 16, height: 70, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' },
   prodTagImg: { width: 70, height: 70 },
   prodAdd: { paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink },
-  cornerAscii: { position: 'absolute', fontFamily: 'SpaceMono_700Bold', fontSize: 14, color: C.white },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
-  modalSheet: { position: 'absolute', left: 0, right: 0, bottom: 0, height: height * 0.7, backgroundColor: C.white, borderTopWidth: 2, borderColor: C.hairline },
-  modalHandle: { alignSelf: 'center', width: 40, height: 4, backgroundColor: C.ink, marginTop: 8, borderRadius: 2 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline },
-  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 32, height: 32, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
   commentInputRow: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.hairline, padding: 10, gap: 8 },
-  commentInput: { width: '100%', height: 42, paddingHorizontal: 12, borderWidth: 1, borderColor: C.hairline, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink },
+  commentInput: { width: '100%', height: 42, paddingHorizontal: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, ...T.body },
   sendBtn: { width: 42, height: 42, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
-  searchClose: { position: 'absolute', top: 60, right: 16, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, zIndex: 60 },
 });

@@ -4,7 +4,7 @@ import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
-import { RobotoMono_400Regular, RobotoMono_500Medium, RobotoMono_700Bold } from '@expo-google-fonts/roboto-mono';
+import { RobotoMono_400Regular, RobotoMono_500Medium, RobotoMono_600SemiBold, RobotoMono_700Bold } from '@expo-google-fonts/roboto-mono';
 
 import { AppProvider } from './src/state/AppState';
 import RootNav from './src/navigation/RootNav';
@@ -43,36 +43,34 @@ class ErrorBoundary extends React.Component<
 }
 
 export default function App() {
-  // Typography swap — the family names below are the SAME keys the whole app
-  // already references (e.g. `fontFamily: 'Inter_900Black'`), so we re-alias
-  // them to the new fonts here instead of editing hundreds of call sites:
-  //   • headings (the black weight) → Helvetica Neue Black (bundled .ttf)
-  //   • everything else (Inter body weights + the old Space Mono) → Roboto Mono,
-  //     giving the typewriter/monospaced look for all non-heading text.
+  // Typography — the original brutalist stack: Helvetica Neue Black for the
+  // black/heading weight, Roboto Mono (typewriter) for everything else. The
+  // family keys below are the SAME strings the whole codebase references
+  // (e.g. `Inter_700Bold`), re-aliased here so we don't touch call sites.
+  // (No real Inter — only these two fonts are used.)
   const [loaded] = useFonts({
-    // Headings
+    // Headings → Helvetica Neue Black (bundled)
     Inter_900Black: require('./assets/fonts/HelveticaNeueBlack.ttf'),
-    // Body / all other text → Roboto Mono (typewriter)
+    // Everything else → Roboto Mono weights
     Inter_700Bold: RobotoMono_700Bold,
-    Inter_600SemiBold: RobotoMono_500Medium,
+    Inter_600SemiBold: RobotoMono_600SemiBold,
     Inter_500Medium: RobotoMono_500Medium,
     Inter_400Regular: RobotoMono_400Regular,
-    // Existing mono accents keep their keys, now also Roboto Mono
     SpaceMono_400Regular: RobotoMono_400Regular,
     SpaceMono_700Bold: RobotoMono_700Bold,
   });
 
   if (!loaded) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#000" />
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#fff" />
       </View>
     );
   }
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider>
           <AppProvider>
             <RootNav />

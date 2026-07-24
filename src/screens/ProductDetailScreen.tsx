@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, InteractionManager, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
+import { C, T, SP, BORDER } from '../theme/brutal';
+import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, OptionSheet } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
@@ -41,7 +41,7 @@ export default function ProductDetailScreen() {
   const route = useRoute<any>();
   const product = route.params?.product || PRODUCTS[0];
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, night, theme, showToast, showConfirm, gender, requireAuth } = useApp();
+  const { addToCart, showToast, showConfirm, gender, requireAuth } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
   // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
   // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
@@ -70,7 +70,7 @@ export default function ProductDetailScreen() {
       });
     } else nav.goBack();
   };
-  const s = React.useMemo(() => makeS(), [night]);
+  const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
   const [sizeSheet, setSizeSheet] = useState<null | 'add' | 'buy'>(null);
   // Heavy below-the-fold content (carousels, grid) renders only AFTER the open transition,
@@ -255,21 +255,21 @@ export default function ProductDetailScreen() {
   };
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: isZoom ? 'transparent' : (night ? '#000000' : '#FFFFFF') }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+    <View style={{ flex: 1, backgroundColor: isZoom ? 'transparent' : '#FFFFFF' }}>
+      <StatusBar barStyle="dark-content" />
 
       {/* White backdrop — the home shows through, then this fades in as the image expands */}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: night ? '#000000' : '#FFFFFF' }, backdropStyle]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }, backdropStyle]} />
 
       <View style={{ flex: 1 }}>
 
       {/* HEADER — back + search + cart. High zIndex + bg so the CTA bar passes UNDER it
           (instead of over the search) when it scrolls up and away. */}
-      <Animated.View style={[{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: night ? '#000000' : '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
+      <Animated.View style={[{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
         <BrutalIconBtn icon="arrow-left" onPress={goBack} />
         <Pressable onPress={() => nav.navigate('Search')} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SP.m, paddingVertical: 9 }, BORDER(1)]}>
           <Feather name="search" size={15} color={C.dim} />
-          <Text style={[T.mono, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
+          <Text style={[T.body, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
         </Pressable>
         <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
       </Animated.View>
@@ -327,38 +327,38 @@ export default function ProductDetailScreen() {
           {/* Brand + name on one line — rating aligned with this line on the right */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: -0.3 }} numberOfLines={1}>{brandName}</Text>
-              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: C.dim, flex: 1 }} numberOfLines={1}>{product.name}</Text>
+              <Text style={[T.productTitle]} numberOfLines={1}>{brandName}</Text>
+              <Text style={[T.body, { color: C.dim, flex: 1 }]} numberOfLines={1}>{product.name}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, ...BORDER(1) }}>
               <Feather name="star" size={13} color={C.ink} />
-              <Text style={[T.monoB, { fontSize: 11 }]}>{product.rating}</Text>
+              <Text style={[T.caption, { color: C.ink }]}>{product.rating}</Text>
             </View>
           </View>
 
           {/* Price (smaller) */}
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink }}>₹{product.price}</Text>
-            <Text style={[T.body, { color: C.dim, textDecorationLine: 'line-through', fontSize: 12 }]}>₹{product.original}</Text>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{`-${discount}%`}</Text>
+            <Text style={[T.price]}>₹{product.price}</Text>
+            <Text style={[T.mrp]}>₹{product.original}</Text>
+            <Text style={[T.discount]}>{`-${discount}%`}</Text>
           </View>
 
           {/* COUPON OFFER — get it for less with a code */}
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}>
             <Feather name="tag" size={16} color={C.ink} />
             <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB, { fontSize: 13 }]}>Get it for ₹{couponPrice}</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>Extra 10% off · applied at checkout</Text>
+              <Text style={[T.bodyB]}>Get it for ₹{couponPrice}</Text>
+              <Text style={[T.micro, { marginTop: 1 }]}>Extra 10% off · applied at checkout</Text>
             </View>
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>TRENDZO10</Text>
+              <Text style={[T.monoB, { color: C.white }]}>TRENDZO10</Text>
             </View>
           </View>
 
           <View style={{ height: 1, backgroundColor: C.ink, marginTop: SP.l }} />
 
           {/* COLOR */}
-          <Text style={[T.label, { marginTop: SP.l }]}>{'COLOR'}</Text>
+          <Text style={[T.caption, { marginTop: SP.l }]}>{'Color'}</Text>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
             {colors.map((c, i) => (
               <Pressable key={i} onPress={() => setColorIdx(i)} style={[{ width: 36, height: 36, backgroundColor: c, padding: 3 }, i === colorIdx ? BORDER(2) : BORDER(1)]}>
@@ -369,15 +369,15 @@ export default function ProductDetailScreen() {
 
           {/* SIZE */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}>
-            <Text style={T.label}>{'SIZE'}</Text>
+            <Text style={T.caption}>{'Size'}</Text>
             <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })}>
-              <Text style={[T.monoB, { fontSize: 10 }]}>{'[ SIZE GUIDE ]'}</Text>
+              <Text style={[T.caption]}>{'[ Size guide ]'}</Text>
             </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
             {sizes.map(sz => (
               <Pressable key={sz} onPress={() => setSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: size === sz ? C.white : C.ink, letterSpacing: 0.5 }}>{sz}</Text>
+                <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
               </Pressable>
             ))}
           </View>
@@ -386,16 +386,16 @@ export default function ProductDetailScreen() {
           <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12 }, BORDER(1)]}>
             <Feather name="zap" size={18} color={C.ink} />
             <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB, { fontSize: 12 }]}>60-MIN DELIVERY</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>FROM NEAREST STORE · 2.4 KM AWAY</Text>
+              <Text style={[T.bodyB]}>60-min delivery</Text>
+              <Text style={[T.micro]}>From nearest store · 2.4 km away</Text>
             </View>
-            <Text style={[T.monoB, { fontSize: 11 }]}>FREE</Text>
+            <Text style={[T.caption, { color: C.ink }]}>Free</Text>
           </View>
 
           {/* Below-the-fold — mounts only after the open, off-screen, so no visible layout shift */}
           {ready && (<>
           {/* KEY HIGHLIGHTS */}
-          <Text style={[T.label, { marginTop: SP.l }]}>{'KEY HIGHLIGHTS'}</Text>
+          <Text style={[T.caption, { marginTop: SP.l }]}>{'Key Highlights'}</Text>
           <View style={[{ marginTop: 8 }, BORDER(1)]}>
             {[
               { k: 'Material', v: '100% Pure Wool' },
@@ -405,8 +405,8 @@ export default function ProductDetailScreen() {
               { k: 'Returns', v: '7-day easy returns' },
             ].map((h, i, arr) => (
               <View key={h.k} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 11, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderColor: C.hairline }}>
-                <Text style={[T.mono, { color: C.dim, fontSize: 11 }]}>{h.k}</Text>
-                <Text style={[T.bodyB, { fontSize: 12 }]}>{h.v}</Text>
+                <Text style={[T.caption]}>{h.k}</Text>
+                <Text style={[T.bodyB]}>{h.v}</Text>
               </View>
             ))}
           </View>
@@ -424,17 +424,17 @@ export default function ProductDetailScreen() {
           <View style={{ flexDirection: 'row', marginTop: SP.xl }}>
             {(['details', 'reviews', 'care'] as const).map(t => (
               <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: tab === t ? C.white : C.ink, letterSpacing: 0.5 }}>{t.toUpperCase()}</Text>
+                <Text style={[T.caption, { color: tab === t ? C.white : C.ink }]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
               </Pressable>
             ))}
           </View>
 
           <MotiView key={tab} from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }} style={{ marginTop: SP.l }}>
             {tab === 'details' && (
-              <Text style={[T.body, { color: C.inkSoft, lineHeight: 20 }]}>
+              <Text style={[T.body, { color: C.inkSoft }]}>
                 Premium fabric construction. Cut for an oversized, tailored fit. Featured in our Spring/Summer 26 lookbook. Designed in studio, sewn locally, delivered in 60 minutes.
-                {'\n\n'}MATERIAL: 100% pure wool · LINING: Cupro
-                {'\n'}MADE IN: India · CARE: Dry clean only
+                {'\n\n'}Material: 100% pure wool · Lining: Cupro
+                {'\n'}Made in: India · Care: Dry clean only
               </Text>
             )}
             {tab === 'reviews' && (
@@ -442,29 +442,27 @@ export default function ProductDetailScreen() {
                 {[1, 2, 3].map(i => (
                   <View key={i} style={{ marginBottom: SP.m }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={[T.monoB, { fontSize: 11 }]}>@user_0{i}</Text>
-                      <Text style={[T.mono, { color: C.dim }]}>★ {5 - i * 0.1}</Text>
+                      <Text style={[T.caption, { color: C.ink }]}>@user_0{i}</Text>
+                      <Text style={[T.caption]}>★ {5 - i * 0.1}</Text>
                     </View>
                     <Text style={[T.body, { marginTop: 4 }]}>"Fits perfect, exactly as shown. Delivery was crazy fast — 47 minutes."</Text>
-                    <AsciiDivider faint style={{ marginTop: 8 }} />
                   </View>
                 ))}
               </View>
             )}
             {tab === 'care' && (
-              <Text style={[T.body, { color: C.inkSoft, lineHeight: 20 }]}>
-                · DRY CLEAN ONLY{'\n'}
-                · DO NOT BLEACH{'\n'}
-                · COOL IRON IF NEEDED{'\n'}
-                · STORE ON HANGER{'\n'}
-                · KEEP AWAY FROM DIRECT SUNLIGHT
+              <Text style={[T.body, { color: C.inkSoft }]}>
+                · Dry clean only{'\n'}
+                · Do not bleach{'\n'}
+                · Cool iron if needed{'\n'}
+                · Store on hanger{'\n'}
+                · Keep away from direct sunlight
               </Text>
             )}
           </MotiView>
 
           {/* SIMILAR */}
-          <Text style={[T.h2, { marginTop: SP.xl }]}>{`YOU MAY ALSO LIKE`}</Text>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
+          <Text style={[T.h2, { marginTop: SP.xl }]}>{`You may also like`}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
             {similarList.slice(0, 5).map(p => (
               <ProductCard key={p.id} p={p} onPress={() => nav.push('ProductDetail', { product: p })} />
@@ -473,24 +471,23 @@ export default function ProductDetailScreen() {
 
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
-            <Text style={T.h2}>{`RATINGS & REVIEWS`}</Text>
+            <Text style={T.h2}>{`Ratings & Reviews`}</Text>
             <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
-              <Text style={[T.monoB, { fontSize: 10 }]}>VIEW ALL ──▶</Text>
+              <Text style={[T.caption]}>View all ──▶</Text>
             </Pressable>
           </View>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
             {reviewList.map(r => (
               <View key={r.id} style={[{ width: 260, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.monoB, { fontSize: 11 }]}>{r.user}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{r.user}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                     <Feather name="star" size={11} color={C.ink} />
-                    <Text style={[T.monoB, { fontSize: 11 }]}>{r.rating}.0</Text>
+                    <Text style={[T.caption, { color: C.ink }]}>{r.rating}.0</Text>
                   </View>
                 </View>
                 <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: 19 }]} numberOfLines={4}>{`"${r.text}"`}</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 10 }]}>{r.date}</Text>
+                <Text style={[T.micro, { marginTop: 10 }]}>{r.date}</Text>
               </View>
             ))}
           </ScrollView>
@@ -503,8 +500,8 @@ export default function ProductDetailScreen() {
           <View style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
             <Feather name="gift" size={18} color={C.white} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white }}>Buy items & get ₹50 off</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.8 }]}>Add one more to unlock TRENDZO50 at checkout</Text>
+              <Text style={[T.h3, { color: C.white }]}>Buy items & get ₹50 off</Text>
+              <Text style={[T.micro, { color: C.white, marginTop: 2, opacity: 0.8 }]}>Add one more to unlock TRENDZO50 at checkout</Text>
             </View>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
@@ -515,8 +512,8 @@ export default function ProductDetailScreen() {
         </View>
 
         {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it. */}
-        <View style={{ backgroundColor: night ? '#000000' : '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
-          <Text style={T.h2}>{`MORE TO LOVE`}</Text>
+        <View style={{ backgroundColor: '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
+          <Text style={T.h2}>{`More to Love`}</Text>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
           {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
@@ -550,7 +547,7 @@ export default function ProductDetailScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {/* Pill label that pokes out from the circle */}
               <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 0.5 }}>TRY ON</Text>
+                <Text style={[T.caption, { color: C.white }]}>Try On</Text>
               </View>
               {/* The circular FAB */}
               <View style={{
@@ -582,34 +579,22 @@ export default function ProductDetailScreen() {
         </Animated.View>
       )}
 
-      {/* ═══ SELECT-A-SIZE SHEET — pops from the bottom when no size is chosen ═══ */}
-      <Modal transparent visible={!!sizeSheet} animationType="none" onRequestClose={() => setSizeSheet(null)}>
-        <Pressable onPress={() => setSizeSheet(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MV
-            from={{ translateY: 400 }}
-            animate={{ translateY: 0 }}
-            exit={{ translateY: 400 }}
-            transition={{ type: 'timing', duration: 300 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: night ? '#0a0a0a' : '#FFFFFF', paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SELECT_A_SIZE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 2 }}>Pick your size</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Choose a size to continue</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.l }}>
-              {sizes.map((sz) => (
-                <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 56, paddingHorizontal: 10, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, letterSpacing: 0.5 }}>{sz}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })} style={{ marginTop: SP.m, alignSelf: 'flex-start' }}>
-              <Text style={[T.monoB, { fontSize: 10, textDecorationLine: 'underline' }]}>{'[ SIZE GUIDE ]'}</Text>
-            </Pressable>
-          </MV>
-        </Pressable>
-      </Modal>
+      {/* ═══ SELECT-A-SIZE SHEET — shared OptionSheet (custom body) ═══ */}
+      <OptionSheet visible={!!sizeSheet} title="Pick your size" onClose={() => setSizeSheet(null)}>
+        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
+          <Text style={[T.caption, { color: C.dim }]}>Choose a size to continue</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
+            {sizes.map((sz) => (
+              <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 56, paddingHorizontal: 10, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.h3]}>{sz}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })} style={{ marginTop: SP.m, alignSelf: 'flex-start' }}>
+            <Text style={[T.caption, { color: C.dim, textDecorationLine: 'underline' }]}>Size guide</Text>
+          </Pressable>
+        </View>
+      </OptionSheet>
     </View>
   );
 }

@@ -1,16 +1,17 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Vibration } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Vibration, Modal } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { AsciiDivider, BrutalButton, CachedImage, Chip, FadeInUp, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
+import { BrutalButton, CachedImage, CARD, Chip, FadeInUp, OptionSheet, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
 import { RealIcon, RealIconName, categoryIconName } from '../components/RealIcon';
 import {
   PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, REELS, HERO_IMG, HERO_IMG_2,
@@ -25,6 +26,12 @@ import { useApp } from '../state/AppState';
 const HOME_HERO = require('../../assets/home.jpeg');
 // Full-bleed campaign background for the "SHOP BY OCCASION" section.
 const OCC_HEAD_BG = require('../../assets/github-import/top/bg.png');
+// FLASH FIT tiles — swap these three requires with your own art when ready.
+const FLASH_TSHIRT_IMG = require('../../assets/github-import/men/tshirt.png');
+const FLASH_JEANS_IMG = require('../../assets/github-import/men/jeans.png');
+const FLASH_SHOES_IMG = require('../../assets/github-import/men/shoes.png');
+// Cutout models (bg removed) for the "TRY AND BUY" band above Explore More.
+const VR_TRY_ON = require('../../assets/vr-try-on.png');
 
 // FEATURED CATEGORIES — the horizontal swipeable row only. Local cutout art
 // (not the pngimg.com hotlinks the grid below still uses), one set per gender.
@@ -69,21 +76,50 @@ const HER_STEALS = [
   { id: 'steal-her-3', label: 'Tops',    priceLine: 'Under ₹1999', img: require('../../assets/steals/her/tops.jpeg') },
 ];
 const HIM_STEALS = [
-  { id: 'steal-him-1', label: 'Tees',    priceLine: 'Under ₹1499', img: require('../../assets/steals/him/tee.jpeg') },
+  { id: 'steal-him-1', label: 'T-shirts', priceLine: 'Under ₹1499', img: require('../../assets/steals/him/tee.jpeg') },
   { id: 'steal-him-2', label: 'Eyewear', priceLine: 'Under ₹1999', img: require('../../assets/steals/him/eyewear.jpeg') },
   { id: 'steal-him-3', label: 'Jackets', priceLine: 'Under ₹2499', img: require('../../assets/steals/him/jacket.jpeg') },
 ];
 
-// TOP STORIES OF THE WEEK — editorial "spotlight" carousel: tall photo cards
-// with a "TRENDING NOW" eyebrow and an overlaid title/subtitle.
-const STORIES = [
-  { id: 'story-1', img: require('../../assets/banners/her-new1.png'),        title: 'Festive Glow',     sub: 'Handpicked looks for the season' },
-  { id: 'story-2', img: require('../../assets/banners/him-traditional.jpg'), title: 'Heritage Threads', sub: 'Timeless artistry, modern soul' },
-  { id: 'story-3', img: require('../../assets/banners/her-friday.jpg'),      title: 'Friday Muse',      sub: 'Weekend-ready statement pieces' },
-  { id: 'story-4', img: require('../../assets/banners/him-coffee.jpg'),      title: 'Off-Duty Edit',    sub: 'Easy layers for slow mornings' },
-  { id: 'story-5', img: require('../../assets/banners/her-closet.jpg'),      title: 'The Capsule',      sub: 'Ten pieces, endless outfits' },
-  { id: 'story-6', img: require('../../assets/banners/him-new1.png'),        title: 'New Season',       sub: 'Fresh drops just landed' },
+// TOP STORIES OF THE WEEK — finished poster artwork, split by active gender.
+const HER_STORIES = [
+  { id: 'her-story-1', img: require('../../assets/story-posters/her-60-min.png') },
+  { id: 'her-story-2', img: require('../../assets/story-posters/her-friday.png') },
+  { id: 'her-story-3', img: require('../../assets/story-posters/her-roommate.png') },
+  { id: 'her-story-4', img: require('../../assets/story-posters/her-latest-drops.png') },
+  { id: 'her-story-5', img: require('../../assets/story-posters/her-casual-affair.png') },
 ];
+const HIM_STORIES = [
+  { id: 'him-story-1', img: require('../../assets/story-posters/him-coffee.png') },
+  { id: 'him-story-2', img: require('../../assets/story-posters/him-60-min.png') },
+  { id: 'him-story-3', img: require('../../assets/story-posters/him-friday.png') },
+  { id: 'him-story-4', img: require('../../assets/story-posters/him-bros.png') },
+];
+
+// CATEGORIES TO EXPLORE — a 3-col bento grid, gender-driven. 7 model cards laid
+// out 3 / (1 + text block) / 3, with the "OUR FAVOURITE TRENDING CATEGORIES"
+// copy sitting in the middle-right. Uses the local numbered model photos.
+// NOTE: swap these requires for the real campaign images when available.
+const HER_EXPLORE = [
+  { id: 'exh-1', label: 'Wide Leg Denim', img: require('../../assets/github-import/numbered/1.png') },
+  { id: 'exh-2', label: 'Sun Dress',      img: require('../../assets/github-import/numbered/2.png') },
+  { id: 'exh-3', label: 'Bags',           img: require('../../assets/github-import/numbered/3.png') },
+  { id: 'exh-4', label: 'Matching Sets',  img: require('../../assets/github-import/numbered/4.png') },
+  { id: 'exh-5', label: 'Everyday Tanks', img: require('../../assets/github-import/numbered/5.png') },
+  { id: 'exh-6', label: 'Workwear',       img: require('../../assets/github-import/numbered/6.png') },
+  { id: 'exh-7', label: 'Mini Skirts',    img: require('../../assets/github-import/numbered/7.png') },
+];
+const HIM_EXPLORE = [
+  { id: 'exm-1', label: 'Baggy Denim',  img: require('../../assets/github-import/numbered-men/1.png') },
+  { id: 'exm-2', label: 'Graphic Tees', img: require('../../assets/github-import/numbered-men/2.png') },
+  { id: 'exm-3', label: 'Sneakers',     img: require('../../assets/github-import/numbered-men/3.png') },
+  { id: 'exm-4', label: 'Co-ord Sets',  img: require('../../assets/github-import/numbered-men/4.png') },
+  { id: 'exm-5', label: 'Overshirts',   img: require('../../assets/github-import/numbered-men/5.png') },
+  { id: 'exm-6', label: 'Workwear',     img: require('../../assets/github-import/numbered-men/6.png') },
+  { id: 'exm-7', label: 'Cargos',       img: require('../../assets/github-import/numbered-men/7.png') },
+];
+const EX_YELLOW = '#F2E63C'; // highlighter accent behind the headline words
+const EX_GAP = SP.s;
 
 // SHOP BY OCCASION — a seasonal hero banner + a swipeable row of white
 // occasion cards (product cutout + label), one set per gender. Hero uses a
@@ -141,12 +177,13 @@ const REEL_TILE_H = REEL_TILE_W * 1.5;
 // Shop-by-Occasion card row — ~2.6 cards visible so the next one peeks.
 const OCC_CARD_PAD = SP.l;
 const OCC_CARD_GAP = SP.s;
-const OCC_CARD_W = (W - OCC_CARD_PAD * 2 - OCC_CARD_GAP * 2) / 2.6;
-const OCC_CARD_H = OCC_CARD_W * 1.15;
+// Same footprint as a product card — ~2 per screen with a sliver of the next.
+const OCC_CARD_W = (W - OCC_CARD_PAD * 2 - OCC_CARD_GAP) / 2.15;
+const OCC_CARD_H = Math.round(OCC_CARD_W * 1.42);
 // Height of the SHOP BY OCCASION section — matches bg.png's 4:5 aspect at full
 // width, so the campaign models fill the frame with the empty lower area free
 // for the product cards to sit on.
-const OCC_SECTION_H = Math.round(W * 1.25);
+const OCC_SECTION_H = Math.round(W * 1.42);
 // Text shadow for the header/search overlay now sitting on top of the hero
 // photo — keeps white text legible over whatever part of the image is behind it.
 const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
@@ -164,7 +201,7 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 export default function HomeScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { night, gender, setGender, curveProgress, theme, showConfirm, tabBarOffset } = useApp();
+  const { gender, setGender, curveProgress, showConfirm, tabBarOffset } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // Live catalog from the backend, cached PER GENDER. A missing slice = not
@@ -255,9 +292,9 @@ export default function HomeScreen() {
   // and every component in the app stays in sync during the gesture.
   // Smoothly round the page as the HIM/HER bar slides — borderRadius tracks curveProgress
   // live so cards/boxes curve in real time during the drag.
-  // Permanent base radius (never sharp) + a little extra rounding in HER.
-  const curveStyle = useAnimatedStyle(() => ({ borderRadius: 12 + curveProgress.value * 6 }));
-  const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: 8 + curveProgress.value * 4 }));
+  // Sharp cards — no corner radius anywhere.
+  const curveStyle = useAnimatedStyle(() => ({ borderRadius: 0 }));
+  const curveSmStyle = useAnimatedStyle(() => ({ borderRadius: 0 }));
   // Featured Categories pin: the row stays a NORMAL in-flow child pinned by
   // native stickyHeaderIndices — no scroll-linked transform, so it scrolls in
   // perfect lockstep with the page (a synced overlay lags native scroll by a
@@ -275,6 +312,17 @@ export default function HomeScreen() {
   const wasPinned = useSharedValue(false);
   const [catPinned, setCatPinned] = useState(false);
   const lastScrollY = useSharedValue(0);
+  // Floating top search bar: hidden while scrolling, and revealed (sliding down
+  // from the top) only once the user has scrolled PAST the hero/banner and comes
+  // to a stop. 0 = hidden, 1 = shown.
+  const floatSearch = useSharedValue(0);
+  const [floatSearchOn, setFloatSearchOn] = useState(false);
+  // Reveal only after the banner section has scrolled away.
+  const SEARCH_REVEAL_Y = BANNER_H - 120;
+  const floatSearchStyle = useAnimatedStyle(() => ({
+    opacity: floatSearch.value,
+    transform: [{ translateY: interpolate(floatSearch.value, [0, 1], [-24, 0]) }],
+  }));
   const onHomeScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
       const y = e.contentOffset.y;
@@ -293,6 +341,11 @@ export default function HomeScreen() {
       }
     },
   });
+  // Top viewport fade — hidden over the hero (it has its own black scrim);
+  // fades in once the hero banner scrolls away.
+  const topFadeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(lastScrollY.value, [BANNER_H - 220, BANNER_H - 60], [0, 1], 'clamp'),
+  }));
   const featuredRowH = useSharedValue(0);
   // Categories row no longer shrinks on scroll — it stays at full size (was a
   // scroll-linked scale transform tied to pinP).
@@ -349,8 +402,20 @@ export default function HomeScreen() {
   const feedPushStyle = useAnimatedStyle(() => ({ transform: [{ translateY: playExpand.value * (OPEN_PH - CLOSED_PH) }] }));
 
   // ─── EXPLORE MORE state — infinite scroll + filters ───
-  const [exploreFilter, setExploreFilter] = useState<'ALL' | 'HER' | 'HIM' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
+  const [exploreFilter, setExploreFilter] = useState<'ALL' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
   const [explorePage, setExplorePage] = useState(1);
+  const [exploreSort, setExploreSort] = useState<'Popular' | 'Price: Low to High' | 'Price: High to Low' | 'Rating' | 'Biggest Discount'>('Popular');
+  const [filterSheet, setFilterSheet] = useState(false);
+  const [sortSheet, setSortSheet] = useState(false);
+  // Infinite feed — bump the page whenever a scroll gesture ends near the
+  // bottom (once per gesture, so it can't runaway). The list loops, so the
+  // feed never actually ends.
+  const maybeLoadMoreExplore = (e: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    if (contentSize.height - (contentOffset.y + layoutMeasurement.height) < 800) {
+      setExplorePage(p => p + 1);
+    }
+  };
 
   // PERF: while the page is actively scrolling, background animations (the
   // brand banner's auto-rotate) hold still so they don't compete for frames.
@@ -359,12 +424,59 @@ export default function HomeScreen() {
   const scrollResumeT = useRef<any>(null);
   const markScrollStart = () => {
     scrollingRef.current = true;
+    // Hide the floating search bar the moment scrolling starts.
+    floatSearch.value = withTiming(0, { duration: 140 });
+    if (floatSearchOn) setFloatSearchOn(false);
     if (scrollResumeT.current) clearTimeout(scrollResumeT.current);
+    if (menuRevealT.current) clearTimeout(menuRevealT.current);
   };
+  const menuRevealT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markScrollStop = (delay: number) => {
     if (scrollResumeT.current) clearTimeout(scrollResumeT.current);
     scrollResumeT.current = setTimeout(() => { scrollingRef.current = false; }, delay);
+    // Menu (tab bar) + header (floating search) return TOGETHER the instant
+    // scrolling stops — one shared fast timer with matching smooth timing, so
+    // they animate in as a single motion (cancelled if momentum keeps scrolling).
+    if (menuRevealT.current) clearTimeout(menuRevealT.current);
+    menuRevealT.current = setTimeout(() => {
+      // Never reveal while a screen is stacked over Home (category zoom etc.)
+      if (!nav.isFocused()) return;
+      const past = lastScrollY.value > SEARCH_REVEAL_Y;
+      tabBarOffset.value = withTiming(0, { duration: 200 });
+      floatSearch.value = withTiming(past ? 1 : 0, { duration: 200 });
+      setFloatSearchOn(past);
+    }, 80);
   };
+
+  // Floating search vs covering screens (CategoryZoom etc.): the bar slides
+  // AWAY the moment another screen opens over Home — so the zoom flight never
+  // shares the frame with it — and slides back in when Home regains focus.
+  useEffect(() => {
+    const onBlur = nav.addListener('blur', () => {
+      // Kill ANY pending reveal timers — a scroll-idle reveal (or the 2s
+      // focus reveal from a previous return) firing after blur was popping
+      // the search bar back in while a category screen was open.
+      if (menuRevealT.current) clearTimeout(menuRevealT.current);
+      if (searchFocusT.current) clearTimeout(searchFocusT.current);
+      floatSearch.value = withTiming(0, { duration: 160 });
+      setFloatSearchOn(false);
+    });
+    const onFocus = nav.addListener('focus', () => {
+      // SEARCH BAR waits a couple of seconds after returning to Home — the
+      // card's landing animation gets the stage to itself, THEN the search
+      // bar slides back down. (Menu/tab bar is untouched — returns normally.)
+      floatSearch.value = 0;
+      setFloatSearchOn(false);
+      if (searchFocusT.current) clearTimeout(searchFocusT.current);
+      searchFocusT.current = setTimeout(() => {
+        const past = lastScrollY.value > SEARCH_REVEAL_Y;
+        floatSearch.value = withTiming(past ? 1 : 0, { duration: 260 });
+        setFloatSearchOn(past);
+      }, 2000);
+    });
+    return () => { onBlur(); onFocus(); if (searchFocusT.current) clearTimeout(searchFocusT.current); };
+  }, [nav]);
+  const searchFocusT = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // PERF: mount the below-the-fold sections (everything after Play & Win —
   // two screens down) one beat after first paint. Same content, same order;
@@ -408,7 +520,7 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       {/* Hero redesign: the banner now bleeds full-bleed under the status bar with
           a transparent header overlaid on it, so status bar icons stay legible over
           the photo. (Was adaptive per night mode; the old dark/light logic is
@@ -444,8 +556,8 @@ export default function HomeScreen() {
           // of the page (was stickyHeaderIndices={[2]}).
           onScrollBeginDrag={markScrollStart}
           onMomentumScrollBegin={markScrollStart}
-          onScrollEndDrag={() => markScrollStop(1200)}
-          onMomentumScrollEnd={() => markScrollStop(150)}
+          onScrollEndDrag={(e) => { markScrollStop(1200); maybeLoadMoreExplore(e); }}
+          onMomentumScrollEnd={(e) => { markScrollStop(150); maybeLoadMoreExplore(e); }}
           // No removeClippedSubviews — sections hold transformed/absolute children and
           // Android's subview clipping mis-tracks that combo, blanking detached sections.
           removeClippedSubviews={false}
@@ -484,16 +596,16 @@ export default function HomeScreen() {
             <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(9), color: '#fff', letterSpacing: 1, ...HERO_SHADOW }}>TRENDZO</Text>
+                  <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>TRENDZO</Text>
                   {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                    <Text numberOfLines={1} style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: '#fff', letterSpacing: -0.2, lineHeight: rf(24), flexShrink: 0, ...HERO_SHADOW }}>60 minutes</Text>
-                    <Text numberOfLines={1} style={[T.mono, { fontSize: 9, color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>3 STORES NEARBY</Text>
+                    <Text numberOfLines={1} style={[T.h1, { color: '#fff', flexShrink: 0, ...HERO_SHADOW }]}>60 minutes</Text>
+                    <Text numberOfLines={1} style={[T.micro, { color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>3 stores nearby</Text>
                   </View>
                   {/* Delivery location — tap to change (Myntra-style) */}
                   <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
                     <RealIcon name="marker" size={13} color="#fff" />
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: '#fff', letterSpacing: -0.2, ...HERO_SHADOW }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                    <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]} numberOfLines={1}>Bandra, Mumbai 400050</Text>
                     <Feather name="chevron-down" size={13} color="#fff" />
                   </Pressable>
                 </View>
@@ -505,7 +617,7 @@ export default function HomeScreen() {
               {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
               <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
                 <RealIcon name="search" size={22} color="#FFFFFF" />
-                <Text style={[T.mono, { flex: 1, color: '#fff' }]}>SEARCH 60-MIN DROPS...</Text>
+                <Text style={[T.body, { flex: 1, color: '#fff' }]}>Search 60-min drops...</Text>
                 <RealIcon name="mic" size={16} color="#fff" />
                 <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
                   <RealIcon name="camera" size={16} color="#fff" />
@@ -519,7 +631,7 @@ export default function HomeScreen() {
                   <Animated.View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderWidth: 1, borderColor: C.hairline }, curveSmStyle]}>
                     <RealIcon name="dashboard" size={22} color={C.white} />
                   </Animated.View>
-                  <Text style={[T.monoB, { fontSize: 9, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
+                  <Text style={[T.micro, { marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>ALL</Text>
                 </Pressable>
                 {Array.from({ length: Math.max(herCategories.length, himCategories.length) }).map((_, i) => (
                   <QuickCat
@@ -541,7 +653,7 @@ export default function HomeScreen() {
           </View>
 
         {/* ═══ MARQUEE — sticks directly to the bottom of the banner, no gap ═══ */}
-        <Marquee text="NEW STYLES EVERYDAY  //  120+ STORES ACROSS INDIA  //  60-MIN DELIVERY  //  HASSLE-FREE RETURNS " />
+        <Marquee text="New styles everyday  //  120+ stores across India  //  60-min delivery  //  Hassle-free returns " />
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -560,92 +672,8 @@ export default function HomeScreen() {
           style={{ backgroundColor: C.white, paddingTop: SP.s, paddingBottom: SP.xs }}
           onLayout={(e) => { catSectionY.value = e.nativeEvent.layout.y; }}
         >
-          {/* Shop-by tabs — ALL · MEN · WOMEN, evenly centered. The active tab is
-              marked by a pixel-block underline (same squares as the splash) that
-              slides to the tapped tab and re-forms one square at a time. */}
-          <View style={{ paddingHorizontal: FEATURED_TILE_PAD, paddingTop: SP.xs }}>
-            <View
-              onLayout={(e) => setTabsRowW(e.nativeEvent.layout.width)}
-              style={{ flexDirection: 'row', position: 'relative' }}
-            >
-              {/* Pixel underline — rendered FIRST so it sits BEHIND the buttons
-                  (never intercepts a tap). Each dot travels independently to the
-                  active tab with a stagger, trailing one behind another (snake)
-                  whether you tap left or right. */}
-              {tabsRowW > 0 && (() => {
-                const tabW = tabsRowW / 3;
-                const idx = CAT_ORDER.indexOf(catFilter);
-                const baseX = tabW * idx + (tabW - IND_W) / 2;
-                const movingRight = idx > catIdxRef.current;
-                return (
-                  <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: IND_PX, zIndex: 0 }}>
-                    {Array.from({ length: IND_N }).map((_, i) => {
-                      const order = movingRight ? IND_N - 1 - i : i;
-                      return (
-                        <MotiView
-                          key={i}
-                          animate={{ translateX: baseX + i * (IND_PX + IND_GAP) }}
-                          transition={{ type: 'spring', damping: 16, stiffness: 180, mass: 0.7, delay: order * 55 }}
-                          style={{ position: 'absolute', left: 0, top: 0, width: IND_PX, height: IND_PX, borderRadius: 1, backgroundColor: C.ink }}
-                        />
-                      );
-                    })}
-                  </View>
-                );
-              })()}
-
-              {([['all', 'ALL'], ['men', 'MEN'], ['women', 'WOMEN']] as const).map(([key, label]) => {
-                const on = catFilter === key;
-                return (
-                  <Pressable
-                    key={key}
-                    onPress={() => {
-                      setCatFilter(key);
-                      // Drive the rest of the page (hero banner, steals, campaigns,
-                      // occasions…) off the same tap — MEN → him, WOMEN → her.
-                      // ALL leaves the current slice so it stays a mix.
-                      if (key === 'men') setGender('him');
-                      else if (key === 'women') setGender('her');
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
-                    style={{ flex: 1, alignItems: 'center', paddingTop: 4, paddingBottom: 16, zIndex: 1 }}
-                  >
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), letterSpacing: 1.5, color: on ? C.ink : C.dim }}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-          <Animated.View
-            style={featuredScaleStyle}
-            onLayout={(e) => {
-              if (!featuredRowH.value) featuredRowH.value = e.nativeEvent.layout.height;
-            }}
-          >
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: FEATURED_TILE_PAD, gap: FEATURED_TILE_GAP, paddingTop: SP.xs }}>
-              {(catFilter === 'women'
-                ? HER_FEATURED_CATEGORIES
-                : catFilter === 'men'
-                ? HIM_FEATURED_CATEGORIES
-                : ALL_FEATURED_CATEGORIES
-              ).map((c, i) => (
-                // key includes catFilter so the tiles remount and replay the
-                // staggered pop-in every time the ALL/MEN/WOMEN tab changes —
-                // content swaps as a quick blocky transition, not an instant cut.
-                <MotiView
-                  key={`${catFilter}-${c.id}`}
-                  from={{ opacity: 0, scale: 0.6, translateY: 10 }}
-                  animate={{ opacity: 1, scale: 1, translateY: 0 }}
-                  transition={{ type: 'spring', delay: Math.min(i, 8) * 45, damping: 14, stiffness: 260, mass: 0.7 }}
-                >
-                  <FeaturedCatTile
-                    item={c}
-                    onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
-                  />
-                </MotiView>
-              ))}
-            </ScrollView>
-          </Animated.View>
+          {/* Bento grid of explore categories — gender-driven (him / her). */}
+          <ExploreGrid nav={nav} gender={gender} setGender={setGender} />
         </View>
 
         {/*
@@ -663,6 +691,7 @@ export default function HomeScreen() {
                 <StealTile
                   label={steals[0].label}
                   priceLine={steals[0].priceLine}
+                  qualifier="Starting at"
                   img={steals[0].img}
                   width={STEAL_COL_W}
                   height={STEAL_BIG_H}
@@ -693,78 +722,9 @@ export default function HomeScreen() {
         ║  TOP STORIES OF THE WEEK — editorial carousel ║
         ╚══════════════════════════════════════════════╝
         */}
-        <TopStories nav={nav} />
+        <TopStories key={gender} nav={nav} gender={gender} />
 
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  EXPLORE REELS — dark poster row + promo band ║
-        ║  Cards tease a reel, tap redirects to Reels   ║
-        ║  tab where it actually plays (nothing plays   ║
-        ║  inline here).                                ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <View style={{ marginTop: SP.xl, paddingVertical: SP.l }}>
-          <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.3 }}>
-            EXPLORE REELS
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: REEL_TILE_PAD, gap: REEL_TILE_GAP, paddingTop: SP.m }}>
-            {REELS.map((r) => (
-              <ReelPosterTile
-                key={r.id}
-                title={r.title}
-                img={r.img}
-                curveSmStyle={curveSmStyle}
-                onPress={() => nav.navigate('ReelsTab')}
-              />
-            ))}
-          </ScrollView>
-          <PromoBanner
-            curveSmStyle={curveSmStyle}
-            onPress={() => nav.navigate('Categories')}
-            slides={[
-              {
-                id: 'promo-steals',
-                bg: '#FF7A1A',
-                title: (gender === 'her' ? HER_STEALS[0] : HIM_STEALS[0]).priceLine.toUpperCase() + '\nDEALS',
-                sub: 'Fresh steals, everyday',
-                cta: 'SHOP NOW',
-                img: (gender === 'her' ? HER_STEALS[0] : HIM_STEALS[0]).img,
-              },
-              {
-                id: 'promo-delivery',
-                bg: '#111',
-                title: '60-MINUTE\nDELIVERY',
-                sub: 'Straight to your door',
-                cta: 'ORDER NOW',
-                img: activeHero,
-              },
-              {
-                id: 'promo-steals-2',
-                bg: '#1E7A5A',
-                title: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).priceLine.toUpperCase() + '\nPICKS',
-                sub: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).label + ' you\'ll love',
-                cta: 'SHOP NOW',
-                img: (gender === 'her' ? HER_STEALS[1] : HIM_STEALS[1]).img,
-              },
-              {
-                id: 'promo-steals-3',
-                bg: '#5A3AD1',
-                title: (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).priceLine.toUpperCase() + '\nEDIT',
-                sub: 'Trending ' + (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).label.toLowerCase(),
-                cta: 'SHOP NOW',
-                img: (gender === 'her' ? HER_STEALS[2] : HIM_STEALS[2]).img,
-              },
-              {
-                id: 'promo-occasion',
-                bg: '#B03A5B',
-                title: 'SHOP BY\nOCCASION',
-                sub: 'Festive & everyday looks',
-                cta: 'EXPLORE',
-                img: (gender === 'her' ? HER_OCCASION : HIM_OCCASION).hero,
-              },
-            ]}
-          />
-        </View>
+        <ReelsForYouSection nav={nav} gender={gender} />
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -781,12 +741,11 @@ export default function HomeScreen() {
               <View style={{ height: OCC_SECTION_H, overflow: 'hidden' }}>
                 <CachedImage source={OCC_HEAD_BG} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
 
-                {/* Centered heading + short black accent line (no ascii, no left bar). */}
+                {/* Centered heading. */}
                 <Pressable onPress={() => nav.navigate('OccasionShopping')} style={{ alignItems: 'center', paddingTop: SP.l }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, textAlign: 'center' }}>
-                    SHOP BY OCCASION
+                  <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
+                    Shop by Occasion
                   </Text>
-                  <View style={{ width: 48, height: 3, backgroundColor: '#000', marginTop: 8 }} />
                 </Pressable>
 
                 {/* Product cards pinned to the bottom, sitting on top of the image. */}
@@ -812,6 +771,13 @@ export default function HomeScreen() {
           })()}
         </View>
 
+        {/*
+        ╔══════════════════════════════════════════════╗
+        ║  FLASH FIT OF THE DAY — bundle grid (fit)     ║
+        ╚══════════════════════════════════════════════╝
+        */}
+        <FlashFitBundle onOpen={(label) => nav.navigate('Category', { id: label.toLowerCase(), label })} />
+
         {/* ═══════════ SHOP BY VIBE — commented out for now (redesign request).
             Kept intact below so it can be restored later; not deleted.
         <SectionHead title="SHOP BY" emphasis="VIBE" action="ALL" onAction={() => nav.navigate('Categories')} />
@@ -833,423 +799,34 @@ export default function HomeScreen() {
         </View>
         ═══════════ */}
 
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  FLASH SALE — Diagonal slash layout          ║
-        ║  Big featured card + 3 stacked mini cards    ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="FLASH" emphasis="SALE" action="ALL DEALS" onAction={() => nav.navigate('Category', { id: 'flash', label: 'Flash Sale' })} />
-        {/* Timer bar */}
-        <Animated.View style={[{ marginHorizontal: SP.l }, flashColStyle]}>
-          <Animated.View style={[{ backgroundColor: C.ink, padding: SP.s, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, curveSmStyle]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'TIME-LOCKED · 50% OFF'}</Text>
-            <FlashTimer curveSmStyle={curveSmStyle} />
-          </Animated.View>
-        </Animated.View>
-        {/* Horizontal deal carousel — global standard-size cards */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m, marginTop: SP.m }}>
-          {activeProducts.slice(0, 6).map((p, i) => {
-            const claimed = 42 + ((i * 17) % 52); // deterministic "X% claimed"
-            return (
-              <ProductCard key={p.id} p={p} frameStyle={curveStyle}>
-                {/* claimed progress overlay — pinned to the image box bottom */}
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
-                  <View style={{ height: 5, backgroundColor: C.hairline, flexDirection: 'row', overflow: 'hidden' }}>
-                    <View style={{ flex: claimed, backgroundColor: C.ink }} />
-                    <View style={{ flex: 100 - claimed, backgroundColor: C.white }} />
-                  </View>
-                </View>
-              </ProductCard>
-            );
-          })}
-        </ScrollView>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  PLAY & WIN — Stacked cards → Wheel          ║
-        ║  Tap to fan out in circle, drag to rotate     ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <PlayWheelSection nav={nav} expandP={playExpand} />
         <Animated.View style={feedPushStyle}>
         {tailMounted && (<>
 
         {/*
         ╔══════════════════════════════════════════════╗
-        ║  TRENDING — Large rank numbers + horizontal  ║
-        ║  Oversized #01 behind each card              ║
+        ║  TRY AND BUY — cutout models over wordmark    ║
         ╚══════════════════════════════════════════════╝
         */}
-        <SectionHead title="TRENDING" emphasis="NOW" action="VIEW ALL" onAction={() => nav.navigate('Category', { id: 'trending', label: 'Trending Now' })} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
-          {activeProducts.slice(0, 6).map((p, i) => (
-            <FadeInUp key={p.id} delay={i * 30}>
-              <ProductCard p={p} rank={i + 1} frameStyle={curveStyle} />
-            </FadeInUp>
-          ))}
-        </ScrollView>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  BRANDS — Swipeable grid, 3 rows × 4 cols   ║
-        ║  24 brands total, 2 pages, real logos         ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="DISCOVER" emphasis="BRANDS" action="ALL" onAction={() => nav.navigate('DiscoverBrands')} />
-        <View style={{ paddingHorizontal: SP.l }}>
-          {/* Outer curved frame — clips all inner cell borders against the rounded outside */}
-          <Animated.View style={[{ borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }, curveStyle]}>
-            <FlatList
-              ref={brandRef}
-              data={[0, 1]}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              keyExtractor={item => String(item)}
-              renderItem={({ item: page }) => (
-                <View style={{ width: W - SP.l * 2 }}>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                    {activeBrands.slice(page * 12, page * 12 + 12).map((b, i) => {
-                      const cardW = (W - SP.l * 2) / 4;
-                      return (
-                        <Pressable key={b.id} onPress={() => nav.navigate('Category', { id: 'brand-' + b.id, label: b.name })} style={{ width: cardW, height: cardW, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderRightWidth: (i % 4 < 3) ? 1 : 0, borderBottomWidth: i < 8 ? 1 : 0, borderColor: C.hairline, backgroundColor: C.white }}>
-                          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-                            <CachedImage source={{ uri: b.logo }} style={{ width: cardW * 0.7, height: cardW * 0.5 }} resizeMode="contain" />
-                          </View>
-                          <Text style={[T.monoB, { fontSize: 7, textAlign: 'center' }]} numberOfLines={1}>{b.name}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              )}
-            />
-          </Animated.View>
-          {/* Page dots */}
-          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
-            <Text style={[T.monoB, { fontSize: 9 }]}>{'◀ SWIPE FOR MORE ▶'}</Text>
+        <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
+          {/* centred section heading (like Shop by Occasion) */}
+          <View style={{ alignItems: 'center', marginBottom: SP.m }}>
+            <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>See It On You</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 8, textAlign: 'center' }]}>Tap a look and try it on yourself</Text>
           </View>
-        </View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  VIRTUAL TRY-ON — Headline section            ║
-        ║  Bold hero card + AR / photo try-on tiles     ║
-        ║  Rewards moved to Games; streak lives there.  ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="VIRTUAL" emphasis="TRY-ON" />
-        <Animated.View style={[{ paddingHorizontal: SP.l }, miniGapStyle]}>
-          {/* HERO banner — high-contrast attention grab */}
-          <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ height: 180, backgroundColor: C.ink, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
-            {/* Info — explains what Virtual Try-On is */}
-            <Pressable
-              onPress={() => showConfirm({ title: 'Virtual Try-On', msg: 'See how an outfit looks on you before you buy.\n\n• AR Try-On — use your live camera\n• Photo Try-On — upload a photo\n\nSwap clothes in real time, then shop your favourites.', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'info' })}
-              hitSlop={12}
-              style={{ position: 'absolute', top: SP.m, right: SP.m, zIndex: 10, width: 26, height: 26, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)', borderRadius: 13 }}
-            >
-              <Feather name="info" size={14} color={C.white} />
+          {/* BIG BOX */}
+          <View style={[{ height: rf(430), overflow: 'hidden' }, BORDER(1)]}>
+            {/* soft grey gradient backdrop */}
+            <LinearGradient colors={['#C9C9C9', '#ECECEC']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
+            {/* big wordmark near the TOP — sits behind the models' heads, where the cutout is transparent */}
+            <Text adjustsFontSizeToFit numberOfLines={1} style={{ position: 'absolute', top: rf(8), left: SP.m, right: SP.m, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(84), letterSpacing: -1, color: '#A6A6A6', textTransform: 'uppercase' }}>Try & Buy</Text>
+            {/* cutout models on top — transparent bg lets the wordmark show through */}
+            <CachedImage source={VR_TRY_ON} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            {/* plain "Explore" text link, pinned to the bottom (no box/bg) */}
+            <Pressable onPress={() => nav.navigate('Categories')} style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+              <Text style={[T.button, { color: C.ink }]}>View</Text>
+              <Feather name="arrow-right" size={16} color={C.ink} />
             </Pressable>
-            <View style={{ position: 'absolute', top: -24, right: -10 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(140), color: 'rgba(255,255,255,0.06)', letterSpacing: -8 }}>FIT</Text>
-            </View>
-            <View style={{ flex: 1, padding: SP.m, justifyContent: 'center', gap: 16 }}>
-              <View>
-                <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(34), letterSpacing: -1.5, lineHeight: rf(40) }}>TRY BEFORE{'\n'}YOU BUY.</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Animated.View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, curveSmStyle]}>
-                  <Text style={[T.monoB, { fontSize: 10 }]}>ENTER STUDIO ──▶</Text>
-                </Animated.View>
-                <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>2,400+ fits scanned today</Text>
-              </View>
-            </View>
-          </AnimatedPressable>
-
-          {/* Two-up: AR Try-On + Photo Try-On */}
-          <Animated.View style={[{ flexDirection: 'row' }, rowGapStyle]}>
-            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'ar' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, minHeight: 120 }, curveStyle]}>
-              <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
-                <RealIcon name="camcorder" size={22} color={C.white} />
-              </Animated.View>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, marginTop: 10, letterSpacing: -0.5 }}>AR TRY-ON</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Live camera</Text>
-            </AnimatedPressable>
-            <AnimatedPressable onPress={() => nav.navigate('TryOnPicker', { mode: 'photo' })} style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderWidth: 1, borderColor: C.hairline, minHeight: 120 }, curveStyle]}>
-              <Animated.View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
-                <RealIcon name="photo" size={22} />
-              </Animated.View>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.white, marginTop: 10, letterSpacing: -0.5 }}>PHOTO TRY-ON</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.7 }]}>Upload a pic</Text>
-            </AnimatedPressable>
-          </Animated.View>
-
-          {/* Image search — kept, re-styled as a supporting tool */}
-          <AnimatedPressable onPress={() => nav.navigate('ImageSearch')} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
-            <Animated.View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }, curveSmStyle]}>
-              <RealIcon name="camera" size={22} color={C.white} />
-            </Animated.View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SNAP TO FIND</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>AI-powered visual search</Text>
-            </View>
-            <Text style={[T.monoB, { fontSize: 18 }]}>──▶</Text>
-          </AnimatedPressable>
-        </Animated.View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  NEW ARRIVALS — Staggered masonry grid        ║
-        ║  Alternating tall/short cards in 2 columns    ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="NEW" emphasis="ARRIVALS" action="ALL" onAction={() => nav.navigate('NewArrivals')} />
-        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: SP.s }}>
-          {/* Left column */}
-          <View style={{ gap: SP.s }}>
-            {activeProducts.filter((_,i) => i % 2 === 0).slice(0,3).map((p, i) => (
-              <FadeInUp key={p.id} delay={i * 40}>
-                <ProductCard p={p} frameStyle={curveStyle}>
-                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
-                  </View>
-                </ProductCard>
-              </FadeInUp>
-            ))}
           </View>
-          {/* Right column — staggered start, same card size */}
-          <View style={{ gap: SP.s, marginTop: 30 }}>
-            {activeProducts.filter((_,i) => i % 2 === 1).slice(0,3).map((p, i) => (
-              <FadeInUp key={p.id} delay={i * 40 + 60}>
-                <ProductCard p={p} frameStyle={curveStyle}>
-                  <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>JUST IN</Text>
-                  </View>
-                </ProductCard>
-              </FadeInUp>
-            ))}
-          </View>
-        </View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  OUTFIT BUNDLES — Full-width horizontal cards ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="GET" emphasis="THE LOOK" />
-        <View style={{ paddingHorizontal: SP.l, gap: SP.m }}>
-          {activeBundles.map((b, i) => (
-            <FadeInUp key={b.id} delay={i * 40}>
-              <AnimatedPressable onPress={() => nav.navigate('Category', { id: 'bundle-' + b.id, label: b.title })} style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-                <View style={{ width: 130, height: 130, borderRightWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}>
-                  <CachedImage source={{ uri: b.img }} style={{ width: '100%', height: '100%' }} />
-                </View>
-                <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
-                  <View>
-                    <Text style={[T.monoB, { fontSize: 9 }]}>{`LOOK_0${i + 1}`}</Text>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink, marginTop: 4, letterSpacing: -0.3 }}>{b.title.toUpperCase()}</Text>
-                    <Text style={[T.body, { fontSize: 11, color: C.dim, marginTop: 2 }]}>{b.pieces} PIECES · CURATED</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>₹{b.price}</Text>
-                    <Text style={[T.monoB, { fontSize: 10 }]}>{'SHOP ──▶'}</Text>
-                  </View>
-                </View>
-              </AnimatedPressable>
-            </FadeInUp>
-          ))}
-        </View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  OCCASIONS — Overlapping stacked cards        ║
-        ║  Each card overlaps the previous slightly     ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="THE" emphasis="OCCASION" action="ALL" onAction={() => nav.navigate('OccasionShopping')} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, paddingRight: SP.l, gap: 12 }}>
-          {activeOccasions.map((o, i) => (
-            <Pressable key={o.id} onPress={() => nav.navigate('Category', { id: o.id, label: o.label })}>
-              <FadeInUp delay={i * 30}>
-                <Animated.View style={[{ width: 170, height: 230, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), curveStyle]}>
-                  <CachedImage source={{ uri: o.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-                  <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
-                  <View style={{ flex: 1, padding: 12, justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <View style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, BORDER(1)]}>
-                        <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{`0${i + 1}`}</Text>
-                      </View>
-                      <View style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderColor: '#FFFFFF', borderWidth: 1 }]}>
-                        <Text style={[T.monoB, { fontSize: 8, color: '#FFFFFF' }]}>MODE</Text>
-                      </View>
-                    </View>
-                    <View>
-                      <Text style={[T.mono, { color: '#FFFFFF', fontSize: 9, opacity: 0.85, marginBottom: 2 }]}>{`SHOP THE`}</Text>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: '#FFFFFF', letterSpacing: 0.3, lineHeight: rf(26) }}>{o.label.toUpperCase()}</Text>
-                      <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <View style={{ width: 32, height: 2, backgroundColor: '#FFFFFF' }} />
-                        <View style={[{ width: 28, height: 28, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-                          <Feather name="arrow-up-right" size={14} color="#000000" />
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </Animated.View>
-              </FadeInUp>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  COUPON WALLET — Tear-off ticket style        ║
-        ║  Dashed border, perforated edge effect        ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="COUPON" emphasis="WALLET" action="ALL" onAction={() => nav.navigate('CouponWallet')} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
-          {[
-            { code: 'NEWVIBE', off: '₹500 OFF', min: 'Min ₹999' },
-            { code: 'FLASH50', off: '50% OFF', min: 'Min ₹1,499' },
-            { code: 'FREESHIP', off: 'FREE SHIP', min: 'No minimum' },
-          ].map((c, i) => (
-            <Pressable key={c.code} onPress={() => nav.navigate('CouponWallet')}>
-              <FadeInUp delay={i * 40}>
-                <Animated.View style={[{ flexDirection: 'row', width: 240, height: 80, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
-                  {/* Left — dark discount block. Fixed SQUARE (80×80) so every coupon matches,
-                      and the text auto-fits so ₹500 OFF / 50% OFF / FREE SHIP all look uniform. */}
-                  <View style={{ width: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, paddingHorizontal: 6 }}>
-                    <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 16, lineHeight: 18, color: C.white, textAlign: 'center' }}>{c.off}</Text>
-                  </View>
-                  {/* Right — light body. Perforation lives INSIDE the white area with a gap from
-                      the black block, so the dashes never blend into the black box. */}
-                  <View style={{ flex: 1, flexDirection: 'row', backgroundColor: C.white }}>
-                    <View style={{ marginLeft: 8, marginVertical: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-                      {[...Array(7)].map((_, j) => <View key={j} style={{ width: 2, height: 4, backgroundColor: C.ink }} />)}
-                    </View>
-                    <View style={{ flex: 1, padding: SP.s, justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: 1 }}>{c.code}</Text>
-                      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{c.min}</Text>
-                      <View style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Feather name="copy" size={10} color={C.ink} />
-                        <Text style={[T.monoB, { fontSize: 8 }]}>TAP TO COPY</Text>
-                      </View>
-                    </View>
-                  </View>
-                </Animated.View>
-              </FadeInUp>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  COMMUNITY — Mosaic grid layout               ║
-        ║  1 big + 2 small stacked                      ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="THE" emphasis="FEED" action="ALL" onAction={() => nav.navigate('CommunityFeed')} />
-        <View style={{ paddingHorizontal: SP.l }}>
-          <Animated.View style={[{ flexDirection: 'row', height: 260 }, rowGapStyle]}>
-            {/* Big left */}
-            <AnimatedPressable onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 2, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
-              <CachedImage source={{ uri: COMMUNITY[0].img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
-              <View style={{ position: 'absolute', bottom: SP.s, left: SP.s }}>
-                <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 11 }]}>{COMMUNITY[0].user}</Text>
-                <Text style={[T.mono, { color: '#FFFFFF', fontSize: 9 }]}>{`♥ ${COMMUNITY[0].likes}`}</Text>
-              </View>
-            </AnimatedPressable>
-            {/* 2 stacked right */}
-            <Animated.View style={[{ flex: 1 }, miniGapStyle]}>
-              {COMMUNITY.slice(1, 3).map((p, i) => (
-                <AnimatedPressable key={p.id} onPress={() => nav.navigate('CommunityFeed')} style={[{ flex: 1, overflow: 'hidden', borderWidth: 1, borderColor: C.hairline }, curveStyle]}>
-                  <CachedImage source={{ uri: p.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-                  <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.3)' }]} />
-                  <View style={{ position: 'absolute', bottom: 4, left: 6 }}>
-                    <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 9 }]}>{p.user}</Text>
-                  </View>
-                </AnimatedPressable>
-              ))}
-            </Animated.View>
-          </Animated.View>
-        </View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  MOOD BOARD — Pinterest-style preview         ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="MOOD" emphasis="BOARD" action="VIEW" onAction={() => nav.navigate('MoodBoard')} />
-        <View style={{ paddingHorizontal: SP.l }}>
-          <AnimatedPressable onPress={() => nav.navigate('MoodBoard')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-            <View style={{ flexDirection: 'row', height: 100 }}>
-              {activeProducts.slice(0, 4).map((p, j) => (
-                <View key={p.id} style={{ flex: 1, borderRightWidth: j < 3 ? 1 : 0, borderColor: C.hairline, backgroundColor: C.hairline }}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                </View>
-              ))}
-            </View>
-            <View style={{ padding: SP.m, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.hairline }}>
-              <RealIcon name="palette" size={20} />
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>SAVE OUTFIT COMBOS</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>3 BOARDS · 13 ITEMS SAVED</Text>
-              </View>
-              <Text style={[T.monoB]}>──▶</Text>
-            </View>
-          </AnimatedPressable>
-        </View>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  FASHION CALENDAR — Timeline strip            ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="FASHION" emphasis="CALENDAR" action="ALL" onAction={() => nav.navigate('FashionCalendar')} />
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: 0 }}>
-          {([
-            { date: 'APR 15', title: 'SUMMER DROP', icon: 'sun' },
-            { date: 'APR 20', title: 'FLASH SALE', icon: 'sale' },
-            { date: 'MAY 01', title: 'BRAND COLLAB', icon: 'star' },
-            { date: 'MAY 10', title: 'FESTIVAL EDIT', icon: 'gift' },
-          ] as { date: string; title: string; icon: RealIconName }[]).map((e, i) => (
-            <FadeInUp key={i} delay={i * 40}>
-              <Pressable onPress={() => nav.navigate('FashionCalendar')} style={{ alignItems: 'center', width: 100, marginRight: SP.s }}>
-                <Animated.View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: i === 0 ? C.ink : C.white }, BORDER(1), curveStyle]}>
-                  <RealIcon name={e.icon} size={24} color={i === 0 ? C.white : C.ink} />
-                </Animated.View>
-                <View style={{ width: 1, height: 12, backgroundColor: C.ink }} />
-                <Animated.View style={[{ padding: 6, alignItems: 'center', backgroundColor: C.white }, BORDER(1), curveSmStyle]}>
-                  <Text style={[T.monoB, { fontSize: 9 }]}>{e.date}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 9, color: C.ink, marginTop: 2, textAlign: 'center' }}>{e.title}</Text>
-                </Animated.View>
-              </Pressable>
-            </FadeInUp>
-          ))}
-        </ScrollView>
-
-        {/*
-        ╔══════════════════════════════════════════════╗
-        ║  SUSTAINABILITY — Banner with icon strip      ║
-        ╚══════════════════════════════════════════════╝
-        */}
-        <SectionHead title="ECO" emphasis="FRIENDLY" action="LEARN" onAction={() => nav.navigate('Sustainability')} />
-        <View style={{ paddingHorizontal: SP.l }}>
-          <AnimatedPressable onPress={() => nav.navigate('Sustainability')} style={[{ backgroundColor: C.ink, padding: SP.l, overflow: 'hidden' }, BORDER(1), curveStyle]}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.white }}>FASHION{'\n'}FOR GOOD.</Text>
-            <View style={{ flexDirection: 'row', gap: SP.m, marginTop: SP.m }}>
-              {([{ icon: 'package', label: 'ECO PKG' }, { icon: 'plant', label: 'CARBON 0' }, { icon: 'heart', label: 'ETHICAL' }, { icon: 'forward', label: '2ND LIFE' }] as { icon: RealIconName; label: string }[]).map(item => (
-                <View key={item.label} style={{ alignItems: 'center' }}>
-                  <Animated.View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, curveSmStyle]}>
-                    <RealIcon name={item.icon} size={18} />
-                  </Animated.View>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 7, marginTop: 4 }]}>{item.label}</Text>
-                </View>
-              ))}
-            </View>
-          </AnimatedPressable>
         </View>
 
         {/*
@@ -1257,64 +834,69 @@ export default function HomeScreen() {
         ║  EXPLORE MORE — Filters + infinite product grid ║
         ╚══════════════════════════════════════════════╝
         */}
-        <View style={{ marginTop: SP.xl }}>
-          <SectionHead title="EXPLORE" emphasis="MORE" />
+        <View>
+          {/* heading with Sort & Filter controls on the right */}
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[T.h2, { textTransform: 'uppercase', flex: 1 }]} numberOfLines={1}>Explore More</Text>
+              {/* Sort (left) */}
+              <Pressable
+                onPress={() => setSortSheet(true)}
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: exploreSort === 'Popular' ? C.white : C.ink, marginRight: 6 }, BORDER(1)]}
+              >
+                <Feather name="bar-chart-2" size={12} color={exploreSort === 'Popular' ? C.ink : C.white} />
+                <Text style={[T.caption, { color: exploreSort === 'Popular' ? C.ink : C.white }]}>Sort</Text>
+              </Pressable>
+              {/* Filter (right) */}
+              <Pressable
+                onPress={() => setFilterSheet(true)}
+                style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: exploreFilter === 'ALL' ? C.white : C.ink }, BORDER(1)]}
+              >
+                <RealIcon name="filter" size={12} color={exploreFilter === 'ALL' ? C.ink : C.white} />
+                <Text style={[T.caption, { color: exploreFilter === 'ALL' ? C.ink : C.white }]}>{exploreFilter === 'ALL' ? 'Filter' : exploreFilter}</Text>
+              </Pressable>
+            </View>
+          </View>
 
-          {/* Filter chip rail */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: 6 }}>
-            {(['ALL', 'HER', 'HIM', 'Tops', 'Bottomwear', 'Footwear', 'Accessories', 'Dresses'] as const).map(f => {
-              const on = exploreFilter === f;
-              return (
-                <Pressable key={f} onPress={() => { setExploreFilter(f); setExplorePage(1); }}>
-                  <Animated.View style={[{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: on ? C.ink : C.white }, BORDER(1), curveSmStyle]}>
-                    <Text style={[T.monoB, { fontSize: 10, color: on ? C.white : C.ink, letterSpacing: 1 }]}>{f.toUpperCase()}</Text>
-                  </Animated.View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          {/* Result count + sort */}
           {(() => {
-            const list = exploreProducts.filter(p => {
-              if (exploreFilter === 'ALL' || exploreFilter === 'HER' || exploreFilter === 'HIM') return true;
-              return p.category === exploreFilter;
-            });
-            const visible = list.slice(0, explorePage * 6);
+            const list = exploreProducts.filter(p => exploreFilter === 'ALL' || p.category === exploreFilter);
+            // Sort a copy — 'Popular' keeps the natural order.
+            const sorted = [...list];
+            if (exploreSort === 'Price: Low to High') sorted.sort((a, b) => a.price - b.price);
+            else if (exploreSort === 'Price: High to Low') sorted.sort((a, b) => b.price - a.price);
+            else if (exploreSort === 'Rating') sorted.sort((a, b) => b.rating - a.rating);
+            else if (exploreSort === 'Biggest Discount') sorted.sort((a, b) => (1 - b.price / b.original) - (1 - a.price / a.original));
+            // Loop the list so the feed is endless — page grows on scroll.
+            const count = explorePage * 6;
+            const visible = sorted.length ? Array.from({ length: count }, (_, i) => sorted[i % sorted.length]) : [];
             return (
               <View>
-                <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.m, marginBottom: SP.s, justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{`${list.length} RESULTS · ${exploreFilter}`}</Text>
-                  <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4 }, BORDER(1)]}>
-                    <RealIcon name="filter" size={12} />
-                    <Text style={[T.monoB, { fontSize: 9 }]}>POPULAR</Text>
-                  </View>
+                <View style={{ paddingHorizontal: SP.l, marginBottom: SP.s }}>
+                  <Text style={[T.micro]}>{`${list.length} results · ${exploreFilter} · ${exploreSort}`}</Text>
                 </View>
 
-                {/* 2-col grid — global standard-size cards */}
+                {/* 2-col grid — image fills the card frame */}
                 <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
                   {visible.map((p, i) => (
-                    <FadeInUp key={p.id + '-' + i} delay={(i % 4) * 50}>
-                      <ProductCard p={p} frameStyle={curveStyle} style={{ marginBottom: SP.s }} />
-                    </FadeInUp>
+                    <Pressable key={p.id + '-' + i} onPress={() => nav.navigate('ProductDetail', { product: p })} style={{ width: CARD.w, marginBottom: SP.s }}>
+                      <View style={[{ width: CARD.w, height: CARD.imgH, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
+                        <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      </View>
+                      <Text style={[T.productName, { marginTop: 6 }]} numberOfLines={1}>{p.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                        <Text style={T.price}>₹{p.price}</Text>
+                        {p.original > p.price && <Text style={T.mrp}>₹{p.original}</Text>}
+                      </View>
+                    </Pressable>
                   ))}
                 </View>
 
-                {/* Load more */}
-                {visible.length < list.length ? (
-                  <Pressable onPress={() => setExplorePage(p => p + 1)} style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
-                    <Feather name="arrow-down" size={14} color={C.white} />
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.white, letterSpacing: 1 }}>LOAD MORE ({list.length - visible.length})</Text>
-                  </Pressable>
-                ) : list.length > 0 ? (
-                  <View style={{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.m, alignItems: 'center' }}>
-                    <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{'◆ END OF FEED'}</Text>
-                  </View>
-                ) : (
+                {/* infinite feed — auto-loads on scroll; only the empty state shows */}
+                {list.length === 0 && (
                   <View style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
                     <RealIcon name="search" size={32} color={C.dim} />
-                    <Text style={[T.monoB, { marginTop: 8 }]}>NO MATCHES</Text>
-                    <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4, textAlign: 'center' }]}>Try a different filter or search term</Text>
+                    <Text style={[T.h3, { marginTop: 8 }]}>No matches</Text>
+                    <Text style={[T.caption, { marginTop: 4, textAlign: 'center' }]}>Try a different filter or search term</Text>
                   </View>
                 )}
               </View>
@@ -1324,15 +906,62 @@ export default function HomeScreen() {
 
         {/* ═══════════ FOOTER ═══════════ */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.huge }}>
-          <AsciiDivider />
-          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 8, fontSize: 9 }]}>END.STREAM · TRENDZO</Text>
-          <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4, fontSize: 9 }]}>FROM YOUR BLOCK · IN 60 MINUTES</Text>
-          <AsciiDivider faint style={{ marginTop: 8 }} />
+          <Text style={[T.micro, { textAlign: 'center', marginTop: 8 }]}>End.Stream · Trendzo</Text>
+          <Text style={[T.micro, { textAlign: 'center', marginTop: 4 }]}>From your block · in 60 minutes</Text>
         </View>
         </>)}
         </Animated.View>
         </AnimatedScrollView>
+
+        {/* Viewport fades — content appears to emerge at the top and dissolve at
+            the bottom while scrolling. Non-interactive. */}
+        <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: 54 }, topFadeStyle]}>
+          <LinearGradient
+            colors={['rgba(255,255,255,0.9)', 'rgba(255,255,255,0)']}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.9)']}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 84 }}
+        />
+
+        {/* ═══ FLOATING SEARCH — pinned at the very top. Hidden while scrolling,
+            slides down when scrolling stops, and only once past the banner. ═══ */}
+        <Animated.View
+          pointerEvents={floatSearchOn ? 'auto' : 'none'}
+          style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 6, paddingBottom: 10, paddingHorizontal: SP.l, backgroundColor: C.bg, zIndex: 50, elevation: 50 }, floatSearchStyle]}
+        >
+          <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white }, curveStyle]}>
+            <RealIcon name="search" size={20} color={C.ink} />
+            <Text style={[T.body, { flex: 1, color: C.dim }]}>Search 60-min drops...</Text>
+            <RealIcon name="mic" size={16} color={C.ink} />
+            <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
+              <RealIcon name="camera" size={16} color={C.ink} />
+            </Pressable>
+          </AnimatedPressable>
+        </Animated.View>
       </View>
+
+      {/* EXPLORE MORE — Filter bottom sheet */}
+      <OptionSheet
+        visible={filterSheet}
+        title="Filter"
+        options={['ALL', 'Tops', 'Bottomwear', 'Footwear', 'Accessories', 'Dresses']}
+        selected={exploreFilter}
+        onSelect={(v) => { setExploreFilter(v as typeof exploreFilter); setExplorePage(1); setFilterSheet(false); }}
+        onClose={() => setFilterSheet(false)}
+      />
+      {/* EXPLORE MORE — Sort bottom sheet */}
+      <OptionSheet
+        visible={sortSheet}
+        title="Sort by"
+        options={['Popular', 'Price: Low to High', 'Price: High to Low', 'Rating', 'Biggest Discount']}
+        selected={exploreSort}
+        onSelect={(v) => { setExploreSort(v as typeof exploreSort); setExplorePage(1); setSortSheet(false); }}
+        onClose={() => setSortSheet(false)}
+      />
     </View>
   );
 }
@@ -1359,7 +988,7 @@ function FlashTimer({ curveSmStyle }: { curveSmStyle: any }) {
     <View style={{ flexDirection: 'row', gap: 2 }}>
       {[String(time.h).padStart(2, '0'), String(time.m).padStart(2, '0'), String(time.s).padStart(2, '0')].map((n, i) => (
         <Animated.View key={i} style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, curveSmStyle]}>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 12, color: C.ink }}>{n}</Text>
+          <Text style={[T.monoB]}>{n}</Text>
         </Animated.View>
       ))}
     </View>
@@ -1402,6 +1031,165 @@ const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
 // Overlap the content-side tint into the header overlay's tail end (see below) —
 // swallows any sub-pixel rounding gap between the two so there's never a seam.
 const SEAM_OVERLAP = 16;
+
+// ─── CATEGORIES TO EXPLORE — gender-driven bento grid ────────────────────────
+function ExploreCard({ label, img, w, h, onPress, onZoom }: { label: string; img: any; w: number; h: number; onPress: () => void; onZoom?: (frame: { x: number; y: number; w: number; h: number }) => void }) {
+  // The colour box only fills the lower ~78%; the model PNG fills the full
+  // frame (uncropped) and is layered on top, so its head/shoulders rise out of
+  // the box on top.
+  // onZoom: measure the tile's on-screen frame and hand it to the caller so
+  // the CategoryZoom hero-morph can take off from EXACTLY this rect.
+  const boxRef = useRef<View>(null);
+  const handlePress = () => {
+    if (!onZoom) return onPress();
+    const node = boxRef.current;
+    if (!node) return onPress();
+    node.measureInWindow((x, y, mw, mh) => {
+      if (mw && mh) onZoom({ x, y, w: mw, h: mh });
+      else onPress();
+    });
+  };
+  return (
+    <Pressable onPress={handlePress} style={{ width: w, zIndex: 2 }}>
+      <View ref={boxRef} collapsable={false} style={{ width: w, height: h }}>
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: h * 0.78, backgroundColor: '#f1f1f1' }} />
+        <CachedImage
+          source={img}
+          style={[StyleSheet.absoluteFillObject, { zIndex: 5 }] as any}
+          resizeMode="contain"
+        />
+      </View>
+      <Text
+        numberOfLines={1}
+        style={[T.caption, { width: w, color: C.ink, marginTop: 6, textAlign: 'center' }]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+// ─── GENDER PULL TAB — elastic drag-to-switch, stuck to the right edge of the
+// category section. Pull it left like a rubber band: it stretches with real
+// resistance (the further you pull, the harder it fights), and on release it
+// snaps back with a bouncy spring. Pull past ~half the travel → flips HIM/HER.
+function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
+  const tx = useSharedValue(0);      // rubber-banded pull distance (0 … -LIMIT)
+  const boxW = useSharedValue(80);   // measured tab width — needed to pin the right edge
+  const LIMIT = 96; // max visual travel — the rubber band asymptotes here
+  const buzz = () => Vibration.vibrate(8);
+  const pan = Gesture.Pan()
+    // Horizontal pulls only — vertical moves stay with the page scroll.
+    .activeOffsetX([-12, 12])
+    .failOffsetY([-14, 14])
+    .onUpdate((e) => {
+      const mag = Math.max(0, -e.translationX); // only pull LEFT (outward)
+      // Rubber-band resistance: displacement asymptotes toward LIMIT.
+      tx.value = -(LIMIT * mag) / (mag + LIMIT);
+    })
+    .onEnd((e) => {
+      // Two ways to flip, like real elastic:
+      //  • a NORMAL steady pull past ~55% of the stretch, or
+      //  • a STRONG fast yank (high leftward velocity) even if shorter.
+      // Tiny idle tugs still just bounce back.
+      const strongYank = e.velocityX < -900 && tx.value <= -LIMIT * 0.28;
+      const willFlip = tx.value <= -LIMIT * 0.55 || strongYank;
+      if (willFlip) runOnJS(buzz)(); // instant haptic acknowledgement
+      // FAST springy snap-back — stiffer spring so the whole bounce (overshoot
+      // + wobble) is over in ~0.4s; the gender flip fires only in the spring's
+      // completion callback, i.e. strictly AFTER the animation has finished.
+      tx.value = withSpring(0, { damping: 12, stiffness: 460, mass: 0.6 }, (finished) => {
+        if (willFlip && finished) runOnJS(onFlip)();
+      });
+    });
+  // The tab does NOT move — its right edge stays glued to the screen edge and
+  // the body STRETCHES leftward (scale around the pinned right edge), so the
+  // pull reads as forcing a stuck piece of elastic, never a sliding box.
+  const boxStyle = useAnimatedStyle(() => {
+    const mag = -tx.value;
+    const s = 1 + mag / boxW.value;          // left edge extends exactly by the pull
+    const p = Math.min(1, mag / LIMIT);
+    return {
+      transform: [
+        { translateX: -(boxW.value * (s - 1)) / 2 }, // re-pin the RIGHT edge while scaling
+        { scaleX: s },
+        { scaleY: 1 - p * 0.14 },                    // thins as it strains, like real rubber
+      ],
+    };
+  });
+  return (
+    <GestureDetector gesture={pan}>
+      <Animated.View
+        onLayout={(e) => { boxW.value = e.nativeEvent.layout.width; }}
+        style={[{ position: 'absolute', right: -SP.l, bottom: 0 }, boxStyle]}
+      >
+        {/* fixed width — the HER↔HIM label swap must not relayout mid-bounce */}
+        <View style={{ width: 96, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.ink, paddingVertical: 10, paddingLeft: 10, paddingRight: SP.l + 4 }}>
+          <Feather name="chevrons-left" size={14} color={C.white} />
+          <Text style={[T.caption, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 0.5 }]} numberOfLines={1}>{him ? 'HER' : 'HIM'}</Text>
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+// Pastel dome tints for the CategoryZoom hero-morph — salmon first to match
+// the reference art, then a rotation so neighbouring tiles differ.
+const ZOOM_TINTS = ['#E8A79A', '#A9BFE6', '#BDE3C3', '#E6D3A9', '#D9B8E6', '#A9DEDA', '#E6B8C4'];
+
+function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'him'; setGender: (g: 'her' | 'him') => void }) {
+  const cats = gender === 'her' ? HER_EXPLORE : HIM_EXPLORE;
+  const go = (label: string) => nav.navigate('Categories', { label });
+  // Tap → hero-morph: the measured tile frame rides along so the dome takes
+  // off from the exact card the user touched.
+  const goZoom = (c: { label: string; img: any }, i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
+    nav.navigate('CategoryZoom', { label: c.label, img: c.img, tint: ZOOM_TINTS[i % ZOOM_TINTS.length], _frame: frame });
+  const EX_CW = (W - SP.l * 2 - EX_GAP * 2) / 3; // 3 columns
+  const EX_H = Math.round(EX_CW * 1.32);         // every card uses the same image height
+  const him = gender === 'him';
+  return (
+    <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
+      {/* Row 1 — three cards (static, always mounted → no reload on open) */}
+      <View style={{ flexDirection: 'row', gap: EX_GAP }}>
+        {cats.slice(0, 3).map((c, i) => (
+          <ExploreCard key={i} label={c.label} img={c.img} w={EX_CW} h={EX_H} onPress={() => go(c.label)} onZoom={goZoom(c, i)} />
+        ))}
+      </View>
+
+      {/* Row 2 — card left, headline right (same layout for both genders).
+          The "View <other>" button switches gender. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: EX_GAP, marginTop: SP.l }}>
+        <ExploreCard label={cats[3].label} img={cats[3].img} w={EX_CW} h={EX_H} onPress={() => go(cats[3].label)} onZoom={goZoom(cats[3], 3)} />
+        <View style={{ flex: 1, alignSelf: 'stretch', justifyContent: 'center', paddingLeft: SP.s }}>
+          <View style={{ alignSelf: 'flex-start' }}>
+            <View style={{ alignSelf: 'flex-start' }}>
+              <View style={{ position: 'absolute', left: 12, right: -3, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
+              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Our Favourite</Text>
+            </View>
+            <View style={{ alignSelf: 'flex-start', marginTop: -2 }}>
+              <View style={{ position: 'absolute', left: 0, right: -8, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
+              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Trending</Text>
+            </View>
+            <View style={{ alignSelf: 'flex-start', marginTop: -2 }}>
+              <View style={{ position: 'absolute', left: 10, right: -10, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
+              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Categories</Text>
+              <View style={{ position: 'absolute', right: -23, bottom: 1, width: 18, height: 18, borderRadius: 9, backgroundColor: EX_YELLOW }} />
+            </View>
+          </View>
+          {/* Elastic pull-tab stuck to the right edge — drag & release to flip gender. */}
+          <GenderPullTab him={him} onFlip={() => setGender(him ? 'her' : 'him')} />
+        </View>
+      </View>
+
+      {/* Row 3 — three cards (static) */}
+      <View style={{ flexDirection: 'row', gap: EX_GAP, marginTop: SP.m }}>
+        {cats.slice(4, 7).map((c, i) => (
+          <ExploreCard key={i + 4} label={c.label} img={c.img} w={EX_CW} h={EX_H} onPress={() => go(c.label)} onZoom={goZoom(c, i + 4)} />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 // One campaign poster inside the banner carousel — plain full-bleed slide,
 // no scale/fade (that left gaps around the shrinking art). The dots below
@@ -1504,20 +1292,15 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
 }
 
 // ─── TOP STORIES — editorial "In the spotlight" carousel ─────────────────────
-// Centered heading + subheading, a snapping row of tall photo cards (white card,
-// "TRENDING NOW" eyebrow, image with an overlaid title/subtitle), and dots.
+// Centered heading + subheading, a snapping row of finished tall posters with a
+// small "TRENDING NOW" card label, and pagination dots.
 const STORY_CARD_W = Math.round(W - 104);          // narrower so both neighbours peek in
 const STORY_IMG_H = Math.round(STORY_CARD_W * 1.32);
 const STORY_SNAP = STORY_CARD_W + STEAL_GAP; // same gutter as the STEALS bento grid
 
-const STORY_N = STORIES.length;
-// 3 back-to-back copies so the row can scroll forever — we sit in the middle
-// copy and silently jump back a copy-width whenever the user drifts into an
-// edge copy, which lands on a visually identical card (seamless loop).
-const STORY_LOOP = [...STORIES, ...STORIES, ...STORIES];
-const STORY_MID = STORY_N * STORY_SNAP; // offset that centres the middle copy's first card
+type StoryPoster = (typeof HER_STORIES)[number] | (typeof HIM_STORIES)[number];
 
-function StoryCard({ s, i, scrollX, nav }: { s: typeof STORIES[number]; i: number; scrollX: SharedValue<number>; nav: any }) {
+function StoryCard({ s, i, scrollX, nav }: { s: StoryPoster; i: number; scrollX: SharedValue<number>; nav: any }) {
   // Smoothly grow the card as it reaches the centre and shrink the neighbours —
   // driven off the live scroll offset, so it eases continuously (never a jump).
   // No opacity change — side cards stay fully visible, just smaller.
@@ -1535,54 +1318,50 @@ function StoryCard({ s, i, scrollX, nav }: { s: typeof STORIES[number]; i: numbe
     <Animated.View style={[{ width: STORY_CARD_W }, aStyle]}>
       <Pressable
         onPress={() => nav.navigate('Categories')}
-        style={{ backgroundColor: C.white, borderRadius: 14, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
+        style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
       >
-        <Text style={{ textAlign: 'center', fontFamily: 'Inter_700Bold', fontSize: rf(12), letterSpacing: 6, color: C.dim, paddingVertical: 12 }}>
-          TRENDING NOW
+        <Text style={[T.caption, { textAlign: 'center', paddingVertical: 12 }]}>
+          Trending Now
         </Text>
         <View style={{ width: '100%', height: STORY_IMG_H }}>
           <CachedImage source={s.img} style={{ width: '100%', height: '100%' } as any} resizeMode="cover" />
-          <LinearGradient
-            pointerEvents="none"
-            colors={['transparent', 'rgba(0,0,0,0.15)', 'rgba(0,0,0,0.8)']}
-            locations={[0, 0.5, 1]}
-            style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '60%' }}
-          />
-          <View style={{ position: 'absolute', left: SP.l, right: SP.l, bottom: SP.l }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: '#fff', letterSpacing: -0.4 }}>{s.title}</Text>
-            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: rf(14), color: '#fff', marginTop: 2 }}>{s.sub}</Text>
-          </View>
         </View>
       </Pressable>
     </Animated.View>
   );
 }
 
-function TopStories({ nav }: { nav: any }) {
+function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
+  const stories = gender === 'her' ? HER_STORIES : HIM_STORIES;
+  const storyN = stories.length;
+  // Three copies make the row loop seamlessly; the gender key remounts this
+  // section at the correct middle-copy offset whenever HER/HIM changes.
+  const storyLoop = [...stories, ...stories, ...stories];
+  const storyMid = storyN * STORY_SNAP;
   const [index, setIndex] = useState(0);
   // Start at the middle-copy offset so the scale interpolation is correct on the
   // very first frame — otherwise every visible card reads as "off-centre" and
   // renders shrunk (too much gutter) until the first swipe syncs the real offset.
-  const scrollX = useSharedValue(STORY_MID);
+  const scrollX = useSharedValue(storyMid);
   const listRef = useRef<any>(null);
   const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
 
   const onSettle = (x: number) => {
     const abs = Math.round(x / STORY_SNAP);
-    setIndex(((abs % STORY_N) + STORY_N) % STORY_N);
+    setIndex(((abs % storyN) + storyN) % storyN);
     // Recenter into the middle copy so there's always room to swipe both ways.
-    if (abs < STORY_N || abs >= STORY_N * 2) {
-      const target = (abs % STORY_N) * STORY_SNAP + STORY_MID;
+    if (abs < storyN || abs >= storyN * 2) {
+      const target = (abs % storyN) * STORY_SNAP + storyMid;
       listRef.current?.scrollTo({ x: target, animated: false });
     }
   };
 
   return (
     <View style={{ marginTop: SP.xl }}>
-      <Text style={{ textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(23), color: C.ink, letterSpacing: 0.2 }}>
-        TOP STORIES OF THE WEEK
+      <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
+        Top Stories of the Week
       </Text>
-      <Text style={{ textAlign: 'center', fontFamily: 'Inter_400Regular', fontSize: rf(14), color: C.dim, marginTop: 3 }}>
+      <Text style={[T.body, { color: C.dim, textAlign: 'center', marginTop: 3 }]}>
         In the spotlight
       </Text>
 
@@ -1595,18 +1374,18 @@ function TopStories({ nav }: { nav: any }) {
         disableIntervalMomentum
         onScroll={onScroll}
         scrollEventThrottle={16}
-        contentOffset={{ x: STORY_MID, y: 0 }}
+        contentOffset={{ x: storyMid, y: 0 }}
         contentContainerStyle={{ paddingHorizontal: (W - STORY_CARD_W) / 2, gap: STEAL_GAP, paddingTop: SP.l, paddingBottom: SP.s }}
         onMomentumScrollEnd={(e) => onSettle(e.nativeEvent.contentOffset.x)}
       >
-        {STORY_LOOP.map((s, i) => (
+        {storyLoop.map((s, i) => (
           <StoryCard key={`${s.id}-${i}`} s={s} i={i} scrollX={scrollX} nav={nav} />
         ))}
       </Animated.ScrollView>
 
       {/* Pagination dots */}
       <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: SP.s }}>
-        {STORIES.map((_, i) => (
+        {stories.map((_, i) => (
           <View
             key={i}
             style={{ width: i === index ? 8 : 6, height: i === index ? 8 : 6, borderRadius: 4, backgroundColor: i === index ? C.ink : C.hairline }}
@@ -1631,7 +1410,7 @@ function Marquee({ text }: { text: string }) {
   }, [segW]);
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
   const seg = (
-    <Text numberOfLines={1} style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 11, color: C.white, letterSpacing: 1 }}>
+    <Text numberOfLines={1} style={[T.caption, { color: C.white }]}>
       {text}
     </Text>
   );
@@ -1744,7 +1523,7 @@ function PlayGameCard({ game, index, progress, onTap }: { game: any; index: numb
     }, animStyle]}>
       <AnimatedPressable onPress={onTap} style={[{ flex: 1, padding: 6, backgroundColor: bg, justifyContent: 'center', alignItems: 'center', gap: 8, overflow: 'hidden' }, BORDER(1), cardCurve]}>
         <RealIcon name={GAME_ICON[game.id] ?? 'gift'} size={24} color={fg} />
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: fg, textAlign: 'center', lineHeight: 11 }} numberOfLines={2}>{game.title.toUpperCase()}</Text>
+        <Text style={[T.micro, { color: fg, textAlign: 'center' }]} numberOfLines={2}>{game.title}</Text>
       </AnimatedPressable>
     </Animated.View>
   );
@@ -1780,7 +1559,7 @@ function PlayLabel({ progress }: { progress: any }) {
   }));
   return (
     <Animated.View style={[{ alignSelf: 'center', marginTop: SP.s }, style]}>
-      <Text style={[T.monoB, { fontSize: 9, textAlign: 'center' }]}>{'[ TAP DECK TO OPEN ]'}</Text>
+      <Text style={[T.micro, { textAlign: 'center' }]}>{'[ Tap deck to open ]'}</Text>
     </Animated.View>
   );
 }
@@ -1798,7 +1577,7 @@ function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; on
   // curveProgress = 0 → HIM (sharp square, left), = 1 → HER (round, right).
   // Single shared source of truth — drag updates it in real time and every
   // other UI element (cards, tab bar, buttons) reacts instantly.
-  const { curveProgress, night, setGenderFromDrag } = useApp();
+  const { curveProgress, setGenderFromDrag } = useApp();
   const [trackW, setTrackW] = useState(0);
   const trackWShared = useSharedValue(0);
   const startProgress = useSharedValue(0);
@@ -1806,8 +1585,8 @@ function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; on
   // we need on the JS thread and pass them in as plain strings. On the banner
   // photo it's always white-on-dark regardless of night mode (matches the
   // rest of the header overlay).
-  const activeColor = onPhoto ? '#FFFFFF' : (night ? '#FFFFFF' : '#000000');
-  const dimColor = onPhoto ? 'rgba(255,255,255,0.55)' : (night ? '#a0a0a0' : '#666666');
+  const activeColor = onPhoto ? '#FFFFFF' : '#000000';
+  const dimColor = onPhoto ? 'rgba(255,255,255,0.55)' : '#666666';
   const lineColor = onPhoto ? 'rgba(255,255,255,0.75)' : C.ink;
   const pukColor = onPhoto ? '#FFFFFF' : C.ink;
   const gripColor = onPhoto ? '#000000' : '#FFFFFF';
@@ -1920,7 +1699,7 @@ function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; on
             the track by a short connector so it reads as one drawn piece. */}
         <Pressable onPress={() => commitFromTap('him')} hitSlop={12}>
           <Animated.View style={[{ borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 3 }, himBoxStyle]}>
-            <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 12, letterSpacing: 0.5 }, himTextStyle, onPhoto ? HERO_SHADOW : null]}>
+            <Animated.Text style={[T.caption, himTextStyle, onPhoto ? HERO_SHADOW : null]}>
               HIM
             </Animated.Text>
           </Animated.View>
@@ -1967,7 +1746,7 @@ function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; on
         <View style={{ width: SP.s, height: 1.5, backgroundColor: lineColor }} />
         <Pressable onPress={() => commitFromTap('her')} hitSlop={12}>
           <Animated.View style={[{ borderWidth: 1.5, paddingHorizontal: 8, paddingVertical: 3 }, herBoxStyle]}>
-            <Animated.Text style={[{ fontFamily: 'Inter_900Black', fontSize: 12, letterSpacing: 0.5 }, herTextStyle, onPhoto ? HERO_SHADOW : null]}>
+            <Animated.Text style={[T.caption, herTextStyle, onPhoto ? HERO_SHADOW : null]}>
               HER
             </Animated.Text>
           </Animated.View>
@@ -2043,13 +1822,13 @@ function QuickCat({ her, him, progress, active, curveSmStyle, onPress }: {
       </Animated.View>
       <View style={[{ width: QC_LBL, height: 13, marginTop: 4 }, center]}>
         {him && (
-          <Animated.Text numberOfLines={1} style={[T.monoB, { fontSize: 9, textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
-            {him.label.toUpperCase()}
+          <Animated.Text numberOfLines={1} style={[T.micro, { textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
+            {him.label}
           </Animated.Text>
         )}
         {her && (
-          <Animated.Text numberOfLines={1} style={[T.monoB, { fontSize: 9, textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
-            {her.label.toUpperCase()}
+          <Animated.Text numberOfLines={1} style={[T.micro, { textAlign: 'center', position: 'absolute', left: 0, right: 0, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
+            {her.label}
           </Animated.Text>
         )}
       </View>
@@ -2067,26 +1846,24 @@ function FeaturedCatTile({ item, onPress }: {
   return (
     <Pressable onPress={onPress} style={{ alignItems: 'center', width: FEATURED_TILE_W }}>
       <CachedImage source={item.img} style={{ width: FEATURED_TILE_W, height: FEATURED_TILE_W * 1.24 }} resizeMode="contain" />
-      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, marginTop: 4, textAlign: 'center' }} numberOfLines={1}>{item.label}</Text>
+      <Text style={[T.caption, { color: C.ink, marginTop: 4, textAlign: 'center' }]} numberOfLines={1}>{item.label}</Text>
     </Pressable>
   );
 }
 
-// ─── STEAL TILE — Steals bento card. Full-bleed image, editorial-style
-// caption pinned to the BOTTOM behind a gradient (never over the subject's
-// face/product like a top overlay would) — a thin tracked-caps label over
-// an italic price line, monochrome only. Border + radius are driven by
-// BORDER()/curveSmStyle like every other card in this screen, so it
-// sharpens/rounds with the same HIM↔HER gender curve as the rest of the app.
-function StealTile({ label, priceLine, img, height, width, curveSmStyle, onPress }: {
+// ─── STEAL TILE — consistent three-level merchandising hierarchy:
+// product name, small qualifier, then the large price.
+function StealTile({ label, priceLine, qualifier = 'Under', img, height, width, curveSmStyle, onPress }: {
   label: string;
   priceLine: string;
+  qualifier?: string;
   img: string | number;
   height: number;
   width: number;
   curveSmStyle: any;
   onPress: () => void;
 }) {
+  const amount = priceLine.replace(/^[^₹]*/, '');
   return (
     <AnimatedPressable
       onPress={onPress}
@@ -2094,51 +1871,213 @@ function StealTile({ label, priceLine, img, height, width, curveSmStyle, onPress
     >
       <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.05)', 'rgba(0,0,0,0.65)']}
-        start={{ x: 0, y: 0.5 }}
+        colors={['transparent', 'rgba(0,0,0,0.7)']}
+        start={{ x: 0, y: 0.55 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject as any}
       />
       <View style={{ position: 'absolute', left: SP.s, right: SP.s, bottom: SP.s }}>
-        <Text style={{ fontFamily: 'Inter_500Medium', fontSize: 10, color: 'rgba(255,255,255,0.8)', letterSpacing: 1.4 }}>{label.toUpperCase()}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: '#fff', letterSpacing: -0.3, marginTop: 1, ...HERO_SHADOW }}>{priceLine}</Text>
+        <Text style={
+          label === 'T-shirts'
+            ? { fontFamily: 'Inter_900Black', fontSize: rf(14), lineHeight: rf(18), letterSpacing: 0, color: '#fff' }
+            : [T.body, { color: '#fff' }]
+        }>
+          {label}
+        </Text>
+        <Text style={[T.micro, { color: '#fff', marginTop: 5 }]}>{qualifier}</Text>
+        <Text style={[T.h1, { color: '#fff', marginTop: -2 }]}>{amount}</Text>
       </View>
     </AnimatedPressable>
   );
 }
 
-// ─── REEL POSTER TILE — Explore Reels card. Full-bleed thumbnail, bottom
-// gradient for legibility, "REEL" badge, and an arrow CTA — tapping ANY part
-// jumps straight to the Reels tab (nothing plays inline here, this is just a
-// teaser rail). Border/radius share the same curveSmStyle as every other
-// card, so it rounds/sharpens with the gender curve like the rest of Home.
-function ReelPosterTile({ title, img, curveSmStyle, onPress }: {
+const REEL_SECTION_W = W - SP.l * 2;
+const REEL_PORTRAIT_GAP = STEAL_GAP;
+const REEL_PORTRAIT_W = (REEL_SECTION_W - REEL_PORTRAIT_GAP) / 2; // 2-up row
+const REEL_PORTRAIT_H = Math.round(REEL_PORTRAIT_W * 1.6); // portrait cards, 2-up
+const REEL_FEATURE_IMAGE_W = STEAL_COL_W;
+const REEL_FEATURE_H = Math.round(STEAL_COL_W * 1.25); // top-2 editorial cards bumped up
+const REEL_FEATURE_SHEER = require('../../assets/reel-features/sheer-confidence.png');
+const REEL_FEATURE_EVENING = require('../../assets/reel-features/evening-edit.png');
+const REEL_FEATURE_HIM_CITY = require('../../assets/reel-features/him-city.png');
+const REEL_FEATURE_HIM_DARK = require('../../assets/reel-features/him-after-dark.jpeg');
+const HIM_REEL_PREVIEWS = [
+  require('../../assets/reels/men1.mp4'),
+  require('../../assets/reels/men2.mp4'),
+  require('../../assets/reels/men3.mp4'),
+];
+const HER_REEL_PREVIEWS = [
+  require('../../assets/reels/female1.mp4'),
+  require('../../assets/reels/female2.mp4'),
+  require('../../assets/reels/female3.mp4'),
+];
+
+function EditorialReelFeature({ img, reverse, label, title, copy, cta, accent, panelColors, onPress }: {
+  img: string | number;
+  reverse?: boolean;
+  label: string;
   title: string;
-  img: string;
-  curveSmStyle: any;
+  copy: string;
+  cta: string;
+  accent: string;
+  panelColors: readonly [string, string];
   onPress: () => void;
 }) {
   return (
-    <AnimatedPressable
+    <Pressable
       onPress={onPress}
-      style={[{ width: REEL_TILE_W, height: REEL_TILE_H, overflow: 'hidden', backgroundColor: '#111' }, BORDER(1), curveSmStyle]}
+      style={{ height: REEL_FEATURE_H, flexDirection: reverse ? 'row-reverse' : 'row', borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white, overflow: 'hidden' }}
     >
-      <CachedImage source={{ uri: img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.9)']}
-        start={{ x: 0, y: 0.35 }}
-        end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject as any}
-      />
-      <View style={{ position: 'absolute', left: SP.s, right: SP.s, bottom: SP.s, flexDirection: 'row', alignItems: 'flex-end' }}>
-        <View style={{ flex: 1, marginRight: SP.s }}>
-          <Text numberOfLines={2} style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: '#fff' }}>{title}</Text>
-        </View>
-        <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-          <Feather name="arrow-up-right" size={14} color="#000" />
-        </View>
+      <View style={{ width: REEL_FEATURE_IMAGE_W, height: '100%' }}>
+        <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
       </View>
-    </AnimatedPressable>
+      <LinearGradient colors={panelColors} style={{ flex: 1, overflow: 'hidden', padding: SP.m, justifyContent: 'flex-start' }}>
+        {/* Giant faded word (its own text, different from the heading) BLEEDING
+            off the panel — clipped hard mid-letter, no ellipsis, no shrinking. */}
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="clip"
+          style={{ position: 'absolute', bottom: -rf(16), left: -10, width: '160%', fontFamily: 'Inter_900Black', fontSize: rf(74), letterSpacing: -2, color: C.ink, opacity: 0.1, textTransform: 'uppercase' }}
+        >
+          {title}
+        </Text>
+        {/* Big black offer number — fully visible (wraps, never cut); only the
+            faded background word gets clipped. */}
+        <Text
+          numberOfLines={2}
+          style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), lineHeight: rf(28), letterSpacing: -0.5, color: C.ink, textTransform: 'uppercase' }}
+        >
+          {label}
+        </Text>
+        {/* Plain "View" link — sits under the heading, ABOVE the faded word */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: SP.s }}>
+          <Text style={[T.button, { color: C.ink, fontSize: rf(14) }]}>View</Text>
+          <Feather name="arrow-right" size={14} color={C.ink} />
+        </View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function LocalReelPreview({ source }: { source: number }) {
+  const player = useVideoPlayer(source, p => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return <VideoView player={player} nativeControls={false} contentFit="cover" style={StyleSheet.absoluteFillObject} />;
+}
+
+function PortraitReelCard({ img, video, onPress }: {
+  img?: string;
+  video?: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={{ width: REEL_PORTRAIT_W, height: REEL_PORTRAIT_H, overflow: 'hidden', backgroundColor: '#111' }}>
+      {video ? (
+        <LocalReelPreview source={video} />
+      ) : (
+        <CachedImage source={{ uri: img! }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+      )}
+      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.22)']} start={{ x: 0, y: 0.66 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject as any} />
+      <View style={{ position: 'absolute', left: 7, bottom: 7 }}>
+        <Text style={[T.micro, { color: '#fff', textTransform: 'uppercase', borderBottomWidth: 1, borderBottomColor: '#fff', paddingBottom: 2 }]}>View</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function ReelDeliveryBanner({ her, onPress }: { her: boolean; onPress: () => void }) {
+  // Light pastel gradients (no dark tones) — dark ink text for legibility.
+  const gradient = her ? ['#FBDCE9', '#F6C6D9'] as const : ['#DCE9FB', '#C6D9F6'] as const;
+  const fg = '#111';
+  const divider = 'rgba(0,0,0,0.15)';
+  return (
+    <Pressable onPress={onPress} style={{ height: 116, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}>
+      <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ flex: 1, padding: 10 }}>
+        <View style={{ height: 42, flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center' }}>
+            <MaterialCommunityIcons name="timer-outline" size={27} color={fg} />
+          </View>
+          <View style={{ flex: 1, height: 42, marginLeft: SP.s, justifyContent: 'center' }}>
+            <Text style={[T.h3, { fontFamily: 'Inter_900Black', color: fg }]}>60-Minute Delivery</Text>
+            <Text numberOfLines={1} style={[T.micro, { color: 'rgba(0,0,0,0.6)', marginTop: 1 }]}>Your style. Now, not later.</Text>
+          </View>
+          <View style={{ height: 42, backgroundColor: '#111', paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <Text style={[T.caption, { color: '#fff' }]}>SHOP NOW</Text>
+            <Feather name="arrow-right" size={14} color="#fff" />
+          </View>
+        </View>
+
+        <View style={{ flex: 1, flexDirection: 'row', marginTop: 6, paddingVertical: 4 }}>
+          {[
+            ['heart', 'Trendy Styles'],
+            ['zap', 'Lightning Fast'],
+            ['rotate-ccw', 'Easy Returns'],
+          ].map(([icon, text], i) => (
+            <View key={text} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: divider }}>
+              <Feather name={icon as any} size={10} color={fg} />
+              <Text numberOfLines={1} style={{ fontFamily: 'Helvetica Neue', fontWeight: '400', fontSize: rf(10), color: fg }}>{text}</Text>
+            </View>
+          ))}
+        </View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
+
+function ReelsForYouSection({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
+  const openReels = () => nav.navigate('ReelsTab');
+  const her = gender === 'her';
+  const activeReels = her ? HER_REEL_PREVIEWS : HIM_REEL_PREVIEWS;
+  const openSelectedReel = (index: number) => nav.navigate('ReelsTab', {
+    selectedVideo: activeReels[index],
+    selectedIndex: index,
+    selectedGender: gender,
+    selectionToken: Date.now(),
+  });
+  return (
+    <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP.m }}>
+        <Text style={[T.h2, { textTransform: 'uppercase' }]}>Reels For You</Text>
+        <Pressable onPress={openReels} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <Text style={[T.caption, { color: C.ink }]}>View all</Text>
+          <Feather name="chevron-right" size={15} color={C.ink} />
+        </Pressable>
+      </View>
+
+      <View style={{ gap: STEAL_GAP }}>
+        <EditorialReelFeature
+          img={her ? REEL_FEATURE_SHEER : REEL_FEATURE_HIM_CITY}
+          label="Up to 50% Off"
+          title="Stay"
+          copy=""
+          cta=""
+          accent="#111111"
+          panelColors={['#FFFFFF', '#FFFFFF']}
+          onPress={openReels}
+        />
+        <EditorialReelFeature
+          img={her ? REEL_FEATURE_EVENING : REEL_FEATURE_HIM_DARK}
+          reverse
+          label="Hot on the Gram"
+          title="Fresh"
+          copy=""
+          cta=""
+          accent={her ? '#C84F87' : '#245A9B'}
+          panelColors={her ? ['#FFF8FC', '#F5E5F1'] : ['#F7FAFF', '#DFEAF7']}
+          onPress={openReels}
+        />
+
+        <View style={{ flexDirection: 'row', gap: REEL_PORTRAIT_GAP }}>
+          <PortraitReelCard video={activeReels[0]} onPress={() => openSelectedReel(0)} />
+          <PortraitReelCard video={activeReels[1]} onPress={() => openSelectedReel(1)} />
+        </View>
+
+        <ReelDeliveryBanner her={her} onPress={() => nav.navigate('Categories')} />
+      </View>
+    </View>
   );
 }
 
@@ -2148,16 +2087,75 @@ function ReelPosterTile({ title, img, curveSmStyle, onPress }: {
 function OccasionCard({ label, img, curveSmStyle, onPress }: {
   label: string;
   img: string | number;
-  curveSmStyle: any;
+  curveSmStyle?: any;
   onPress: () => void;
 }) {
   return (
     <Pressable onPress={onPress} style={{ width: OCC_CARD_W }}>
-      <Animated.View style={[{ width: OCC_CARD_W, height: OCC_CARD_H, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, BORDER(1), curveSmStyle]}>
-        <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={{ width: '82%', height: '82%' }} resizeMode="contain" />
-      </Animated.View>
-      <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 8, textAlign: 'center' }} numberOfLines={1}>{label}</Text>
+      <View style={[{ width: OCC_CARD_W, height: OCC_CARD_H, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+        {/* soft depth behind the cutout so it doesn't float on flat white */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.06)', 'rgba(0,0,0,0)']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        {/* product cutout fills the upper area */}
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 10 }}>
+          <CachedImage source={typeof img === 'string' ? { uri: img } : img} style={{ width: '88%', height: '95%' }} resizeMode="contain" />
+        </View>
+        {/* label bar baked into the card, with a go arrow */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.ink, paddingHorizontal: 12, paddingVertical: 10 }}>
+          <Text style={[T.caption, { color: C.white }]} numberOfLines={1}>{label}</Text>
+          <Feather name="arrow-right" size={15} color={C.white} />
+        </View>
+      </View>
     </Pressable>
+  );
+}
+
+// ─── FLASH FIT BUNDLE — a 4-piece "fit" (top / bottom / shoe / accessory) in a
+// proper bento grid: the two tall tiles sit diagonally (top-left + bottom-right)
+// so the sizes read as intentional, not lopsided. Clean white — a black eyebrow
+// chip and gold full-star tiles carry the interest instead of a bg colour.
+function FlashFitBundle({ onOpen }: { onOpen?: (label: string) => void }) {
+  // Right tile = full column height; left-top (t-shirt) is taller than
+  // left-bottom (shoe) so the two left tiles are intentionally uneven.
+  const GRID_H = Math.round(W * 0.95);             // full height → right (jeans) tile
+  const topH = Math.round(GRID_H * 0.56);          // left-top (t-shirt) — the taller one
+  const bottomH = GRID_H - topH - SP.s;            // left-bottom (shoe) — the shorter one
+
+  const Tile = ({ label, img, h }: { label: string; img: any; h: number }) => (
+    <Pressable onPress={() => onOpen?.(label)} style={[{ backgroundColor: '#F4F4F4', height: h, overflow: 'hidden' }, BORDER(1)]}>
+      {/* centred heading-style label, no stars */}
+      <Text style={[T.h3, { color: C.ink, textAlign: 'center', textTransform: 'uppercase', paddingTop: 12, paddingHorizontal: 8 }]} numberOfLines={1}>{label}</Text>
+      {/* image fills the rest of the grey tile — no inner spacing */}
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <CachedImage source={img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+      </View>
+    </Pressable>
+  );
+
+  return (
+    <View style={{ marginTop: SP.xl, backgroundColor: C.white }}>
+      {/* header */}
+      <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
+        <Text style={[T.h2, { color: C.ink, textTransform: 'uppercase' }]} numberOfLines={1} adjustsFontSizeToFit>Flash Fit of the Day</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <Text style={[T.caption, { color: C.dim }]}>Fresh looks served hot!</Text>
+          <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Under ₹999</Text>
+          <Feather name="chevron-right" size={14} color={C.ink} />
+        </View>
+      </View>
+      {/* bento grid — tall tiles on the diagonal */}
+      <View style={{ flexDirection: 'row', gap: SP.s, padding: SP.l }}>
+        <View style={{ flex: 1, gap: SP.s }}>
+          <Tile label="T-Shirt" img={FLASH_TSHIRT_IMG} h={topH} />
+          <Tile label="Shoes" img={FLASH_SHOES_IMG} h={bottomH} />
+        </View>
+        <View style={{ flex: 1.35 }}>
+          <Tile label="Jeans" img={FLASH_JEANS_IMG} h={GRID_H} />
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -2223,13 +2221,13 @@ function PromoBanner({ slides, curveSmStyle, onPress }: {
             <AnimatedPressable
               key={s.id}
               onPress={onPress}
-              style={[{ width: bw, height: 148, backgroundColor: s.bg, flexDirection: 'row', overflow: 'hidden' }, BORDER(1), curveSmStyle]}
+              style={[{ width: bw, height: 112, backgroundColor: s.bg, flexDirection: 'row', overflow: 'hidden' }, BORDER(1), curveSmStyle]}
             >
               <View style={{ flex: 1, padding: SP.m, justifyContent: 'center' }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 19, color: '#fff', lineHeight: 21 }}>{s.title}</Text>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 4 }}>{s.sub}</Text>
+                <Text style={[T.productTitle, { color: '#fff' }]}>{s.title}</Text>
+                <Text style={[T.body, { color: 'rgba(255,255,255,0.85)', marginTop: 4 }]}>{s.sub}</Text>
                 <View style={{ marginTop: 10, alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6 }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: '#000', letterSpacing: 0.3 }}>{s.cta} →</Text>
+                  <Text style={[T.button, { color: '#000' }]}>{s.cta} →</Text>
                 </View>
               </View>
               <CachedImage source={typeof s.img === 'string' ? { uri: s.img } : s.img} style={{ width: 128, height: '100%' }} resizeMode="cover" />
@@ -2327,17 +2325,17 @@ function VibeTile({ her, him, index, progress, active, curveSmStyle, onPress }: 
         }, BORDER(1), curveSmStyle]}>
           <View style={[{ width: cardW, height: 12 }, center]}>
             {him && (
-              <Animated.Text numberOfLines={1} style={[{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.5, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
-                {him.label.toUpperCase()}
+              <Animated.Text numberOfLines={1} style={[T.micro, { position: 'absolute', left: 0, right: 0, textAlign: 'center', color: C.ink, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, himLblStyle]}>
+                {him.label}
               </Animated.Text>
             )}
             {her && (
-              <Animated.Text numberOfLines={1} style={[{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: 9, color: C.ink, letterSpacing: 0.5, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
-                {her.label.toUpperCase()}
+              <Animated.Text numberOfLines={1} style={[T.micro, { position: 'absolute', left: 0, right: 0, textAlign: 'center', color: C.ink, textShadowColor: ink, textShadowOffset: { width: 0, height: 0 } }, herLblStyle]}>
+                {her.label}
               </Animated.Text>
             )}
           </View>
-          <Text style={[T.mono, { fontSize: 7, color: C.dim, marginTop: 2 }]}>{`0${index + 1}`}</Text>
+          <Text style={[T.micro, { marginTop: 2 }]}>{`0${index + 1}`}</Text>
         </Animated.View>
       </FadeInUp>
     </Pressable>

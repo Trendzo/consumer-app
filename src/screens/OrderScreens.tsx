@@ -1,25 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, StatusBar, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { listOrders, type OrderListRow } from '../services/orders';
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
   const nav = useNavigation<any>();
-  const { lastOrder, night } = useApp();
+  const { lastOrder } = useApp();
   const method = lastOrder?.method || 'express';
   const store = lastOrder?.store;
 
   const headline =
-    method === 'pickup' ? 'ORDER\nCONFIRMED.' :
-    method === 'tryandbuy' ? 'TRIAL\nBOOKED.' :
-    method === 'standard' ? 'ORDER\nPLACED.' :
-    'ORDER\nPLACED.';
+    method === 'pickup' ? 'Order confirmed.' :
+    method === 'tryandbuy' ? 'Trial booked.' :
+    'Order placed.';
 
   const caption =
     method === 'pickup' ? `Ready at ${store?.name} in ~${store?.eta}` :
@@ -28,21 +27,22 @@ export function OrderSuccessScreen() {
     'Arriving in 47 minutes';
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
+    <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
       <BrutalStatusBar />
       <MotiView from={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 12, stiffness: 160 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.ink }}>{'[✓]'}</Text>
+        <Feather name="check-circle" size={56} color={C.ink} />
       </MotiView>
 
       <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 250 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.ink, marginTop: 18, textAlign: 'center', letterSpacing: -1 }}>{headline}</Text>
+        <Text style={[T.h1, { marginTop: 18, textAlign: 'center', textTransform: 'uppercase' }]}>{headline}</Text>
       </MotiView>
 
       <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 450 }} style={{ marginTop: 24, alignItems: 'center' }}>
-        <AsciiDivider />
-        <Text style={[T.monoB, { marginTop: 10 }]}>{`ORDER #${lastOrder?.id || 'CX' + Math.floor(Math.random() * 90000)}`}</Text>
+        <Text style={[T.caption, { color: C.ink }]}>
+          {'Order '}
+          <Text style={[T.monoB]}>{`#${lastOrder?.id || 'CX' + Math.floor(Math.random() * 90000)}`}</Text>
+        </Text>
         <Text style={[T.body, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>{caption}</Text>
-        <AsciiDivider faint style={{ marginTop: 10 }} />
       </MotiView>
 
       <View style={{ marginTop: 36, gap: 10, width: '100%' }}>
@@ -60,38 +60,38 @@ export function OrderSuccessScreen() {
 
 // ─── TRACKING STEPS — different flow per method ────────────
 const STEPS_EXPRESS = [
-  { label: 'ORDER PLACED', sub: 'Just now', icon: 'check' },
-  { label: 'STORE CONFIRMED', sub: '2 min', icon: 'shopping-bag' },
-  { label: 'PACKED & DISPATCHED', sub: '8 min', icon: 'package' },
-  { label: 'OUT FOR DELIVERY', sub: '24 min', icon: 'truck' },
-  { label: 'DELIVERED', sub: '47 min · ETA', icon: 'home' },
+  { label: 'Order placed', sub: 'Just now', icon: 'check' },
+  { label: 'Store confirmed', sub: '2 min', icon: 'shopping-bag' },
+  { label: 'Packed & dispatched', sub: '8 min', icon: 'package' },
+  { label: 'Out for delivery', sub: '24 min', icon: 'truck' },
+  { label: 'Delivered', sub: '47 min · ETA', icon: 'home' },
 ];
 const STEPS_STANDARD = [
-  { label: 'ORDER PLACED', sub: 'Just now', icon: 'check' },
-  { label: 'PAYMENT VERIFIED', sub: '3 min', icon: 'credit-card' },
-  { label: 'PACKED AT WAREHOUSE', sub: '6 hrs', icon: 'package' },
-  { label: 'SHIPPED', sub: 'Tomorrow', icon: 'send' },
-  { label: 'OUT FOR DELIVERY', sub: 'Day 2', icon: 'truck' },
-  { label: 'DELIVERED', sub: 'Day 2-3 · ETA', icon: 'home' },
+  { label: 'Order placed', sub: 'Just now', icon: 'check' },
+  { label: 'Payment verified', sub: '3 min', icon: 'credit-card' },
+  { label: 'Packed at warehouse', sub: '6 hrs', icon: 'package' },
+  { label: 'Shipped', sub: 'Tomorrow', icon: 'send' },
+  { label: 'Out for delivery', sub: 'Day 2', icon: 'truck' },
+  { label: 'Delivered', sub: 'Day 2-3 · ETA', icon: 'home' },
 ];
 const STEPS_PICKUP = [
-  { label: 'ORDER PLACED', sub: 'Just now', icon: 'check' },
-  { label: 'STORE RECEIVED ORDER', sub: '2 min', icon: 'shopping-bag' },
-  { label: 'BEING PREPARED', sub: '18 min', icon: 'package' },
-  { label: 'READY FOR PICKUP', sub: '45 min · ETA', icon: 'map-pin' },
-  { label: 'COLLECTED', sub: 'Show QR at counter', icon: 'check-circle' },
+  { label: 'Order placed', sub: 'Just now', icon: 'check' },
+  { label: 'Store received order', sub: '2 min', icon: 'shopping-bag' },
+  { label: 'Being prepared', sub: '18 min', icon: 'package' },
+  { label: 'Ready for pickup', sub: '45 min · ETA', icon: 'map-pin' },
+  { label: 'Collected', sub: 'Show QR at counter', icon: 'check-circle' },
 ];
 const STEPS_TRYBUY = [
-  { label: 'ORDER PLACED', sub: 'Just now', icon: 'check' },
-  { label: 'PACKED', sub: '1 hr', icon: 'package' },
-  { label: 'DISPATCHED', sub: 'Tomorrow 9am', icon: 'send' },
-  { label: 'COURIER AT YOUR DOOR', sub: '15 min window', icon: 'home' },
-  { label: 'TRIAL COMPLETE', sub: 'Keep what fits', icon: 'check-circle' },
+  { label: 'Order placed', sub: 'Just now', icon: 'check' },
+  { label: 'Packed', sub: '1 hr', icon: 'package' },
+  { label: 'Dispatched', sub: 'Tomorrow 9am', icon: 'send' },
+  { label: 'Courier at your door', sub: '15 min window', icon: 'home' },
+  { label: 'Trial complete', sub: 'Keep what fits', icon: 'check-circle' },
 ];
 
 export function OrderTrackingScreen() {
   const nav = useNavigation<any>();
-  const { lastOrder, night } = useApp();
+  const { lastOrder } = useApp();
   const method = lastOrder?.method || 'express';
   const store = lastOrder?.store;
 
@@ -109,7 +109,7 @@ export function OrderTrackingScreen() {
   }, [STEPS.length]);
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
       <ScreenHeader title={method === 'pickup' ? 'Pickup' : 'Order Tracking'} onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
@@ -121,8 +121,7 @@ export function OrderTrackingScreen() {
 
         {/* ═══ TIMELINE (always shown, steps vary by method) ═══ */}
         <View style={{ marginTop: SP.xl }}>
-          <Text style={[T.label]}>{'TIMELINE'}</Text>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
+          <Text style={[T.label]}>{'Timeline'}</Text>
           <View style={{ marginTop: SP.m }}>
             {STEPS.map((step, i) => {
               const done = i <= active;
@@ -137,8 +136,8 @@ export function OrderTrackingScreen() {
                       {i < STEPS.length - 1 && <View style={{ width: 1, flex: 1, backgroundColor: done ? C.ink : C.hairline, marginTop: 2 }} />}
                     </View>
                     <View style={{ flex: 1, paddingLeft: 12, paddingBottom: 18 }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: done ? C.ink : C.dim, letterSpacing: 0.3 }}>{step.label}</Text>
-                      <Text style={[T.mono, { color: current ? C.ink : C.dim, marginTop: 2 }]}>{step.sub}</Text>
+                      <Text style={[T.caption, { color: done ? C.ink : C.dim }]}>{step.label}</Text>
+                      <Text style={[T.micro, { color: current ? C.ink : C.dim, marginTop: 2 }]}>{step.sub}</Text>
                     </View>
                   </View>
                 </FadeInUp>
@@ -166,13 +165,12 @@ function ExpressHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · EXPRESS`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ARRIVING SOON</Text>
+      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>Arriving soon</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>From NORTH. store · 2.4 km</Text>
-      <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="ETA" value="23 MIN" />
-        <HeaderStat label="RIDER" value="RAVI K." />
-        <HeaderStat label="BIKE" value="MH02" />
+        <HeaderStat label="ETA" value="23 min" />
+        <HeaderStat label="Rider" value="Ravi K." />
+        <HeaderStat label="Bike" value="MH02" />
       </View>
     </View>
   );
@@ -182,13 +180,12 @@ function StandardHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · STANDARD`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>ON ITS WAY</Text>
+      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>On its way</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Tracked shipping · signature on delivery</Text>
-      <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="ETA" value="2-3 DAYS" />
+        <HeaderStat label="ETA" value="2-3 days" />
         <HeaderStat label="AWB" value="CX48201" />
-        <HeaderStat label="CARRIER" value="DELHIVERY" />
+        <HeaderStat label="Carrier" value="Delhivery" />
       </View>
     </View>
   );
@@ -198,13 +195,12 @@ function TryBuyHeader({ order }: any) {
   return (
     <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
       <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · TRY & BUY`}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>TRIAL BOOKED</Text>
+      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>Trial booked</Text>
       <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Courier will wait 15 min · keep what fits</Text>
-      <AsciiDivider style={{ marginTop: SP.m }} />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="ARRIVES" value="TOMORROW" />
-        <HeaderStat label="WINDOW" value="10-12 AM" />
-        <HeaderStat label="TRIAL" value="15 MIN" />
+        <HeaderStat label="Arrives" value="Tomorrow" />
+        <HeaderStat label="Window" value="10-12 AM" />
+        <HeaderStat label="Trial" value="15 min" />
       </View>
     </View>
   );
@@ -216,20 +212,20 @@ function PickupHeader({ order, store, active, stepCount }: any) {
   const slot = store?.slot;
   return (
     <View>
-      <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-        <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{`ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.white, marginTop: 6, letterSpacing: -1, lineHeight: rf(34) }}>
-          {ready ? 'READY AT STORE' : 'BEING PREPARED'}
+      <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
+        <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{`ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
+        <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>
+          {ready ? 'Ready at store' : 'Being prepared'}
         </Text>
-        <Text style={[T.mono, { color: C.white, opacity: 0.7, marginTop: 6, fontSize: 10 }]}>{store?.name || 'NORTH. × ANDHERI'}</Text>
-        <Text style={[T.mono, { color: C.white, opacity: 0.5, marginTop: 2, fontSize: 9 }]}>{store?.addr || 'Infiniti Mall, Level 2'}</Text>
+        <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>{store?.name || 'NORTH. × ANDHERI'}</Text>
+        <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{store?.addr || 'Infiniti Mall, Level 2'}</Text>
         {slot && (
           <View style={{ flexDirection: 'row', marginTop: 10, gap: 6 }}>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.white }}>
-              <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{`SLOT · ${slot}`}</Text>
+            <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.ink }}>
+              <Text style={[T.caption, { color: C.white }]}>{`Slot · ${slot}`}</Text>
             </View>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: C.white }}>
-              <Text style={[T.monoB, { fontSize: 9, color: C.white }]}>{`ETA · ${store?.eta || '45 MIN'}`}</Text>
+            <View style={[{ paddingHorizontal: 8, paddingVertical: 3 }, BORDER(1)]}>
+              <Text style={[T.caption, { color: C.ink }]}>{`ETA · ${store?.eta || '45 min'}`}</Text>
             </View>
           </View>
         )}
@@ -237,15 +233,15 @@ function PickupHeader({ order, store, active, stepCount }: any) {
 
       {/* QR CODE block — key difference from delivery flows */}
       <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
-        <Text style={[T.monoB, { fontSize: 10 }]}>{'SHOW_THIS_AT_COUNTER'}</Text>
+        <Text style={[T.caption]}>{'Show this at counter'}</Text>
         <View style={[{ marginTop: SP.m, width: 180, height: 180, backgroundColor: C.white, padding: 8 }, BORDER(2)]}>
           <PseudoQR seed={code} />
         </View>
-        <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(22), color: C.ink, letterSpacing: 4, marginTop: 12 }}>{code}</Text>
-        <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 4 }]}>PICKUP CODE</Text>
+        <Text style={[T.monoB, { fontSize: rf(22), letterSpacing: 4, marginTop: 12 }]}>{code}</Text>
+        <Text style={[T.micro, { marginTop: 4 }]}>Pickup code</Text>
         {ready && (
           <View style={[{ marginTop: SP.m, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>◆ READY NOW · HEAD TO STORE</Text>
+            <Text style={[T.caption, { color: C.white }]}>Ready now · Head to store</Text>
           </View>
         )}
       </View>
@@ -265,8 +261,8 @@ function PickupActions({ store }: any) {
 function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
     <View>
-      <Text style={[T.mono, { color: C.dim }]}>{label}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, marginTop: 2 }}>{value}</Text>
+      <Text style={[T.micro]}>{label}</Text>
+      <Text style={[T.bodyB, { marginTop: 2 }]}>{value}</Text>
     </View>
   );
 }
@@ -355,7 +351,7 @@ function mapOrderRow(o: OrderListRow): typeof HISTORY[number] {
 
 export function OrderHistoryScreen() {
   const nav = useNavigation<any>();
-  const { night, token } = useApp();
+  const { token } = useApp();
   const [filter, setFilter] = useState<StatusFilter>('ALL');
   // Real orders when logged in; mock HISTORY as the fallback.
   const [orders, setOrders] = useState(HISTORY);
@@ -367,115 +363,85 @@ export function OrderHistoryScreen() {
   }, [token]);
 
   const filtered = orders.filter(o => filter === 'ALL' || o.status === filter);
-  const totalSpent = orders.filter(o => o.status === 'DELIVERED').reduce((s, o) => s + o.total, 0);
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
-      <ScreenHeader title="My Orders" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
-        {/* Hero */}
-        <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'ORDER_HISTORY · LIFETIME'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(36), color: C.white, letterSpacing: -1.4, marginTop: 6, lineHeight: rf(38) }}>{'YOUR\nORDERS.'}</Text>
-            <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 8 }}>Every order you've ever placed. Tap any one for details.</Text>
-            <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.m, flexWrap: 'wrap' }}>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: C.ink }}>{orders.length} ORDERS</Text>
-              </View>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: C.white }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: C.white }}>₹{totalSpent.toLocaleString()} SPENT</Text>
-              </View>
-            </View>
-          </View>
-        </FadeInUp>
+      <ScreenHeader title="Orders" onBack={() => nav.goBack()} />
 
-        {/* Filters */}
-        <View style={{ marginTop: SP.l }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={[T.monoB, { fontSize: 10 }]}>{'FILTER'}</Text>
-            <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{filtered.length} RESULTS</Text>
-          </View>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
-          <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-            {(['ALL', 'DELIVERED', 'RETURNED', 'CANCELLED'] as StatusFilter[]).map(f => {
-              const on = filter === f;
-              return (
-                <Pressable key={f} onPress={() => setFilter(f)} style={[{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: on ? C.white : C.ink, letterSpacing: 0.5 }}>{f}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
+      {/* Filter tabs — clean underline row */}
+      <View style={{ flexDirection: 'row', gap: SP.l, paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
+        {(['ALL', 'DELIVERED', 'RETURNED', 'CANCELLED'] as StatusFilter[]).map(f => {
+          const on = filter === f;
+          return (
+            <Pressable key={f} onPress={() => setFilter(f)} hitSlop={6} style={{ paddingBottom: 6, borderBottomWidth: 2, borderColor: on ? C.ink : 'transparent' }}>
+              <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700', fontSize: rf(12), letterSpacing: 0.3, color: on ? C.ink : C.dim }}>{f}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-        {/* List */}
-        <View style={{ marginTop: SP.l, gap: SP.s }}>
-          {filtered.map((o, i) => {
-            const itemCount = o.items.reduce((s, it) => s + it.qty, 0);
-            return (
-              <FadeInUp key={o.id} delay={i * 50}>
-                <Pressable onPress={() => nav.navigate('OrderTracking')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-                  {/* Top bar: order id + status */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[T.monoB, { fontSize: 10 }]}>{`#${o.id}`}</Text>
-                      <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{o.date} · {o.method.toUpperCase()}</Text>
-                    </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
+        {filtered.map((o, i) => {
+          const itemCount = o.items.reduce((s, it) => s + it.qty, 0);
+          const primary = o.items[0];
+          const extra = o.items.length - 1;
+          return (
+            <FadeInUp key={o.id} delay={i * 40}>
+              <Pressable
+                onPress={() => nav.navigate('OrderTracking')}
+                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: 18, borderBottomWidth: 1, borderColor: C.hairline }}
+              >
+                {/* Thumbnail */}
+                <View style={[{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                  <Feather name="shopping-bag" size={20} color={C.dim} />
+                </View>
+
+                {/* Middle — item + meta + status */}
+                <View style={{ flex: 1, marginLeft: SP.m }}>
+                  <Text style={[T.h3, { color: C.ink }]} numberOfLines={1}>
+                    {primary?.name || 'Order'}{extra > 0 ? `  +${extra} more` : ''}
+                  </Text>
+                  <Text style={[T.caption, { color: C.dim, marginTop: 3 }]} numberOfLines={1}>
+                    {o.date} · {itemCount} item{itemCount !== 1 ? 's' : ''}
+                  </Text>
+                  <View style={{ marginTop: 7 }}>
                     <StatusBadge status={o.status} />
                   </View>
+                </View>
 
-                  {/* Items */}
-                  <View style={{ padding: SP.m, gap: 8 }}>
-                    {o.items.map((it, j) => (
-                      <View key={j} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-                          <Feather name="shopping-bag" size={12} color={C.ink} />
-                        </View>
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={[T.monoB, { fontSize: 8, color: C.dim }]}>{it.brand}</Text>
-                          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 1 }} numberOfLines={1}>{it.name}</Text>
-                        </View>
-                        <Text style={[T.mono, { fontSize: 10, color: C.dim }]}>×{it.qty}</Text>
-                      </View>
-                    ))}
-                  </View>
+                {/* Right — total + chevron */}
+                <View style={{ alignItems: 'flex-end', marginLeft: SP.s }}>
+                  <Text style={T.price}>₹{o.total.toLocaleString()}</Text>
+                  <Feather name="chevron-right" size={18} color={C.dim} style={{ marginTop: 10 }} />
+                </View>
+              </Pressable>
+            </FadeInUp>
+          );
+        })}
 
-                  {/* Footer: total + action */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderTopWidth: 1, borderColor: C.hairline }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{itemCount} ITEM{itemCount !== 1 ? 'S' : ''} · TOTAL</Text>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5, marginTop: 2 }}>₹{o.total.toLocaleString()}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Text style={[T.monoB, { fontSize: 10 }]}>{o.status === 'DELIVERED' ? 'REORDER' : 'DETAILS'}</Text>
-                      <Feather name="chevron-right" size={14} color={C.ink} />
-                    </View>
-                  </View>
-                </Pressable>
-              </FadeInUp>
-            );
-          })}
-
-          {filtered.length === 0 && (
-            <View style={[{ padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-              <Feather name="inbox" size={22} color={C.dim} />
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, marginTop: 10 }}>NOTHING HERE</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>No orders match this filter.</Text>
-            </View>
-          )}
-        </View>
+        {filtered.length === 0 && (
+          <View style={{ padding: SP.xl, alignItems: 'center', marginTop: SP.xl }}>
+            <Feather name="inbox" size={26} color={C.dim} />
+            <Text style={[T.h3, { marginTop: 12 }]}>No orders yet</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>No orders match this filter.</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
 }
 
 function StatusBadge({ status }: { status: 'DELIVERED' | 'CANCELLED' | 'RETURNED' | 'SHIPPED' }) {
-  const solid = status === 'DELIVERED';
+  const color =
+    status === 'DELIVERED' ? '#1B8A5A' :
+    status === 'SHIPPED' ? C.ink :
+    status === 'RETURNED' ? '#B0740A' :
+    '#C1121F';
   return (
-    <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: solid ? C.ink : 'transparent' }, BORDER(1)]}>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, letterSpacing: 0.6, color: solid ? C.white : C.ink }}>{status}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+      <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700', fontSize: rf(11), letterSpacing: 0.3, color }}>{status}</Text>
     </View>
   );
 }

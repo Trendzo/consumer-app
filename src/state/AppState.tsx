@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const GENDER_KEY = '@closetx/gender';
 import { Product } from '../data/mockData';
-import { setNight as applyNight, setGenderCurve, subscribeTheme, LIGHT, DARK, Palette } from '../theme/brutal';
+import { setGenderCurve, subscribeTheme } from '../theme/brutal';
 import { toastBus, confirmBus, authBus, ConfirmData } from './uiBus';
 import { setAuthToken } from '../services/api';
 import type { Session, Consumer } from '../services/auth';
@@ -50,13 +50,6 @@ type AppCtx = {
   // last order
   lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
   placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => void;
-  // night mode
-  night: boolean;
-  toggleNight: () => void;
-  // Reactive palette — use this in root backgrounds / critical styles for
-  // guaranteed re-render on theme toggle (the legacy `C` object in brutal.ts
-  // works for inline-styled children but can miss re-renders in deep trees).
-  theme: Palette;
   // Brutalist toast — message shown at bottom of screen (matches UI, not system Alert).
   // Toast/confirm STATE lives in uiBus (read only by BrutalToast/BrutalConfirm)
   // so showing one doesn't re-render every context consumer in the app.
@@ -102,7 +95,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [favorites, setFavorites] = useState<Product[]>([]);
   const [lastOrder, setLastOrder] = useState<AppCtx['lastOrder']>(null);
-  const [night, setNight] = useState(false);
   // Nonce bumps on every palette mutation so every component that reads
   // from AppState is forced to re-render and re-pull C values.
   const [, setThemeNonce] = useState(0);
@@ -217,13 +209,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setGenderRaw(prev => {
       if (prev !== g) skipNextCurveSpring.current = true;
       return g;
-    });
-  }, []);
-  const toggleNight = useCallback(() => {
-    setNight(n => {
-      const next = !n;
-      applyNight(next);
-      return next;
     });
   }, []);
 
@@ -375,19 +360,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount,
     favorites, toggleFavorite, isFavorite,
     lastOrder, placeOrder,
-    night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, tabBarOffset,
-    theme: night ? DARK : LIGHT,
+    gender, setGender, setGenderFromDrag, curveProgress, tabBarOffset,
     showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,
   }), [
     user, token, authHydrated, onboarded,
     cart, cartTotal, cartCount,
     favorites, isFavorite,
     lastOrder, placeOrder,
-    night, gender,
+    gender,
     // stable references, listed for lint-completeness:
     signIn, signOut, updateUser, signInWithSession, applyConsumer, setOnboarded,
     addToCart, removeFromCart, updateQty, updateMethod, clearCart, toggleFavorite,
-    toggleNight, setGender, setGenderFromDrag, curveProgress,
+    setGender, setGenderFromDrag, curveProgress,
     showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,
   ]);
 

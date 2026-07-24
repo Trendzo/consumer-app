@@ -34,10 +34,9 @@ export function CachedImage({ source, style, resizeMode = 'contain', ...rest }: 
   );
 }
 
-// Theme-aware status bar — flips barStyle when night mode toggles.
+// Light-mode only — dark status-bar content over the app's white surfaces.
 export function BrutalStatusBar() {
-  const { night } = useApp();
-  return <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />;
+  return <StatusBar barStyle="dark-content" />;
 }
 
 // ─── BRUTAL CONFIRM — full brand-matching alert modal ─────────
@@ -47,7 +46,7 @@ export function BrutalConfirm() {
   // Confirm state comes from the uiBus — only THIS component re-renders when
   // a confirm opens/closes, instead of every context consumer in the app.
   const confirm = useSyncExternalStore(confirmBus.subscribe, confirmBus.get);
-  const { hideConfirm, night } = useApp();
+  const { hideConfirm } = useApp();
   if (!confirm) return null;
   const danger = !!confirm.danger;
   return (
@@ -58,14 +57,14 @@ export function BrutalConfirm() {
           animate={{ opacity: 1, translateY: 0, scale: 1 }}
           transition={{ type: 'timing', duration: 240 }}
           onStartShouldSetResponder={() => true}
-          style={[{ width: '100%', maxWidth: 400, backgroundColor: night ? '#0a0a0a' : '#FFFFFF', overflow: 'hidden' }, BORDER(2)]}
+          style={[{ width: '100%', maxWidth: 400, backgroundColor: '#FFFFFF', overflow: 'hidden' }, BORDER(2)]}
         >
           {/* Header strip */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.ink }}>
             <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
               <Feather name={(confirm.icon as any) || (danger ? 'alert-triangle' : 'info')} size={14} color={C.ink} />
             </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 1, flex: 1 }}>{confirm.title.toUpperCase()}</Text>
+            <Text style={[T.h3, { color: C.white, flex: 1 }]}>{confirm.title}</Text>
             <Pressable onPress={hideConfirm} hitSlop={10}>
               <Feather name="x" size={16} color={C.white} />
             </Pressable>
@@ -73,22 +72,22 @@ export function BrutalConfirm() {
           {/* Body */}
           {confirm.msg && (
             <View style={{ padding: SP.l }}>
-              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: C.ink, lineHeight: 19 }}>{confirm.msg}</Text>
+              <Text style={T.body}>{confirm.msg}</Text>
             </View>
           )}
           {/* Action bar */}
           <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.hairline }}>
             <Pressable
               onPress={hideConfirm}
-              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: night ? '#0a0a0a' : C.white, borderRightWidth: 1, borderColor: C.hairline }}
+              style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white, borderRightWidth: 1, borderColor: C.hairline }}
             >
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink, letterSpacing: 0.5 }}>{(confirm.cancelLabel || 'CANCEL').toUpperCase()}</Text>
+              <Text style={[T.button, { color: C.ink, fontSize: rf(14) }]}>{confirm.cancelLabel || 'Cancel'}</Text>
             </Pressable>
             <Pressable
               onPress={() => { confirm.onConfirm?.(); hideConfirm(); }}
               style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink }}
             >
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{(confirm.confirmLabel || (danger ? 'CONFIRM' : 'OK')).toUpperCase()}</Text>
+              <Text style={[T.button, { color: C.white, fontSize: rf(14) }]}>{confirm.confirmLabel || (danger ? 'Confirm' : 'OK')}</Text>
             </Pressable>
           </View>
         </MotiView>
@@ -132,8 +131,8 @@ export function BrutalToast() {
             <Feather name={(toast.icon as any) || 'check'} size={14} color={C.ink} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{toast.title.toUpperCase()}</Text>
-            {toast.msg && <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 9, color: C.white, opacity: 0.75, marginTop: 1 }} numberOfLines={1}>{toast.msg}</Text>}
+            <Text style={[T.bodyB, { color: C.white }]}>{toast.title}</Text>
+            {toast.msg && <Text style={[T.micro, { color: C.white, opacity: 0.75, marginTop: 1 }]} numberOfLines={1}>{toast.msg}</Text>}
           </View>
           {!toast.action && <Feather name="x" size={14} color={C.white} />}
         </Pressable>
@@ -142,7 +141,7 @@ export function BrutalToast() {
             onPress={() => { toast.action!.onPress(); hideToast(); }}
             style={{ paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.hairline }}
           >
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink, letterSpacing: 0.6 }}>{toast.action.label.toUpperCase()}</Text>
+            <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>{toast.action.label}</Text>
           </Pressable>
         )}
       </View>
@@ -166,10 +165,9 @@ export function useGenderCurve(maxRadius = 14) {
   // timing (setGenderCurve fires the theme subscribers on every gender commit),
   // but the primitives using this hook no longer re-render when unrelated
   // context state (cart, user, favorites…) changes.
-  const her = useSyncExternalStore(subscribeTheme, isHer);
-  // Permanent soft corners: HER rounds fully to maxRadius; HIM/ALL keep a small
-  // base radius (never sharp) capped so it can't exceed the HER value.
-  return { borderRadius: her ? maxRadius : Math.min(maxRadius, 12) };
+  useSyncExternalStore(subscribeTheme, isHer);
+  // Sharp corners everywhere — no radius on any card / box / element.
+  return { borderRadius: 0 };
 }
 
 // ─── BRUTAL BOX — curve-aware bordered container ──────────────
@@ -240,8 +238,8 @@ export function BrutalButton({ label, onPress, variant = 'solid', icon, iconRigh
           style={{ paddingHorizontal: small ? SP.m : SP.l, paddingVertical: small ? SP.s : SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
         >
           {icon && <Feather name={icon} size={small ? 14 : 16} color={fg} />}
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: small ? 11 : 13, color: fg, letterSpacing: 0.5 }}>
-            {label.toUpperCase()}
+          <Text style={[small ? { fontFamily: 'Helvetica Neue', fontWeight: '600', fontSize: rf(14) } : T.button, { color: fg }]}>
+            {label}
           </Text>
           {iconRight && <Feather name={iconRight} size={small ? 14 : 16} color={fg} />}
         </Pressable>
@@ -296,7 +294,7 @@ type InputProps = {
 export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, autoCapitalize, maxLength, autoFocus, editable = true, returnKeyType, onSubmitEditing, error, inputStyle }: InputProps) {
   return (
     <View style={{ marginBottom: SP.l }}>
-      {label && <Text style={[T.label, { marginBottom: 6 }]}>{`${label.toUpperCase()}`}</Text>}
+      {label && <Text style={[T.caption, { color: C.dim, marginBottom: 6 }]}>{label}</Text>}
       <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 14, opacity: editable ? 1 : 0.5 }, BORDER(error ? 2 : 1), error ? { borderColor: '#c1121f' } : null]}>
         {icon && <Feather name={icon} size={16} color={C.ink} />}
         <TextInput
@@ -312,39 +310,32 @@ export function BrutalInput({ value, onChangeText, placeholder, label, secureTex
           editable={editable}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
-          style={[{ flex: 1, fontFamily: 'Inter_500Medium', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
+          style={[{ flex: 1, fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
         />
       </View>
-      {error ? <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: '#c1121f', marginTop: 5, letterSpacing: 0.5 }}>{error}</Text> : null}
+      {error ? <Text style={[T.micro, { color: '#c1121f', marginTop: 5 }]}>{error}</Text> : null}
     </View>
   );
 }
 
-// ─── ASCII DIVIDER ────────────────────────────────────────
-// Retired: the brutalist ascii rule lines are no longer drawn anywhere. Kept as
-// a no-op so the many call sites across the app don't need to be touched.
-export function AsciiDivider(_props: { faint?: boolean; style?: TextStyle }) {
-  return null;
-}
-
 // ─── SECTION HEAD ─────────────────────────────────────────
-export function SectionHead({ title, emphasis, action, onAction, hideCaret, hideBottomDivider }: { title: string; emphasis?: string; action?: string; onAction?: () => void; hideCaret?: boolean; hideBottomDivider?: boolean }) {
+export function SectionHead({ title, emphasis, sub, action, onAction, hideCaret, hideBottomDivider }: { title: string; emphasis?: string; sub?: string; action?: string; onAction?: () => void; hideCaret?: boolean; hideBottomDivider?: boolean }) {
   return (
     <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
-      <AsciiDivider />
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, flex: 1 }} numberOfLines={1}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={[T.h2, { flex: 1, textTransform: 'uppercase' }]} numberOfLines={1}>
           {title}
           {emphasis && <Text> {emphasis}</Text>}
         </Text>
         {action && (
-          <Pressable onPress={onAction} hitSlop={8} style={[{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 0.5 }}>{action}</Text>
-            <Feather name="arrow-right" size={11} color={C.white} />
+          // Plain text link — matches Home's "View all ›" pattern, no box/bg.
+          <Pressable onPress={onAction} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>{action}</Text>
+            <Feather name="chevron-right" size={15} color={C.ink} />
           </Pressable>
         )}
       </View>
-      {!hideBottomDivider && <AsciiDivider faint style={{ marginTop: 4 }} />}
+      {sub ? <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{sub}</Text> : null}
     </View>
   );
 }
@@ -355,10 +346,11 @@ export function ScreenHeader({ title, onBack, right }: { title: string; onBack?:
     <View>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: 56, paddingBottom: SP.m, backgroundColor: C.white }}>
         {onBack ? <BrutalIconBtn icon="arrow-left" onPress={onBack} size={36} /> : <View style={{ width: 36 }} />}
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink, letterSpacing: 1 }}>{title.toUpperCase()}</Text>
+        <Text style={[T.h3, { color: C.ink, textTransform: 'uppercase' }]}>{title}</Text>
         {right ?? <View style={{ width: 36 }} />}
       </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+      {/* soft hairline rule (was a hard black brutalist line) */}
+      <View style={{ height: 1, backgroundColor: C.hairline }} />
     </View>
   );
 }
@@ -421,30 +413,30 @@ export const ProductCard = React.memo(function ProductCard({
           <CachedImage transition={0} source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           {rank != null ? (
             <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 1 }}>{`#0${rank}`}</Text>
+              <Text style={[T.micro, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>{`#0${rank}`}</Text>
             </View>
           ) : p?.tag ? (
             <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{p.tag}</Text>
+              <Text style={[T.micro, { color: C.white }]}>{p.tag}</Text>
             </View>
           ) : null}
           {children}
         </Reanimated.View>
         <View style={{ marginTop: 6 }}>
-          <Text style={[T.monoB, { fontSize: 9, color: C.ink }]} numberOfLines={1}>{(brand ?? p.brand ?? '').toUpperCase()}</Text>
-          <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 2 }} numberOfLines={1}>{p.name}</Text>
+          <Text style={[T.micro, { fontFamily: 'Helvetica Neue', fontWeight: '600', color: C.ink }]} numberOfLines={1}>{(brand ?? p.brand ?? '').toUpperCase()}</Text>
+          <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{p.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
+            <Text style={T.price}>₹{p.price}</Text>
             {p.original > p.price && (
-              <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
+              <Text style={T.mrp}>₹{p.original}</Text>
             )}
-            {off > 0 && <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{`${off}% OFF`}</Text>}
+            {off > 0 && <Text style={T.discount}>{`${off}% OFF`}</Text>}
           </View>
         </View>
       </Pressable>
       {onAdd && (
         <Pressable onPress={() => onAdd(p)} style={[{ marginTop: 6, paddingVertical: 8, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, letterSpacing: 0.5 }}>+ ADD</Text>
+          <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>+ Add</Text>
         </Pressable>
       )}
     </Animated.View>
@@ -455,15 +447,62 @@ export const ProductCard = React.memo(function ProductCard({
 export function Chip({ label, active, onPress }: { label: string; active?: boolean; onPress?: () => void }) {
   return (
     <Pressable onPress={onPress} style={[{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: active ? C.ink : C.white }, BORDER(1)]}>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: active ? C.white : C.ink, letterSpacing: 0.5 }}>{label.toUpperCase()}</Text>
+      <Text style={[T.caption, { color: active ? C.white : C.ink }]}>{label}</Text>
     </Pressable>
   );
 }
 
-// ─── DOTTED LINE ──────────────────────────────────────────
-// Retired along with AsciiDivider — no-op so any call sites stay valid.
-export function DottedRule() {
-  return null;
+// ─── OPTION SHEET — the app-standard bottom sheet ─────────────────────────
+// Fade scrim + sheet sliding up (MotiView, 220ms). Two modes:
+//  • list mode: pass `options`/`selected`/`onSelect` → single-select rows
+//    (selected row = black bg, white bold text, check icon)
+//  • custom mode: pass `children` → renders arbitrary content under the
+//    header (size grids, comments, payment rows, address forms, …)
+export function OptionSheet({ visible, title, options, selected, onSelect, onClose, children }: {
+  visible: boolean;
+  title: string;
+  options?: readonly string[];
+  selected?: string;
+  onSelect?: (v: string) => void;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+      {/* scrim fades in place — only the SHEET slides, so no moving overlay */}
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <MotiView
+          from={{ translateY: 300 }}
+          animate={{ translateY: 0 }}
+          transition={{ type: 'timing', duration: 220 }}
+        >
+          {/* sheet — stop taps from falling through to the scrim */}
+          <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: 28 }, BORDER(1)]}>
+            {/* header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
+              <Text style={[T.h3, { textTransform: 'uppercase' }]}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Feather name="x" size={18} color={C.ink} />
+              </Pressable>
+            </View>
+            {children ?? (options ?? []).map((o) => {
+              const on = o === selected;
+              return (
+                <Pressable
+                  key={o}
+                  onPress={() => onSelect?.(o)}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline, backgroundColor: on ? C.ink : 'transparent' }}
+                >
+                  <Text style={[T.body, { color: on ? C.white : C.ink, fontFamily: 'Helvetica Neue', fontWeight: on ? '700' : '400' }]}>{o}</Text>
+                  {on && <Feather name="check" size={16} color={C.white} />}
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </MotiView>
+      </Pressable>
+    </Modal>
+  );
 }
 
 export const styles = StyleSheet.create({});

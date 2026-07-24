@@ -23,6 +23,7 @@ import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
 import CategoryBrowseScreen from '../screens/CategoryBrowseScreen';
+import CategoryZoomScreen from '../screens/CategoryZoomScreen';
 import CheckoutScreen from '../screens/CheckoutScreen';
 import ReviewOrderScreen from '../screens/ReviewOrderScreen';
 import TryOnPickerScreen from '../screens/TryOnPickerScreen';
@@ -47,10 +48,11 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 // ─── BOTTOM TAB BAR — floating pixel-art pill ───────────────
-// A white rounded pill that floats above the home indicator. Four pixel-art
-// tabs (Home · Reel · Category · Bag); the active one glows hot-pink, the rest
-// sit in ink. No blur, no blob — just crisp bitmap glyphs on a solid surface.
-const PINK = '#FF1E8E';
+// A white floating bar above the home indicator — sharp corners + hairline
+// border, matching the app-wide light design language. Active items go ink,
+// inactive dim. Four pixel-art tabs (Home · Reel · Category · Bag).
+const TAB_ACTIVE = '#111111';
+const TAB_INACTIVE = '#666666';
 
 function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
   const items: { name: string; label: string; icon: PixelIconName }[] = [
@@ -59,9 +61,10 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
     { name: 'CategoryTab', label: 'Category', icon: 'category' },
     { name: 'CartTab', label: 'Bag', icon: 'bag' },
   ];
-  const { cartCount, night, tabBarOffset } = useApp();
+  const { cartCount, tabBarOffset } = useApp();
+  const activeTint = TAB_ACTIVE;
   const insets = useSafeAreaInsets();
-  const tabStyles = React.useMemo(() => makeTabStyles(night), [night]);
+  const tabStyles = tabStylesStatic;
 
   // Switching tabs should always reveal the bar, even if it was hidden by a
   // scroll on the previous tab.
@@ -84,7 +87,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
       <View style={tabStyles.pill}>
         {items.map((it, i) => {
           const active = state.index === i;
-          const tint = active ? PINK : C.ink;
+          const tint = active ? activeTint : TAB_INACTIVE;
           return (
             <Pressable
               key={it.name}
@@ -109,7 +112,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               </View>
               <Text
                 numberOfLines={1}
-                style={[tabStyles.lbl, { color: tint }, active && tabStyles.lblActive]}
+                style={[T.caption, tabStyles.lbl, { color: tint }, active && tabStyles.lblActive]}
               >
                 {it.label}
               </Text>
@@ -121,7 +124,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const makeTabStyles = (night: boolean) => StyleSheet.create({
+const tabStylesStatic = StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: 0,
@@ -131,19 +134,17 @@ const makeTabStyles = (night: boolean) => StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
+  // Sharp, flat bar — square corners, hairline border, no shadow (matches the
+  // app-wide light design language; was a rounded drop-shadow pill).
   pill: {
     flexDirection: 'row',
     width: '100%',
-    backgroundColor: night ? '#141414' : '#FFFFFF',
-    borderRadius: 30,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: '#e6e6e6',
     paddingVertical: 6,
     paddingHorizontal: 6,
-    // floating drop shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: night ? 0.5 : 0.14,
-    shadowRadius: 14,
-    elevation: 14,
   },
   btn: {
     flex: 1,
@@ -159,13 +160,10 @@ const makeTabStyles = (night: boolean) => StyleSheet.create({
     justifyContent: 'center',
   },
   lbl: {
-    fontFamily: 'Inter_700Bold',
-    fontSize: 9.5,
-    letterSpacing: -0.1,
     textAlign: 'center',
   },
   lblActive: {
-    fontFamily: 'Inter_900Black',
+    fontFamily: 'Helvetica Neue', fontWeight: '600',
   },
   badge: {
     position: 'absolute',
@@ -173,13 +171,13 @@ const makeTabStyles = (night: boolean) => StyleSheet.create({
     right: -10,
     minWidth: 16,
     height: 16,
-    borderRadius: 8,
-    backgroundColor: PINK,
+    borderRadius: 0,
+    backgroundColor: '#111111',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  badgeTxt: { color: '#fff', fontFamily: 'Inter_900Black', fontSize: 9 },
+  badgeTxt: { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 9 },
 });
 
 const navigationRef = createNavigationContainerRef<any>();
@@ -210,7 +208,7 @@ export default function RootNav() {
   // splashDone: the splash animation has finished. We still wait on
   // authHydrated before routing so a persisted session isn't missed.
   const [splashDone, setSplashDone] = useState(false);
-  const { onboarded, setOnboarded, token, authHydrated, night } = useApp();
+  const { onboarded, setOnboarded, token, authHydrated } = useApp();
   const lastBackRef = React.useRef(0);
 
   // Decide where a new launch goes once the splash is done AND the persisted
@@ -220,10 +218,25 @@ export default function RootNav() {
   // in AppState, surfaced via AuthSheet).
   //   • logged in OR already onboarded → straight to the app
   //   • brand new                       → onboarding → app
+  // Route as soon as the persisted session is read — WITHOUT waiting for the
+  // splash animation. The destination (home/onboarding) mounts and settles
+  // UNDERNEATH the splash overlay, so when the particles disperse the app is
+  // already loaded — no loading/entry animations after the splash.
   useEffect(() => {
-    if (phase !== 'splash' || !splashDone || !authHydrated) return;
+    if (phase !== 'splash' || !authHydrated) return;
     setPhase(token || onboarded ? 'main' : 'onboarding');
-  }, [phase, splashDone, authHydrated, token, onboarded]);
+  }, [phase, authHydrated, token, onboarded]);
+
+  // Mount the app during the splash's CALM window — after the pixel intro
+  // finishes (~1.3s) but before the particle burst (2.05s). Mounting at t=0
+  // made Home's heavy first render fight the intro animation (jitter); in the
+  // hold window nothing but the thin loader bar is moving, so the mount cost
+  // is invisible and Home is still fully settled before the burst reveals it.
+  const [appMountReady, setAppMountReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAppMountReady(true), 1450);
+    return () => clearTimeout(t);
+  }, []);
 
   // Android hardware back: route → Home tab → "press again to exit"
   useEffect(() => {
@@ -263,26 +276,29 @@ export default function RootNav() {
 
   const NightOverlay = () => null;
 
-  if (phase === 'splash') {
-    return (
-      <View style={{ flex: 1 }}>
-        <SplashScreen onDone={() => setSplashDone(true)} />
-        <NightOverlay />
-      </View>
-    );
-  }
-  if (phase === 'onboarding') {
-    return (
-      <View style={{ flex: 1 }}>
+  // Single stable tree: the destination renders below, the splash sits on top
+  // as an overlay until its particle burst finishes, then unmounts — the
+  // particles spread OPEN over the already-mounted home (its bg fades out).
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      {phase === 'onboarding' && appMountReady && (
         <OnboardingScreen onDone={() => { setOnboarded(true); setPhase('main'); }} />
-        <NightOverlay />
-      </View>
-    );
-  }
+      )}
+      {phase === 'main' && appMountReady && <MainApp />}
+      {!splashDone && (
+        <View style={StyleSheet.absoluteFill}>
+          <SplashScreen onDone={() => setSplashDone(true)} />
+        </View>
+      )}
+    </View>
+  );
+}
 
+function MainApp() {
+  const NightOverlay = () => null;
   return (
     <ZoomProvider navRef={navigationRef}>
-    <View style={{ flex: 1, backgroundColor: night ? '#000' : '#fff' }} key={night ? 'dark' : 'light'}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
@@ -291,6 +307,8 @@ export default function RootNav() {
         <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
+        {/* Category hero-morph — transparent so Home stays visible under the flight */}
+        <Stack.Screen name="CategoryZoom" component={CategoryZoomScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
             <Stack.Screen name="Categories" component={CategoryBrowseScreen} />

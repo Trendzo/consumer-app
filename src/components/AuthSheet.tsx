@@ -47,7 +47,7 @@ function OtpBoxes({
 
   return (
     <View style={{ marginBottom: SP.l }}>
-      <Text style={[T.label, { marginBottom: 10, textAlign: 'center' }]}>VERIFICATION CODE</Text>
+      <Text style={[T.caption, { marginBottom: 10, textAlign: 'center' }]}>Verification code</Text>
       <Pressable onPress={focus} style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
         {digits.map((d, i) => {
           const active = i === activeIndex && value.length < OTP_LEN;
@@ -56,11 +56,11 @@ function OtpBoxes({
               key={i}
               style={[
                 { width: 52, height: 60, alignItems: 'center', justifyContent: 'center' },
-                BORDER(error || active ? 2 : 1),
-                error ? { borderColor: '#c1121f' } : active ? { borderColor: C.dim } : null,
+                BORDER(1),
+                error ? { borderColor: '#c1121f' } : active ? { borderColor: C.ink } : null,
               ]}
             >
-              <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 24, color: C.ink }}>{d}</Text>
+              <Text style={[T.monoB, { fontSize: rf(24) }]}>{d}</Text>
             </View>
           );
         })}
@@ -80,7 +80,7 @@ function OtpBoxes({
         />
       </Pressable>
       {error ? (
-        <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: '#c1121f', marginTop: 8, letterSpacing: 0.5, textAlign: 'center' }}>{error}</Text>
+        <Text style={[T.micro, { color: '#c1121f', marginTop: 8, textAlign: 'center' }]}>{error}</Text>
       ) : null}
     </View>
   );
@@ -187,12 +187,12 @@ export function AuthSheet() {
           animate={{ translateY: 0 }}
           transition={{ type: 'timing', duration: 280 }}
           onStartShouldSetResponder={() => true}
-          style={[{ backgroundColor: '#fff', paddingBottom: insets.bottom + SP.l }, BORDER(2)]}
+          style={[{ backgroundColor: '#fff', paddingBottom: insets.bottom + SP.l }, BORDER(1)]}
         >
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: SP.l }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink, letterSpacing: 1 }}>
-              {step === 'phone' ? 'SIGN IN TO CONTINUE' : 'ENTER CODE'}
+            <Text style={T.h3}>
+              {step === 'phone' ? 'Sign in to continue' : 'Enter code'}
             </Text>
             <Pressable onPress={hideAuthSheet} hitSlop={12}>
               <Feather name="x" size={18} color={C.ink} />
@@ -202,8 +202,8 @@ export function AuthSheet() {
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
             {step === 'phone' ? (
               <>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: C.ink, letterSpacing: -1, lineHeight: rf(32) }}>ONE STEP{'\n'}TO CHECKOUT.</Text>
-                <Text style={[T.body, { color: C.dim, marginTop: 8 }]}>We'll text you a one-time code. No passwords.</Text>
+                <Text style={[T.h2, { textTransform: 'uppercase' }]}>One step to checkout</Text>
+                <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>We'll text you a one-time code. No passwords.</Text>
                 <View style={{ marginTop: 24 }}>
                   <BrutalInput
                     label={`Mobile (+${DEFAULT_DIAL_CODE})`}
@@ -213,7 +213,6 @@ export function AuthSheet() {
                     keyboardType="phone-pad"
                     placeholder="98765 43210"
                     maxLength={14}
-                    autoFocus
                     returnKeyType="go"
                     onSubmitEditing={handleSend}
                     error={phoneErr}
@@ -228,10 +227,10 @@ export function AuthSheet() {
                 <BrutalButton label={verifying ? 'Verifying…' : 'Verify & continue'} iconRight="arrow-right" onPress={handleVerify} disabled={verifying} block />
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SP.l }}>
                   <Pressable onPress={() => { setStep('phone'); setOtp(''); setOtpErr(undefined); }} hitSlop={10}>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, textDecorationLine: 'underline' }}>Edit number</Text>
+                    <Text style={[T.caption, { color: C.ink, textDecorationLine: 'underline' }]}>Edit number</Text>
                   </Pressable>
                   <Pressable onPress={handleResend} disabled={resendIn > 0} hitSlop={10}>
-                    <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: resendIn > 0 ? C.dim : C.ink, textDecorationLine: resendIn > 0 ? 'none' : 'underline' }}>
+                    <Text style={[T.caption, { color: resendIn > 0 ? C.dim : C.ink, textDecorationLine: resendIn > 0 ? 'none' : 'underline' }]}>
                       {resendIn > 0 ? `Resend in ${resendIn}s` : 'Resend code'}
                     </Text>
                   </Pressable>

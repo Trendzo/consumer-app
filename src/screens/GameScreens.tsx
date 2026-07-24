@@ -7,7 +7,7 @@ import { MotiView } from 'moti';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -31,10 +31,10 @@ export function DailyRewardScreen() {
   const streak = claimed.filter(Boolean).length;
   const points = 374;
   const REWARD_POOL = [
-    { label: '₹100 OFF', sub: 'On your next order' },
-    { label: '50 POINTS', sub: 'Added to your wallet' },
-    { label: 'FREE SHIPPING', sub: 'Valid for 7 days' },
-    { label: '15% OFF', sub: 'Min order ₹999' },
+    { label: '₹100 off', sub: 'On your next order' },
+    { label: '50 points', sub: 'Added to your wallet' },
+    { label: 'Free shipping', sub: 'Valid for 7 days' },
+    { label: '15% off', sub: 'Min order ₹999' },
   ];
   const claimToday = () => {
     if (claimed[today]) return;
@@ -45,66 +45,68 @@ export function DailyRewardScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      {/* Header */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
-        <Pressable onPress={() => nav.goBack()} hitSlop={10}><Feather name="arrow-left" size={22} color={C.ink} /></Pressable>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 }}>DAILY REWARDS</Text>
-      </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+      <ScreenHeader title="Daily rewards" onBack={() => nav.goBack()} />
 
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         {/* Streak + points */}
         <View style={{ flexDirection: 'row', gap: SP.s }}>
-          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{'◆ STREAK'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 2 }}>{streak}<Text style={{ fontSize: 12 }}> DAYS</Text></Text>
+          <View style={[{ flex: 1, padding: SP.m, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+            <Text style={[T.micro, { color: C.dim }]}>{'Streak'}</Text>
+            <Text style={[T.h1, { color: C.ink, marginTop: 2 }]}>{streak}<Text style={[T.caption, { color: C.dim }]}> days</Text></Text>
           </View>
           <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{'✦ POINTS'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, marginTop: 2 }}>{points}</Text>
+            <Text style={[T.micro, { color: C.dim }]}>{'Points'}</Text>
+            <Text style={[T.h1, { marginTop: 2 }]}>{points}</Text>
           </View>
         </View>
 
         {/* 7-day streak track */}
-        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>7-DAY STREAK</Text>
+        <Text style={[T.caption, { marginTop: SP.xl, marginBottom: SP.s }]}>7-day streak</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: 4 }}>
           {DAYS.map((day, i) => {
             const got = claimed[i];
             const isToday = i === today;
             return (
-              <View key={i} style={[{ width: 70, paddingVertical: SP.m, alignItems: 'center', gap: 7, backgroundColor: got ? C.ink : C.white }, BORDER(isToday ? 2 : 1)]}>
-                <Text style={[T.monoB, { fontSize: 8, color: got ? C.white : C.dim }]}>DAY {day.d}</Text>
-                {got ? <Feather name="check" size={18} color={C.white} /> : isToday ? <Feather name="gift" size={18} color={C.ink} /> : <Feather name="lock" size={13} color={C.dim} />}
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: got ? C.white : C.ink }}>{day.rw}</Text>
+              <View key={i} style={[{ width: 70, paddingVertical: SP.m, alignItems: 'center', gap: 7, backgroundColor: got ? '#F4F4F4' : C.white }, BORDER(isToday ? 2 : 1)]}>
+                <Text style={[T.micro, { color: C.dim }]}>Day {day.d}</Text>
+                {got ? <Feather name="check" size={18} color={C.ink} /> : isToday ? <Feather name="gift" size={18} color={C.ink} /> : <Feather name="lock" size={13} color={C.dim} />}
+                <Text style={[T.caption, { color: C.ink }]}>{day.rw}</Text>
               </View>
             );
           })}
         </ScrollView>
 
         {/* Today's reward */}
-        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-          <Text style={[T.monoB, { color: C.white, fontSize: 9, opacity: 0.7 }]}>{`TODAY · DAY ${today + 1}`}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, marginTop: 4, letterSpacing: -0.5 }}>{claimed[today] ? 'CLAIMED ✓' : `${DAYS[today].rw} POINTS`}</Text>
-          <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 4 }]}>Come back daily — bigger rewards each day you keep the streak.</Text>
-          <Pressable onPress={claimToday} disabled={claimed[today]} style={[{ marginTop: SP.m, paddingVertical: 15, alignItems: 'center', backgroundColor: claimed[today] ? C.ink : C.white }, BORDER(1)]}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: claimed[today] ? C.white : C.ink, letterSpacing: 0.5 }}>{claimed[today] ? 'COME BACK TOMORROW' : 'CLAIM TODAY ──▶'}</Text>
+        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+          <Text style={[T.micro, { color: C.dim }]}>{`Today · Day ${today + 1}`}</Text>
+          {claimed[today] ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+              <Feather name="check" size={20} color={C.ink} />
+              <Text style={[T.h1, { color: C.ink, textTransform: 'uppercase' }]}>Claimed</Text>
+            </View>
+          ) : (
+            <Text style={[T.h1, { color: C.ink, marginTop: 4, textTransform: 'uppercase' }]}>{`${DAYS[today].rw} points`}</Text>
+          )}
+          <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Come back daily — bigger rewards each day you keep the streak.</Text>
+          <Pressable onPress={claimToday} disabled={claimed[today]} style={[{ marginTop: SP.m, paddingVertical: 15, alignItems: 'center', backgroundColor: claimed[today] ? C.white : C.ink }, BORDER(1)]}>
+            <Text style={[T.button, { color: claimed[today] ? C.dim : C.white }]}>{claimed[today] ? 'Come back tomorrow' : 'Claim today'}</Text>
           </Pressable>
         </View>
 
         {/* Countdown */}
         <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-          <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>NEXT REWARD UNLOCKS IN</Text>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(30), color: C.ink, letterSpacing: 3, marginTop: 6 }}>09:12:22</Text>
+          <Text style={[T.micro]}>Next reward unlocks in</Text>
+          <Text style={[T.monoB, { fontSize: rf(24), letterSpacing: 3, marginTop: 6 }]}>09:12:22</Text>
         </View>
 
         {/* Bonus spin */}
         <Pressable onPress={() => nav.navigate('SpinWheel')} style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: C.white }, BORDER(1)]}>
-          <View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-            <Feather name="rotate-cw" size={18} color={C.white} />
+          <View style={[{ width: 42, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+            <Feather name="rotate-cw" size={18} color={C.ink} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>Free Spin & Win</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>Spin the wheel · up to 80% off</Text>
+            <Text style={[T.h3]}>Free Spin & Win</Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>Spin the wheel · up to 80% off</Text>
           </View>
           <Feather name="arrow-right" size={18} color={C.ink} />
         </Pressable>
@@ -117,13 +119,13 @@ export function DailyRewardScreen() {
             <MotiView from={{ scale: 0, rotate: '-25deg' }} animate={{ scale: 1, rotate: '0deg' }} transition={{ type: 'spring', delay: 120, damping: 9 }}>
               <Ionicons name="gift" size={80} color={C.ink} />
             </MotiView>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: SP.m }]}>YOU UNLOCKED</Text>
+            <Text style={[T.micro, { marginTop: SP.m }]}>You unlocked</Text>
             <MotiView from={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', delay: 380 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: C.ink, letterSpacing: -1, marginTop: 4, textAlign: 'center' }}>{reward?.label}</Text>
+              <Text style={[T.h1, { marginTop: 4, textAlign: 'center', textTransform: 'uppercase' }]}>{reward?.label}</Text>
             </MotiView>
             <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>{reward?.sub}</Text>
             <Pressable onPress={() => { showToast('Claimed', (reward?.label || '') + ' added to your account', 'gift'); setReward(null); }} style={[{ marginTop: SP.l, alignSelf: 'stretch', paddingVertical: 14, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white, letterSpacing: 0.5 }}>AWESOME ──▶</Text>
+              <Text style={[T.button, { color: C.white }]}>Awesome</Text>
             </Pressable>
           </MotiView>
         </Pressable>
@@ -134,19 +136,19 @@ export function DailyRewardScreen() {
 
 // ─── SPIN WHEEL — Brutalist wheel + history + power-ups ─────
 const SLICES = [
-  { label: '10% OFF', weight: 3 },
+  { label: '10% off', weight: 3 },
   { label: '₹100', weight: 2 },
-  { label: 'TRY AGAIN', weight: 3 },
-  { label: '20% OFF', weight: 2 },
-  { label: '50 PTS', weight: 3 },
-  { label: 'FREE SHIP', weight: 2 },
+  { label: 'Try again', weight: 3 },
+  { label: '20% off', weight: 2 },
+  { label: '50 pts', weight: 3 },
+  { label: 'Free ship', weight: 2 },
   { label: '₹500', weight: 1 },
-  { label: 'BETTER LUCK', weight: 3 },
+  { label: 'Better luck', weight: 3 },
 ];
 const INITIAL_HISTORY = [
-  { prize: '10% OFF', user: 'YOU', date: '3d' },
-  { prize: '50 PTS', user: 'YOU', date: '5d' },
-  { prize: 'TRY AGAIN', user: 'YOU', date: '1w' },
+  { prize: '10% off', user: 'YOU', date: '3d' },
+  { prize: '50 pts', user: 'YOU', date: '5d' },
+  { prize: 'Try again', user: 'YOU', date: '1w' },
 ];
 
 export function SpinWheelScreen() {
@@ -163,7 +165,7 @@ export function SpinWheelScreen() {
     setSpinning(true);
     setResult(null);
     // Weighted selection — higher-weight slices come up more often. Boost removes dud slices.
-    const pool = boost ? SLICES.filter(s => !s.label.includes('AGAIN') && !s.label.includes('LUCK')) : SLICES;
+    const pool = boost ? SLICES.filter(s => !s.label.includes('again') && !s.label.includes('luck')) : SLICES;
     const weightedBag: number[] = [];
     pool.forEach(s => {
       const srcIdx = SLICES.indexOf(s);
@@ -204,14 +206,14 @@ export function SpinWheelScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
         {/* Counter strip */}
         <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
-          <View style={[{ flex: 1, padding: SP.m, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.hairline }]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'◆ SPINS_LEFT'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.white, marginTop: 2, lineHeight: rf(46) }}>{spinsLeft}<Text style={{ fontSize: 18 }}>/3</Text></Text>
+          <View style={[{ flex: 1, padding: SP.m, backgroundColor: '#F4F4F4', borderRightWidth: 1, borderColor: C.hairline }]}>
+            <Text style={[T.micro, { color: C.dim }]}>{'Spins left'}</Text>
+            <Text style={[T.h1, { fontSize: rf(44), color: C.ink, marginTop: 2, lineHeight: rf(46) }]}>{spinsLeft}<Text style={[T.h3, { color: C.dim }]}>/3</Text></Text>
           </View>
           <View style={{ flex: 1, padding: SP.m }}>
-            <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{'▲ JACKPOT_ODDS'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: 2 }}>1 in 19</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 2 }]}>₹500 SLICE</Text>
+            <Text style={[T.micro, { color: C.dim }]}>{'Jackpot odds'}</Text>
+            <Text style={[T.h2, { marginTop: 2, textTransform: 'uppercase' }]}>1 in 19</Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>₹500 slice</Text>
           </View>
         </View>
 
@@ -229,7 +231,7 @@ export function SpinWheelScreen() {
               {/* Pointer — static, at 12 o'clock, points DOWN into wheel */}
               <View style={{ position: 'absolute', top: 0, zIndex: 10, alignItems: 'center' }}>
                 <View style={[{ paddingHorizontal: 10, paddingVertical: 2, backgroundColor: C.ink }, BORDER(2)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 9, letterSpacing: 1 }}>WIN</Text>
+                  <Text style={[T.micro, { color: C.white }]}>Win</Text>
                 </View>
                 <View style={{ width: 0, height: 0, borderLeftWidth: 12, borderRightWidth: 12, borderTopWidth: 20, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: C.ink, marginTop: -1 }} />
               </View>
@@ -257,7 +259,7 @@ export function SpinWheelScreen() {
                         }} />
                         {/* Radial label reading outward */}
                         <View style={{ position: 'absolute', top: 24, left: 0, right: 0, alignItems: 'center' }}>
-                          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: isDark ? C.white : C.ink, letterSpacing: 0.5 }}>{s.label}</Text>
+                          <Text style={[T.caption, { color: isDark ? C.white : C.ink }]}>{s.label}</Text>
                         </View>
                       </View>
                     );
@@ -285,8 +287,8 @@ export function SpinWheelScreen() {
               {/* STATIC center hub — sits on top of the rotating wheel */}
               <View pointerEvents="none" style={{ position: 'absolute', top: 18 + R - 34, left: 20 + R - 34, width: 68, height: 68, borderRadius: 34, backgroundColor: C.white, borderWidth: 3, borderColor: C.hairline, alignItems: 'center', justifyContent: 'center' }}>
                 <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 1 }}>SPIN</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 1, marginTop: -2 }}>& WIN</Text>
+                  <Text style={[T.micro, { color: C.white }]}>Spin</Text>
+                  <Text style={[T.micro, { color: C.white, marginTop: -2 }]}>& win</Text>
                 </View>
               </View>
             </View>
@@ -295,9 +297,9 @@ export function SpinWheelScreen() {
 
         {result && !spinning && (
           <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
-            <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'SPIN_RESULT'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.white, marginTop: 6, letterSpacing: -1 }}>{result}</Text>
+            <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+              <Text style={[T.micro, { color: C.dim }]}>{'Spin result'}</Text>
+              <Text style={[T.h1, { color: C.ink, marginTop: 6, textTransform: 'uppercase' }]}>{result}</Text>
             </View>
           </MotiView>
         )}
@@ -309,10 +311,13 @@ export function SpinWheelScreen() {
         >
           <Feather name="zap" size={20} color={boost ? C.white : C.ink} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: boost ? C.white : C.ink }}>LUCKY BOOST {boost ? '✓ ACTIVE' : ''}</Text>
-            <Text style={[T.mono, { color: boost ? C.white : C.dim, fontSize: 9, marginTop: 2 }]}>Spend 100 pts → remove "try again" slices</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={[T.bodyB, { color: boost ? C.white : C.ink }]}>Lucky boost</Text>
+              {boost && <><Feather name="check" size={13} color={C.white} /><Text style={[T.micro, { color: C.white }]}>Active</Text></>}
+            </View>
+            <Text style={[T.micro, { color: boost ? C.white : C.dim, marginTop: 2 }]}>Spend 100 pts → remove "try again" slices</Text>
           </View>
-          {!boost && <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>─100</Text>}
+          {!boost && <Text style={[T.caption, { color: C.ink }]}>─100</Text>}
         </Pressable>
 
         {/* Spin action */}
@@ -321,20 +326,19 @@ export function SpinWheelScreen() {
           disabled={spinning || spinsLeft === 0}
           style={[{ marginTop: SP.m, padding: SP.l, alignItems: 'center', backgroundColor: spinsLeft === 0 ? C.hairline : C.ink }, BORDER(1)]}
         >
-          <Text style={{ fontFamily: 'Inter_900Black', color: spinsLeft === 0 ? C.dim : C.white, fontSize: 18, letterSpacing: 1 }}>
-            {spinning ? '◇ SPINNING...' : spinsLeft === 0 ? '◆ COME BACK TOMORROW' : `◆ SPIN NOW (${spinsLeft} LEFT)`}
+          <Text style={[T.button, { color: spinsLeft === 0 ? C.dim : C.white }]}>
+            {spinning ? 'Spinning...' : spinsLeft === 0 ? 'Come back tomorrow' : `Spin now (${spinsLeft} left)`}
           </Text>
         </Pressable>
 
         {/* History */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'RECENT_SPINS'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Recent spins'}</Text>
         <View style={{ marginTop: SP.s }}>
           {history.map((h, i) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderColor: C.hairline }}>
-              <Text style={[T.monoB, { fontSize: 10, color: C.dim, width: 30 }]}>{`#${i + 1}`}</Text>
-              <Text style={[T.bodyB, { flex: 1, fontSize: 13 }]}>{h.prize}</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{h.date}</Text>
+              <Text style={[T.micro, { width: 30 }]}>{`#${i + 1}`}</Text>
+              <Text style={[T.bodyB, { flex: 1 }]}>{h.prize}</Text>
+              <Text style={[T.micro]}>{h.date}</Text>
             </View>
           ))}
         </View>
@@ -358,54 +362,54 @@ type QuizQ =
 
 const QUIZ: QuizQ[] = [
   {
-    kind: 'swipe', prompt: 'OVERSIZED FITS?',
-    card: { label: 'OVERSIZED', sub: 'Loose, baggy silhouettes', img: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=600&q=80', tags: ['STREET', 'UTILITY'] },
+    kind: 'swipe', prompt: 'Oversized fits?',
+    card: { label: 'Oversized', sub: 'Loose, baggy silhouettes', img: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=600&q=80', tags: ['STREET', 'UTILITY'] },
   },
   {
-    kind: 'pair', prompt: 'PICK YOUR WEEKEND FIT',
-    a: { label: 'MINIMAL', sub: 'Clean · neutral · sharp', img: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=600&q=80', tags: ['MINIMAL', 'CLASSIC'] },
-    b: { label: 'MAXIMAL', sub: 'Layered · loud · bold', img: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&q=80', tags: ['CHAOS', 'STREET'] },
+    kind: 'pair', prompt: 'Pick your weekend fit',
+    a: { label: 'Minimal', sub: 'Clean · neutral · sharp', img: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=600&q=80', tags: ['MINIMAL', 'CLASSIC'] },
+    b: { label: 'Maximal', sub: 'Layered · loud · bold', img: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&q=80', tags: ['CHAOS', 'STREET'] },
   },
   {
-    kind: 'grid', prompt: "WHICH IS YOU?",
+    kind: 'grid', prompt: "Which is you?",
     opts: [
-      { label: 'CARGO', img: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&q=80', tags: ['STREET', 'UTILITY'] },
-      { label: 'PREPPY', img: 'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=400&q=80', tags: ['PREPPY', 'CLASSIC'] },
-      { label: 'GOTH', img: 'https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?w=400&q=80', tags: ['GOTH', 'MINIMAL'] },
-      { label: 'SOFT', img: 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=400&q=80', tags: ['COQUETTE', 'SOFT'] },
+      { label: 'Cargo', img: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&q=80', tags: ['STREET', 'UTILITY'] },
+      { label: 'Preppy', img: 'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=400&q=80', tags: ['PREPPY', 'CLASSIC'] },
+      { label: 'Goth', img: 'https://images.unsplash.com/photo-1487222477894-8943e31ef7b2?w=400&q=80', tags: ['GOTH', 'MINIMAL'] },
+      { label: 'Soft', img: 'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=400&q=80', tags: ['COQUETTE', 'SOFT'] },
     ],
   },
   {
-    kind: 'colors', prompt: 'PICK 3 COLORS YOU LIVE IN', pick: 3,
+    kind: 'colors', prompt: 'Pick 3 colors you live in', pick: 3,
     palette: [
-      { hex: '#000000', tag: 'MINIMAL', name: 'INK' },
-      { hex: '#FFFFFF', tag: 'MINIMAL', name: 'PAPER' },
-      { hex: '#C9A87C', tag: 'CLASSIC', name: 'TAUPE' },
-      { hex: '#E8D5C4', tag: 'SOFT', name: 'CREAM' },
-      { hex: '#FF6B9D', tag: 'COQUETTE', name: 'PINK' },
-      { hex: '#FEC53D', tag: 'CHAOS', name: 'MUSTARD' },
-      { hex: '#5D4037', tag: 'UTILITY', name: 'OLIVE' },
-      { hex: '#A78BFA', tag: 'CHAOS', name: 'LILAC' },
-      { hex: '#2980B9', tag: 'PREPPY', name: 'DENIM' },
+      { hex: '#000000', tag: 'MINIMAL', name: 'Ink' },
+      { hex: '#FFFFFF', tag: 'MINIMAL', name: 'Paper' },
+      { hex: '#C9A87C', tag: 'CLASSIC', name: 'Taupe' },
+      { hex: '#E8D5C4', tag: 'SOFT', name: 'Cream' },
+      { hex: '#FF6B9D', tag: 'COQUETTE', name: 'Pink' },
+      { hex: '#FEC53D', tag: 'CHAOS', name: 'Mustard' },
+      { hex: '#5D4037', tag: 'UTILITY', name: 'Olive' },
+      { hex: '#A78BFA', tag: 'CHAOS', name: 'Lilac' },
+      { hex: '#2980B9', tag: 'PREPPY', name: 'Denim' },
     ],
   },
   {
-    kind: 'slider', prompt: 'HOW BOLD DO YOU GO?',
-    left: 'SUBTLE', right: 'LOUD',
+    kind: 'slider', prompt: 'How bold do you go?',
+    left: 'Subtle', right: 'Loud',
     leftTag: 'MINIMAL', rightTag: 'CHAOS',
   },
   {
-    kind: 'chips', prompt: 'PICK 3 WORDS THAT DESCRIBE YOU', pick: 3,
+    kind: 'chips', prompt: 'Pick 3 words that describe you', pick: 3,
     opts: [
-      { word: 'CLEAN', tag: 'MINIMAL' },
-      { word: 'LOUD', tag: 'CHAOS' },
-      { word: 'REBEL', tag: 'STREET' },
-      { word: 'SOFT', tag: 'COQUETTE' },
-      { word: 'SHARP', tag: 'CLASSIC' },
-      { word: 'RAW', tag: 'UTILITY' },
-      { word: 'DARK', tag: 'GOTH' },
-      { word: 'PLAYFUL', tag: 'CHAOS' },
-      { word: 'ARCHIVE', tag: 'PREPPY' },
+      { word: 'Clean', tag: 'MINIMAL' },
+      { word: 'Loud', tag: 'CHAOS' },
+      { word: 'Rebel', tag: 'STREET' },
+      { word: 'Soft', tag: 'COQUETTE' },
+      { word: 'Sharp', tag: 'CLASSIC' },
+      { word: 'Raw', tag: 'UTILITY' },
+      { word: 'Dark', tag: 'GOTH' },
+      { word: 'Playful', tag: 'CHAOS' },
+      { word: 'Archive', tag: 'PREPPY' },
     ],
   },
 ];
@@ -452,17 +456,17 @@ export function StyleQuizScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
         {/* XP bar */}
         <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-          <View style={[{ padding: SP.s, backgroundColor: C.ink, borderRightWidth: 1, borderColor: C.hairline }]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`Q${step + 1}/${QUIZ.length}`}</Text>
+          <View style={[{ padding: SP.s, backgroundColor: '#F4F4F4', borderRightWidth: 1, borderColor: C.hairline }]}>
+            <Text style={[T.micro, { color: C.ink }]}>{`Q${step + 1}/${QUIZ.length}`}</Text>
           </View>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
-            <Text style={[T.monoB, { fontSize: 9, color: C.dim, marginRight: 8 }]}>XP</Text>
+            <Text style={[T.micro, { marginRight: 8 }]}>XP</Text>
             <View style={{ flex: 1, flexDirection: 'row', gap: 2 }}>
               {[...Array(QUIZ.length)].map((_, i) => (
                 <View key={i} style={{ flex: 1, height: 8, backgroundColor: i < step ? C.ink : i === step ? C.ink : C.hairline }} />
               ))}
             </View>
-            <Text style={[T.monoB, { fontSize: 10, marginLeft: 8 }]}>+{step * XP_PER_Q}</Text>
+            <Text style={[T.caption, { color: C.ink, marginLeft: 8 }]}>+{step * XP_PER_Q}</Text>
           </View>
         </View>
 
@@ -470,15 +474,15 @@ export function StyleQuizScreen() {
         {xpPop !== null && (
           <MotiView from={{ opacity: 0, translateY: 0, scale: 0.8 }} animate={{ opacity: 1, translateY: -30, scale: 1.2 }} transition={{ type: 'timing', duration: 700 }} style={{ position: 'absolute', top: 80, right: 30, zIndex: 50 }}>
             <View style={[{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.ink }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 14 }}>+{xpPop} XP</Text>
+              <Text style={[T.bodyB, { color: C.white }]}>+{xpPop} XP</Text>
             </View>
           </MotiView>
         )}
 
         {/* Prompt */}
         <MotiView key={step} from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }}>
-          <Text style={[T.monoB, { fontSize: 10, color: C.dim, marginTop: SP.l }]}>{`QUESTION_${(step + 1).toString().padStart(2, '0')}`}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1, lineHeight: rf(34), marginTop: 4 }}>{q.prompt}</Text>
+          <Text style={[T.micro, { color: C.dim, marginTop: SP.l }]}>{`Question ${(step + 1).toString().padStart(2, '0')}`}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>{q.prompt}</Text>
         </MotiView>
 
         {/* Question content — rendered by type */}
@@ -510,24 +514,24 @@ function QSwipe({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'swipe' }>; onAnswe
       <Animated.View style={[{ width: '100%', height: 360, backgroundColor: C.white, transform: [{ translateX: x }, { rotate: rot }], overflow: 'hidden' }, BORDER(1)]}>
         <CachedImage source={{ uri: q.card.img }} style={{ width: '100%', height: '70%' }} resizeMode="cover" />
         <View style={{ padding: SP.m }}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }}>{q.card.label}</Text>
+          <Text style={[T.h1]}>{q.card.label}</Text>
           <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{q.card.sub}</Text>
         </View>
         <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 30, left: 20, opacity: x.interpolate({ inputRange: [-200, -20, 0], outputRange: [1, 0, 0] }), transform: [{ rotate: '-18deg' }] }}>
-          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(22) }}>NOPE</Text></View>
+          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={[T.h1, { color: C.white }]}>Nope</Text></View>
         </Animated.View>
         <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 30, right: 20, opacity: x.interpolate({ inputRange: [0, 20, 200], outputRange: [0, 0, 1] }), transform: [{ rotate: '18deg' }] }}>
-          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: rf(22) }}>VIBE</Text></View>
+          <View style={[{ paddingHorizontal: 14, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}><Text style={[T.h1, { color: C.white }]}>Vibe</Text></View>
         </Animated.View>
       </Animated.View>
       <View style={{ flexDirection: 'row', gap: SP.m, marginTop: SP.m }}>
         <Pressable onPress={() => choose(false)} style={[{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white, flexDirection: 'row', justifyContent: 'center', gap: 8 }, BORDER(1)]}>
           <Feather name="x" size={20} color={C.ink} />
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14 }}>SKIP</Text>
+          <Text style={[T.button, { color: C.ink }]}>Skip</Text>
         </Pressable>
         <Pressable onPress={() => choose(true)} style={[{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink, flexDirection: 'row', justifyContent: 'center', gap: 8 }, BORDER(1)]}>
           <Feather name="heart" size={20} color={C.white} />
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white }}>VIBE</Text>
+          <Text style={[T.button, { color: C.white }]}>Vibe</Text>
         </Pressable>
       </View>
     </View>
@@ -547,8 +551,8 @@ function QPair({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'pair' }>; onAnswer:
       <MotiView animate={{ scale: tapped === k ? 1.04 : 1 }} transition={{ type: 'spring', damping: 12 }} style={[{ height: 320, overflow: 'hidden', backgroundColor: tapped === k ? C.ink : C.white }, BORDER(1)]}>
         <CachedImage source={{ uri: o.img }} style={{ width: '100%', height: '70%', opacity: tapped === k ? 0.6 : 1 }} resizeMode="cover" />
         <View style={{ padding: SP.s }}>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: tapped === k ? C.white : C.ink, letterSpacing: -0.5 }}>{o.label}</Text>
-          <Text style={[T.mono, { color: tapped === k ? C.white : C.dim, fontSize: 9, marginTop: 2 }]}>{o.sub}</Text>
+          <Text style={[T.h3, { color: tapped === k ? C.white : C.ink }]}>{o.label}</Text>
+          <Text style={[T.micro, { color: tapped === k ? C.white : C.dim, marginTop: 2 }]}>{o.sub}</Text>
         </View>
         {tapped === k && (
           <View style={{ position: 'absolute', top: 10, right: 10, width: 32, height: 32, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.white }}>
@@ -563,13 +567,13 @@ function QPair({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'pair' }>; onAnswer:
       <View style={{ flexDirection: 'row', gap: SP.s }}>
         {tile('a', q.a)}
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <View style={[{ width: 40, height: 40, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.white }}>VS</Text>
+          <View style={[{ width: 40, height: 40, backgroundColor: '#F4F4F4', alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
+            <Text style={[T.caption, { color: C.ink }]}>VS</Text>
           </View>
         </View>
         {tile('b', q.b)}
       </View>
-      <Text style={[T.mono, { color: C.dim, textAlign: 'center', fontSize: 10, marginTop: SP.s }]}>TAP THE SIDE THAT'S MORE YOU</Text>
+      <Text style={[T.micro, { textAlign: 'center', marginTop: SP.s }]}>Tap the side that's more you</Text>
     </View>
   );
 }
@@ -589,10 +593,10 @@ function QGrid({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'grid' }>; onAnswer:
           <MotiView animate={{ scale: tapped === i ? 1.06 : tapped !== null ? 0.94 : 1, opacity: tapped !== null && tapped !== i ? 0.3 : 1 }} transition={{ type: 'spring', damping: 13 }} style={[{ aspectRatio: 1, backgroundColor: tapped === i ? C.ink : C.white, overflow: 'hidden' }, BORDER(1)]}>
             <CachedImage source={{ uri: o.img }} style={{ width: '100%', height: '75%', opacity: tapped === i ? 0.5 : 1 }} resizeMode="cover" />
             <View style={{ padding: 6, alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: tapped === i ? C.white : C.ink, letterSpacing: 1 }}>{o.label}</Text>
+              <Text style={[T.caption, { color: tapped === i ? C.white : C.ink }]}>{o.label}</Text>
             </View>
             <View style={[{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: tapped === i ? C.white : C.ink }]}>
-              <Text style={[T.monoB, { color: tapped === i ? C.ink : C.white, fontSize: 8 }]}>{`0${i + 1}`}</Text>
+              <Text style={[T.micro, { color: tapped === i ? C.ink : C.white }]}>{`0${i + 1}`}</Text>
             </View>
           </MotiView>
         </Pressable>
@@ -623,20 +627,20 @@ function QColors({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'colors' }>; onAns
               <View style={[{ aspectRatio: 1, backgroundColor: c.hex, alignItems: 'center', justifyContent: 'flex-end', padding: 6 }, BORDER(1)]}>
                 {on && (
                   <View style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.white }}>
-                    <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 10 }}>{idx + 1}</Text>
+                    <Text style={[T.micro, { color: C.white }]}>{idx + 1}</Text>
                   </View>
                 )}
                 <View style={[{ paddingHorizontal: 4, paddingVertical: 2, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.monoB, { fontSize: 8 }]}>{c.name}</Text>
+                  <Text style={[T.micro, { color: C.ink }]}>{c.name}</Text>
                 </View>
               </View>
             </Pressable>
           );
         })}
       </View>
-      <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: SP.s, textAlign: 'center' }]}>{picked.length}/{q.pick} SELECTED</Text>
+      <Text style={[T.micro, { marginTop: SP.s, textAlign: 'center' }]}>{picked.length}/{q.pick} selected</Text>
       <Pressable onPress={submit} disabled={picked.length !== q.pick} style={[{ marginTop: SP.m, padding: SP.m, alignItems: 'center', backgroundColor: picked.length === q.pick ? C.ink : C.hairline }, BORDER(1)]}>
-        <Text style={{ fontFamily: 'Inter_900Black', color: picked.length === q.pick ? C.white : C.dim, fontSize: 14, letterSpacing: 1 }}>◆ LOCK IN PALETTE</Text>
+        <Text style={[T.button, { color: picked.length === q.pick ? C.white : C.dim }]}>Lock in palette</Text>
       </Pressable>
     </View>
   );
@@ -665,13 +669,13 @@ function QSlider({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'slider' }>; onAns
   return (
     <View>
       {/* Big readout */}
-      <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(72), color: C.white, letterSpacing: -3, lineHeight: rf(72) }}>{Math.round(val)}</Text>
-        <Text style={[T.monoB, { color: C.white, fontSize: 10, marginTop: 4 }]}>{val < 40 ? q.left : val > 60 ? q.right : 'BALANCED'}</Text>
+      <View style={[{ padding: SP.l, backgroundColor: '#F4F4F4', alignItems: 'center' }, BORDER(1)]}>
+        <Text style={[T.h1, { fontSize: rf(48), color: C.ink, letterSpacing: -1, lineHeight: rf(52) }]}>{Math.round(val)}</Text>
+        <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>{val < 40 ? q.left : val > 60 ? q.right : 'Balanced'}</Text>
       </View>
       {/* Slider track */}
       <View style={{ marginTop: SP.l, flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={[T.monoB, { fontSize: 11, width: 60 }]}>{q.left}</Text>
+        <Text style={[T.caption, { color: C.ink, width: 60 }]}>{q.left}</Text>
         <GestureDetector gesture={pan}>
           <View onLayout={(e) => setTrackW(e.nativeEvent.layout.width)} style={{ flex: 1, height: 50, justifyContent: 'center' }}>
             {/* Track line */}
@@ -688,11 +692,11 @@ function QSlider({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'slider' }>; onAns
             </View>
           </View>
         </GestureDetector>
-        <Text style={[T.monoB, { fontSize: 11, width: 60, textAlign: 'right' }]}>{q.right}</Text>
+        <Text style={[T.caption, { color: C.ink, width: 60, textAlign: 'right' }]}>{q.right}</Text>
       </View>
-      <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: SP.s, textAlign: 'center' }]}>DRAG THE BLOCK</Text>
+      <Text style={[T.micro, { marginTop: SP.s, textAlign: 'center' }]}>Drag the block</Text>
       <Pressable onPress={submit} style={[{ marginTop: SP.m, padding: SP.m, alignItems: 'center', backgroundColor: C.ink }, BORDER(1)]}>
-        <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 14, letterSpacing: 1 }}>◆ LOCK IN</Text>
+        <Text style={[T.button, { color: C.white }]}>Lock in</Text>
       </Pressable>
     </View>
   );
@@ -715,16 +719,16 @@ function QChips({ q, onAnswer }: { q: Extract<QuizQ, { kind: 'chips' }>; onAnswe
           return (
             <Pressable key={i} onPress={() => toggle(i)}>
               <MotiView animate={{ scale: on ? 1.06 : 1 }} transition={{ type: 'spring', damping: 12 }} style={[{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center', gap: 6 }, BORDER(1)]}>
-                {on && <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 11 }}>{idx + 1}</Text>}
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: on ? C.white : C.ink, letterSpacing: 0.5 }}>{o.word}</Text>
+                {on && <Text style={[T.caption, { color: C.white }]}>{idx + 1}</Text>}
+                <Text style={[T.caption, { color: on ? C.white : C.ink }]}>{o.word}</Text>
               </MotiView>
             </Pressable>
           );
         })}
       </View>
-      <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: SP.s, textAlign: 'center' }]}>{picked.length}/{q.pick} SELECTED</Text>
+      <Text style={[T.micro, { marginTop: SP.s, textAlign: 'center' }]}>{picked.length}/{q.pick} selected</Text>
       <Pressable onPress={submit} disabled={picked.length !== q.pick} style={[{ marginTop: SP.m, padding: SP.m, alignItems: 'center', backgroundColor: picked.length === q.pick ? C.ink : C.hairline }, BORDER(1)]}>
-        <Text style={{ fontFamily: 'Inter_900Black', color: picked.length === q.pick ? C.white : C.dim, fontSize: 14, letterSpacing: 1 }}>◆ LOCK IN</Text>
+        <Text style={[T.button, { color: picked.length === q.pick ? C.white : C.dim }]}>Lock in</Text>
       </Pressable>
     </View>
   );
@@ -747,17 +751,17 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
         {/* Hero reveal */}
         <MotiView from={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', damping: 11 }}>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{'◆ YOUR_AESTHETIC'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(64), color: C.white, letterSpacing: -3, marginTop: 6 }}>{winner}×</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 2 }]}>{`${Math.round(((counts[winner] || 0) / total) * 100)}% MATCH · LEVEL UP`}</Text>
+          <View style={[{ padding: SP.l, backgroundColor: '#F4F4F4', alignItems: 'center' }, BORDER(1)]}>
+            <Text style={[T.micro, { color: C.dim }]}>{'Your aesthetic'}</Text>
+            <Text style={[T.h1, { fontSize: rf(48), color: C.ink, letterSpacing: -1, marginTop: 6, textTransform: 'uppercase' }]}>{winner}×</Text>
+            <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{`${Math.round(((counts[winner] || 0) / total) * 100)}% match · level up`}</Text>
             {/* XP earned */}
             <View style={{ marginTop: SP.m, flexDirection: 'row', gap: SP.s, alignItems: 'center' }}>
-              <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>+{totalXP} XP</Text>
+              <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }]}>
+                <Text style={[T.bodyB, { color: C.white }]}>+{totalXP} XP</Text>
               </View>
-              <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: 'transparent', borderWidth: 1, borderColor: C.white }]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white }}>{badgeCount} BADGES</Text>
+              <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.bodyB, { color: C.ink }]}>{badgeCount} badges</Text>
               </View>
             </View>
           </View>
@@ -766,14 +770,13 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
         {/* Aesthetic description */}
         <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ delay: 300 }}>
           <View style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{'ABOUT_YOUR_AESTHETIC'}</Text>
-            <Text style={[T.body, { marginTop: 6, fontSize: 13, lineHeight: 19 }]}>{AESTHETIC_DESC[winner] || 'You have a distinctive look that refuses categorization.'}</Text>
+            <Text style={[T.micro]}>{'About your aesthetic'}</Text>
+            <Text style={[T.body, { marginTop: 6 }]}>{AESTHETIC_DESC[winner] || 'You have a distinctive look that refuses categorization.'}</Text>
           </View>
         </MotiView>
 
         {/* Breakdown bars */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'FULL_BREAKDOWN'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Full breakdown'}</Text>
         <View style={{ marginTop: SP.s, gap: 10 }}>
           {sorted.map(([tag, count], i) => {
             const pct = Math.round((count / total) * 100);
@@ -781,10 +784,10 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
               <MotiView key={tag} from={{ opacity: 0, translateX: -10 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: 400 + i * 60 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[T.monoB, { fontSize: 9, color: C.dim }]}>{`#${i + 1}`}</Text>
-                    <Text style={[T.bodyB, { fontSize: 12 }]}>{tag}</Text>
+                    <Text style={[T.micro]}>{`#${i + 1}`}</Text>
+                    <Text style={[T.bodyB]}>{tag}</Text>
                   </View>
-                  <Text style={[T.monoB, { fontSize: 10 }]}>{pct}%</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{pct}%</Text>
                 </View>
                 <View style={[{ height: 12 }, BORDER(1)]}>
                   <MotiView from={{ width: '0%' }} animate={{ width: `${pct}%` as any }} transition={{ type: 'timing', duration: 700, delay: 500 + i * 60 }} style={{ height: '100%', backgroundColor: C.ink }} />
@@ -795,15 +798,14 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
         </View>
 
         {/* Unlocked badges */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'BADGES_UNLOCKED'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Badges unlocked'}</Text>
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s }}>
           {sorted.slice(0, 3).map(([tag], i) => (
             <MotiView key={tag} from={{ scale: 0, rotate: '-20deg' }} animate={{ scale: 1, rotate: '0deg' }} transition={{ type: 'spring', delay: 700 + i * 100 }} style={{ flex: 1 }}>
-              <View style={[{ padding: SP.s, backgroundColor: i === 0 ? C.ink : C.white, alignItems: 'center' }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: i === 0 ? C.white : C.ink }}>{i === 0 ? '◆' : i === 1 ? '◇' : '◈'}</Text>
-                <Text style={[T.monoB, { fontSize: 9, color: i === 0 ? C.white : C.ink, marginTop: 4 }]}>{tag}</Text>
-                <Text style={[T.mono, { fontSize: 8, color: i === 0 ? C.white : C.dim }]}>{['GOLD', 'SILVER', 'BRONZE'][i]}</Text>
+              <View style={[{ padding: SP.s, backgroundColor: i === 0 ? '#F4F4F4' : C.white, alignItems: 'center' }, BORDER(1)]}>
+                <Feather name="award" size={26} color={C.ink} />
+                <Text style={[T.micro, { color: C.ink, marginTop: 4 }]}>{tag}</Text>
+                <Text style={[T.micro, { color: C.dim }]}>{['Gold', 'Silver', 'Bronze'][i]}</Text>
               </View>
             </MotiView>
           ))}
@@ -811,8 +813,9 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
 
         {/* Actions */}
         <BrutalButton label="See my curated picks" iconRight="arrow-right" block onPress={onGoHome} style={{ marginTop: SP.xl }} />
-        <Pressable onPress={onRetake} style={{ alignSelf: 'center', marginTop: SP.m }}>
-          <Text style={[T.mono, { color: C.dim, textDecorationLine: 'underline' }]}>↺ retake quiz</Text>
+        <Pressable onPress={onRetake} style={{ alignSelf: 'center', marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Feather name="rotate-ccw" size={13} color={C.ink} />
+          <Text style={[T.caption, { color: C.ink }]}>Retake quiz</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -837,8 +840,7 @@ export function NotificationsScreen() {
       <ScreenHeader title="Notifications" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <Text style={[T.mono, { color: C.dim }]}>{`${NOTIFS.length} UPDATES`}</Text>
-          <AsciiDivider style={{ marginTop: 6 }} />
+          <Text style={[T.micro]}>{`${NOTIFS.length} updates`}</Text>
         </View>
         {NOTIFS.map((n, i) => (
           <FadeInUp key={n.id} delay={i * 40}>
@@ -850,7 +852,7 @@ export function NotificationsScreen() {
                 <Text style={[T.bodyB]}>{n.title}</Text>
                 <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{n.sub}</Text>
               </View>
-              <Text style={[T.mono, { color: C.dim }]}>{n.time}</Text>
+              <Text style={[T.micro]}>{n.time}</Text>
             </View>
           </FadeInUp>
         ))}
@@ -1001,8 +1003,8 @@ export function TryOnScreen() {
         <View style={[{ flexDirection: 'row' }, BORDER(1)]}>
           {(['ar', 'photo'] as const).map(m => (
             <Pressable key={m} onPress={() => { setMode(m); if (m === 'photo') setCameraOn(false); }} style={{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: mode === m ? C.ink : C.white }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: mode === m ? C.white : C.ink, letterSpacing: 1 }}>
-                {m === 'ar' ? 'AR · LIVE CAMERA' : 'PHOTO · UPLOAD'}
+              <Text style={[T.caption, { color: mode === m ? C.white : C.ink }]}>
+                {m === 'ar' ? 'AR · Live camera' : 'Photo · Upload'}
               </Text>
             </Pressable>
           ))}
@@ -1023,8 +1025,8 @@ export function TryOnScreen() {
               </View>
               {/* In-camera HUD */}
               <View style={{ position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
-                <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>◉ LIVE · TRACKING</Text>
+                <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                  <Text style={[T.micro, { color: C.ink }]}>Live · tracking</Text>
                 </View>
                 <Pressable onPress={() => setFacing(f => (f === 'front' ? 'back' : 'front'))} hitSlop={8} style={[{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
                   <Feather name="refresh-cw" size={14} color={C.ink} />
@@ -1033,10 +1035,10 @@ export function TryOnScreen() {
               {/* Capture & generate — the live-camera answer to "just run try-on now" */}
               <View style={{ position: 'absolute', bottom: 70, left: 0, right: 0, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
                 <Pressable onPress={() => setCameraOn(false)} hitSlop={8} style={[{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.monoB, { fontSize: 10 }]}>CLOSE</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>Close</Text>
                 </Pressable>
                 <Pressable onPress={() => captureAndTryOn()} hitSlop={8} style={[{ paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.ink }, BORDER(1)]}>
-                  <Text style={[T.monoB, { fontSize: 10, color: C.white }]}>◆ CAPTURE & TRY-ON</Text>
+                  <Text style={[T.caption, { color: C.white }]}>Capture & try-on</Text>
                 </Pressable>
               </View>
             </>
@@ -1065,43 +1067,43 @@ export function TryOnScreen() {
               )}
               {/* Visible confirmation that the photo is loaded */}
               {!generating && !generatedPhoto && (
-                <View style={{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>◆ PHOTO LOADED</Text>
+                <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                  <Text style={[T.micro, { color: C.ink }]}>Photo loaded</Text>
                 </View>
               )}
               {/* Loading overlay while the HF Space is generating */}
               {generating && (
                 <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.white, letterSpacing: -0.5 }}>GENERATING...</Text>
-                  <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'AI is dressing your photo\nCan take 15–60s'}</Text>
+                  <Text style={[T.h1, { color: C.white }]}>Generating...</Text>
+                  <Text style={[T.micro, { color: C.white, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'AI is dressing your photo\nCan take 15–60s'}</Text>
                 </View>
               )}
               <Pressable onPress={() => { setUploadedPhoto(null); setGeneratedPhoto(null); }} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
                 <Feather name="x" size={14} color={C.ink} />
               </Pressable>
               {generatedPhoto && !generating && (
-                <View style={{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>◆ AI TRY-ON</Text>
+                <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                  <Text style={[T.micro, { color: C.ink }]}>AI try-on</Text>
                 </View>
               )}
             </>
           ) : (
             <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           )}
-          {/* Corner marks */}
-          {['┌','┐','└','┘'].map((ch, i) => (
-            <Text key={i} style={[T.monoB, { position: 'absolute', ...[{top:6,left:8},{top:6,right:8},{bottom:6,left:8},{bottom:6,right:8}][i], color: C.ink, fontSize: 16 }]} pointerEvents="none">{ch}</Text>
+          {/* Corner frame — thin hairline ticks */}
+          {[{top:6,left:8},{top:6,right:8},{bottom:6,left:8},{bottom:6,right:8}].map((pos, i) => (
+            <View key={i} pointerEvents="none" style={{ position: 'absolute', ...pos, width: 14, height: 14, borderColor: C.ink, borderTopWidth: i < 2 ? 2 : 0, borderBottomWidth: i >= 2 ? 2 : 0, borderLeftWidth: i % 2 === 0 ? 2 : 0, borderRightWidth: i % 2 === 1 ? 2 : 0 }} />
           ))}
           {/* Static badge — hidden while live camera / uploaded preview is running */}
           {!(mode === 'ar' && cameraOn) && !(mode === 'photo' && uploadedPhoto) && (
-            <View style={{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.ink }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{mode === 'ar' ? '◉ TAP OPEN CAMERA' : '◆ TAP UPLOAD PHOTO'}</Text>
+            <View style={[{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={[T.micro, { color: C.ink }]}>{mode === 'ar' ? 'Tap open camera' : 'Tap upload photo'}</Text>
             </View>
           )}
           {/* Product caption */}
           <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.m, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline }}>
-            <Text style={[T.monoB, { fontSize: 9 }]}>{pick.brand}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, marginTop: 2 }} numberOfLines={1}>{pick.name}</Text>
+            <Text style={[T.micro, { color: C.ink }]}>{pick.brand}</Text>
+            <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={1}>{pick.name}</Text>
           </View>
         </View>
 
@@ -1139,37 +1141,35 @@ export function TryOnScreen() {
         </View>
 
         {/* Pick a fit strip */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'SWAP FIT'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Swap fit'}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
           {picks.map(p => (
             <Pressable key={p.id} onPress={() => { setPick(p); setGeneratedPhoto(null); }} style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, pick.id === p.id ? BORDER(2) : BORDER(1)]}>
               <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
               <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: pick.id === p.id ? C.ink : C.white, borderTopWidth: 1, borderColor: C.hairline }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: pick.id === p.id ? C.white : C.ink }} numberOfLines={1}>{p.brand}</Text>
+                <Text style={[T.micro, { color: pick.id === p.id ? C.white : C.ink }]} numberOfLines={1}>{p.brand}</Text>
               </View>
             </Pressable>
           ))}
         </ScrollView>
 
         {/* How it works */}
-        <Text style={[T.monoB, { marginTop: SP.l, fontSize: 11 }]}>{'HOW IT WORKS'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.l }]}>{'How it works'}</Text>
         <View style={{ marginTop: SP.s, gap: 8 }}>
           {[
-            mode === 'ar' ? { icon: 'video', title: 'POINT CAMERA', desc: 'Stand in frame — we track your body.' } : { icon: 'image', title: 'UPLOAD A PIC', desc: 'Full-body shot works best.' },
-            { icon: 'layers', title: 'PICK A FIT', desc: 'Swap clothes in real time.' },
-            { icon: 'shopping-bag', title: 'LOVE IT? BAG IT', desc: '60-min delivery in your city.' },
+            mode === 'ar' ? { icon: 'video', title: 'Point camera', desc: 'Stand in frame — we track your body.' } : { icon: 'image', title: 'Upload a pic', desc: 'Full-body shot works best.' },
+            { icon: 'layers', title: 'Pick a fit', desc: 'Swap clothes in real time.' },
+            { icon: 'shopping-bag', title: 'Love it? Bag it', desc: '60-min delivery in your city.' },
           ].map((step, i) => (
             <View key={i} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, backgroundColor: C.white, gap: 12 }, BORDER(1)]}>
-              <View style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }}>
-                <Feather name={step.icon as any} size={16} color={C.white} />
+              <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                <Feather name={step.icon as any} size={16} color={C.ink} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.ink }}>{step.title}</Text>
-                <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>{step.desc}</Text>
+                <Text style={[T.bodyB]}>{step.title}</Text>
+                <Text style={[T.micro, { marginTop: 2 }]}>{step.desc}</Text>
               </View>
-              <Text style={[T.monoB, { color: C.dim, fontSize: 10 }]}>0{i + 1}</Text>
+              <Text style={[T.micro]}>0{i + 1}</Text>
             </View>
           ))}
         </View>
@@ -1180,28 +1180,27 @@ export function TryOnScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: SP.l }}>
           <View style={[{ backgroundColor: C.white, padding: SP.l, maxHeight: '85%' }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.3 }}>TRY-ON FAILED</Text>
+              <Text style={[T.h3]}>Try-on failed</Text>
               <Pressable onPress={() => setErrorMsg(null)} hitSlop={10}>
                 <Feather name="x" size={22} color={C.ink} />
               </Pressable>
             </View>
-            <AsciiDivider style={{ marginTop: 8 }} />
-            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{'ERROR'}</Text>
+            <Text style={[T.micro, { color: C.dim, marginTop: SP.m }]}>{'Error'}</Text>
             <TextInput
               value={errorMsg || ''}
               multiline
               editable={false}
               selectTextOnFocus
-              style={[{ marginTop: 6, padding: SP.s, minHeight: 60, fontFamily: 'SpaceMono_700Bold', fontSize: 12, color: C.ink, backgroundColor: '#FAFAFA' }, BORDER(1)]}
+              style={[T.body, { marginTop: 6, padding: SP.s, minHeight: 60, backgroundColor: '#F4F4F4', color: C.ink }, BORDER(1)]}
             />
-            <Text style={[T.monoB, { marginTop: SP.m, fontSize: 10, color: C.dim }]}>{`LOG (${logLines.length})`}</Text>
-            <ScrollView style={[{ maxHeight: 260, marginTop: 6, backgroundColor: '#FAFAFA' }, BORDER(1)]}>
+            <Text style={[T.micro, { color: C.dim, marginTop: SP.m }]}>{`Log (${logLines.length})`}</Text>
+            <ScrollView style={[{ maxHeight: 260, marginTop: 6, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
               <TextInput
                 value={logLines.join('\n') || '(no log yet)'}
                 multiline
                 editable={false}
                 selectTextOnFocus
-                style={{ padding: SP.s, fontFamily: 'SpaceMono_700Bold', fontSize: 10, color: C.ink }}
+                style={[T.mono, { padding: SP.s, color: C.ink }]}
               />
             </ScrollView>
             <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.m }}>

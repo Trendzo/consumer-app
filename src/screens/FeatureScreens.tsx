@@ -8,8 +8,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead, CachedImage } from '../components/Brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead, CachedImage, OptionSheet } from '../components/Brutal';
 import { PRODUCTS, BRANDS, OCCASIONS, COMMUNITY, BUNDLES, CATEGORIES } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useZoom } from '../navigation/ZoomTransition';
@@ -116,14 +116,14 @@ export function ImageSearchScreen() {
             </View>
           </FadeInUp>
           <FadeInUp delay={60}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, marginTop: SP.xl, textAlign: 'center', letterSpacing: -1 }}>SNAP TO{'\n'}FIND.</Text>
+            <Text style={[T.h1, { marginTop: SP.xl, textAlign: 'center', textTransform: 'uppercase' }]}>Snap to find.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s, textAlign: 'center', maxWidth: 280 }]}>Take a photo or upload an image to find similar products instantly.</Text>
           </FadeInUp>
           <View style={{ marginTop: SP.xl }}>
             <BrutalButton label="Pick a source" icon="image" onPress={() => setPickerOpen(true)} />
           </View>
           <FadeInUp delay={120}>
-            <Text style={[T.mono, { color: C.dim, marginTop: SP.xl, textAlign: 'center' }]}>{'AI-POWERED · VISUAL SEARCH'}</Text>
+            <Text style={[T.micro, { marginTop: SP.xl, textAlign: 'center' }]}>{'AI-powered · visual search'}</Text>
           </FadeInUp>
         </View>
       )}
@@ -134,16 +134,16 @@ export function ImageSearchScreen() {
             <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject as any} facing={facing} />
             {/* HUD */}
             <View style={{ position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
-              <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>◉ FRAME A FIT</Text>
+              <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>Frame a fit</Text>
               </View>
               <Pressable onPress={() => setFacing(f => (f === 'front' ? 'back' : 'front'))} hitSlop={8} style={[{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
                 <Feather name="refresh-cw" size={14} color={C.ink} />
               </Pressable>
             </View>
-            {/* Corner ticks */}
-            {['┌','┐','└','┘'].map((ch, i) => (
-              <Text key={i} style={[T.monoB, { position: 'absolute', ...[{top:6,left:8},{top:6,right:8},{bottom:6,left:8},{bottom:6,right:8}][i], color: C.white, fontSize: 18 }]} pointerEvents="none">{ch}</Text>
+            {/* Corner frame — thin hairline ticks */}
+            {[{top:8,left:8},{top:8,right:8},{bottom:8,left:8},{bottom:8,right:8}].map((pos, i) => (
+              <View key={i} pointerEvents="none" style={{ position: 'absolute', ...pos, width: 14, height: 14, borderColor: C.white, borderTopWidth: i < 2 ? 2 : 0, borderBottomWidth: i >= 2 ? 2 : 0, borderLeftWidth: i % 2 === 0 ? 2 : 0, borderRightWidth: i % 2 === 1 ? 2 : 0 }} />
             ))}
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.m }}>
@@ -164,13 +164,13 @@ export function ImageSearchScreen() {
                 transform: [{ translateY: scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 318] }) }],
               }}
             />
-            {/* corner ticks */}
-            {['┌','┐','└','┘'].map((ch, i) => (
-              <Text key={i} style={[T.monoB, { position: 'absolute', ...[{top:4,left:6},{top:4,right:6},{bottom:4,left:6},{bottom:4,right:6}][i], color: C.ink, fontSize: 16 }]}>{ch}</Text>
+            {/* corner frame — thin hairline ticks */}
+            {[{top:6,left:6},{top:6,right:6},{bottom:6,left:6},{bottom:6,right:6}].map((pos, i) => (
+              <View key={i} pointerEvents="none" style={{ position: 'absolute', ...pos, width: 14, height: 14, borderColor: C.ink, borderTopWidth: i < 2 ? 2 : 0, borderBottomWidth: i >= 2 ? 2 : 0, borderLeftWidth: i % 2 === 0 ? 2 : 0, borderRightWidth: i % 2 === 1 ? 2 : 0 }} />
             ))}
           </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, marginTop: SP.xl, letterSpacing: -0.5 }}>SCANNING...</Text>
-          <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>{'MATCHING COLOR · CUT · FABRIC'}</Text>
+          <Text style={[T.h1, { marginTop: SP.xl, textTransform: 'uppercase' }]}>Scanning...</Text>
+          <Text style={[T.micro, { marginTop: 4 }]}>{'Matching color · cut · fabric'}</Text>
         </View>
       )}
 
@@ -181,20 +181,18 @@ export function ImageSearchScreen() {
               <CachedImage source={{ uri: pickedImg }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'YOUR IMAGE'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5, marginTop: 2 }}>12 MATCHES FOUND</Text>
+              <Text style={[T.micro]}>{'Your image'}</Text>
+              <Text style={[T.h3, { marginTop: 2 }]}>12 matches found</Text>
               <Pressable onPress={reset} style={[{ marginTop: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={[T.monoB, { fontSize: 9 }]}>⟲ TRY ANOTHER</Text>
+                <Text style={[T.caption, { color: C.ink }]}>Try another</Text>
               </Pressable>
             </View>
-          </View>
-          <AsciiDivider style={{ marginTop: SP.m }} />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: SP.m }}>
+          </View>          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: SP.m }}>
             {PRODUCTS.slice(0, 8).map((p, i) => (
               <FadeInUp key={p.id} delay={i * 40}>
                 <ProductCard p={p} style={{ marginBottom: SP.m }}>
                   <View style={{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
-                    <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`${98 - i * 3}% MATCH`}</Text>
+                    <Text style={[T.micro, { color: C.white }]}>{`${98 - i * 3}% match`}</Text>
                   </View>
                 </ProductCard>
               </FadeInUp>
@@ -203,49 +201,37 @@ export function ImageSearchScreen() {
         </ScrollView>
       )}
 
-      {/* SOURCE PICKER MODAL — matches brutalist sheet style */}
-      <Modal transparent visible={pickerOpen} animationType="none" onRequestClose={() => setPickerOpen(false)}>
-        <Pressable onPress={() => setPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MotiView
-            from={{ translateY: 400 }}
-            animate={{ translateY: 0 }}
-            transition={{ type: 'timing', duration: 320 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'IMAGE_SOURCE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>GRAB AN IMAGE</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>We'll scan it and find matches.</Text>
-
-            <View style={{ marginTop: SP.l, gap: SP.s }}>
-              {[
-                { id: 'camera', icon: 'camera', title: 'TAKE PHOTO', desc: 'Snap a fit in the wild — we match it.' },
-                { id: 'gallery', icon: 'upload', title: 'UPLOAD FROM GALLERY', desc: 'Pick any shot from your photos.' },
-              ].map((opt, i) => (
-                <MotiView key={opt.id} from={{ opacity: 0, translateX: -20 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: 120 + i * 80, type: 'timing', duration: 280 }}>
-                  <Pressable onPress={() => runScan(opt.id as any)} style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <View style={{ width: 46, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }}>
-                        <Feather name={opt.icon as any} size={20} color={C.white} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, letterSpacing: 0.5 }}>{opt.title}</Text>
-                        <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 3 }]}>{opt.desc}</Text>
-                      </View>
-                      <Feather name="arrow-right" size={16} color={C.ink} />
+      {/* SOURCE PICKER — shared OptionSheet, custom content */}
+      <OptionSheet
+        visible={pickerOpen}
+        title="Grab an image"
+        onClose={() => { setPickerOpen(false); if (stage === 'idle') nav.goBack(); }}
+      >
+        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
+          <Text style={[T.caption, { color: C.dim }]}>We'll scan it and find matches.</Text>
+          <View style={{ marginTop: SP.l, gap: SP.s }}>
+            {[
+              { id: 'camera', icon: 'camera', title: 'Take photo', desc: 'Snap a fit in the wild — we match it.' },
+              { id: 'gallery', icon: 'upload', title: 'Upload from gallery', desc: 'Pick any shot from your photos.' },
+            ].map((opt, i) => (
+              <MotiView key={opt.id} from={{ opacity: 0, translateX: -20 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: 120 + i * 80, type: 'timing', duration: 280 }}>
+                <Pressable onPress={() => runScan(opt.id as any)} style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[{ width: 46, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                      <Feather name={opt.icon as any} size={20} color={C.ink} />
                     </View>
-                  </Pressable>
-                </MotiView>
-              ))}
-            </View>
-
-            <Pressable onPress={() => { setPickerOpen(false); if (stage === 'idle') nav.goBack(); }} style={{ marginTop: SP.m, alignSelf: 'center', paddingVertical: 8 }}>
-              <Text style={[T.mono, { color: C.dim, textDecorationLine: 'underline' }]}>cancel</Text>
-            </Pressable>
-          </MotiView>
-        </Pressable>
-      </Modal>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.h3]}>{opt.title}</Text>
+                      <Text style={[T.micro, { marginTop: 3 }]}>{opt.desc}</Text>
+                    </View>
+                    <Feather name="arrow-right" size={16} color={C.ink} />
+                  </View>
+                </Pressable>
+              </MotiView>
+            ))}
+          </View>
+        </View>
+      </OptionSheet>
     </View>
   );
 }
@@ -275,24 +261,23 @@ export function CouponWalletScreen() {
       <ScreenHeader title="Coupons" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'COUPON_WALLET'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>YOUR{'\n'}COUPONS.</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{'Coupon wallet'}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Your coupons.</Text>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
         {coupons.map((c, i) => (
           <FadeInUp key={c.id} delay={i * 50}>
             <View style={[{ marginTop: SP.m, flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
-              <View style={{ width: 90, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, padding: SP.s }}>
-                <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white, textAlign: 'center' }}>{c.discount}</Text>
+              <View style={{ width: 90, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline }}>
+                <Text numberOfLines={2} adjustsFontSizeToFit style={[T.h3, { color: C.ink, textAlign: 'center' }]}>{c.discount}</Text>
               </View>
               <View style={{ flex: 1, padding: SP.m }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.monoB, { fontSize: 14 }]}>{c.code}</Text>
+                  <Text style={[T.monoB]}>{c.code}</Text>
                   <Pressable onPress={() => showToast('Copied', `${c.code} copied to clipboard`, 'copy')}>
                     <Feather name="copy" size={14} color={C.ink} />
                   </Pressable>
                 </View>
-                <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>{c.min} · Expires {c.expires}</Text>
+                <Text style={[T.micro, { marginTop: 4 }]}>{c.min} · Expires {c.expires}</Text>
               </View>
             </View>
           </FadeInUp>
@@ -312,11 +297,11 @@ const FEED_POSTS = [
 ];
 
 const FEED_FILTERS = [
-  { id: 'all', label: 'FOR YOU' },
-  { id: 'street', label: 'STREET' },
-  { id: 'work', label: 'WORK' },
-  { id: 'date', label: 'DATE' },
-  { id: 'brunch', label: 'BRUNCH' },
+  { id: 'all', label: 'For you' },
+  { id: 'street', label: 'Street' },
+  { id: 'work', label: 'Work' },
+  { id: 'date', label: 'Date' },
+  { id: 'brunch', label: 'Brunch' },
 ];
 
 export function CommunityFeedScreen() {
@@ -349,19 +334,19 @@ export function CommunityFeedScreen() {
         <FadeInUp style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: SP.m }}>
             <View style={{ flex: 1 }}>
-              <Text style={[T.monoB, { fontSize: 11, color: C.dim }]}>THE_FEED</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, marginTop: 4, lineHeight: rf(34) }}>COMMUNITY{'\n'}FITS.</Text>
+              <Text style={[T.caption, { color: C.dim }]}>The feed</Text>
+              <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Community fits.</Text>
             </View>
-            <View style={[{ width: 84, backgroundColor: C.ink, padding: SP.s }, BORDER(1)]}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>LIVE</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 22, marginTop: 2 }}>{FEED_POSTS.length}</Text>
-              <Text style={[T.mono, { color: C.white, opacity: 0.75, fontSize: 8 }]}>FITS NOW</Text>
+            <View style={[{ width: 84, backgroundColor: C.white, padding: SP.s }, BORDER(1)]}>
+              <Text style={[T.micro, { color: C.dim }]}>Live</Text>
+              <Text style={[T.h1, { color: C.ink, marginTop: 2 }]}>{FEED_POSTS.length}</Text>
+              <Text style={[T.micro, { color: C.dim }]}>Fits now</Text>
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-            <CommunityStat value="12.8K" label="LIKES" />
-            <CommunityStat value="343" label="SAVED" />
-            <CommunityStat value="41" label="AREAS" />
+            <CommunityStat value="12.8K" label="Likes" />
+            <CommunityStat value="343" label="Saved" />
+            <CommunityStat value="41" label="Areas" />
           </View>
         </FadeInUp>
 
@@ -369,7 +354,7 @@ export function CommunityFeedScreen() {
           {FEED_FILTERS.map(f => (
             <Pressable key={f.id} onPress={() => setFilter(f.id)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 13, paddingVertical: 9, backgroundColor: filter === f.id ? C.ink : C.white }, BORDER(1)]}>
               {filter === f.id && <Feather name="check" size={11} color={C.white} />}
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: filter === f.id ? C.white : C.ink, letterSpacing: 0.6 }}>{f.label}</Text>
+              <Text style={[T.caption, { color: filter === f.id ? C.white : C.ink }]}>{f.label}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -383,35 +368,33 @@ export function CommunityFeedScreen() {
                 <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 7 }, BORDER(1)]}>
                   <Avatar user={lead.user} />
                   <View>
-                    <Text style={[T.monoB, { fontSize: 10 }]}>{lead.user}</Text>
-                    <Text style={[T.mono, { color: C.dim, fontSize: 8 }]}>{`${lead.city} · ${lead.time}`}</Text>
+                    <Text style={[T.caption, { color: C.ink }]}>{lead.user}</Text>
+                    <Text style={[T.micro]}>{`${lead.city} · ${lead.time}`}</Text>
                   </View>
                 </View>
-                <View style={[{ backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 7 }, BORDER(1)]}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`${lead.heat}% HOT`}</Text>
+                <View style={[{ backgroundColor: C.white, paddingHorizontal: 10, paddingVertical: 7 }, BORDER(1)]}>
+                  <Text style={[T.micro, { color: C.ink }]}>{`${lead.heat}% hot`}</Text>
                 </View>
               </View>
               <View style={{ position: 'absolute', left: SP.m, right: SP.m, bottom: SP.m }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: '#FFFFFF', letterSpacing: -1, lineHeight: rf(31), textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 0 }}>{lead.fit}{'\n'}FIT CHECK</Text>
-                <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 10, marginTop: 6 }]}>{lead.caption}</Text>
+                <Text style={[T.h1, { color: '#FFFFFF', textTransform: 'uppercase', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }]}>{lead.fit} Fit check</Text>
+                <Text style={[T.caption, { color: '#FFFFFF', marginTop: 6 }]}>{lead.caption}</Text>
               </View>
             </View>
             <View style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: C.hairline }}>
               <CommunityAction icon={liked[lead.id] ? 'heart' : 'heart'} label={`${lead.likes + (liked[lead.id] ? 1 : 0)}`} active={!!liked[lead.id]} onPress={() => toggleLike(lead.id)} />
               <CommunityAction icon="message-square" label={`${lead.comments}`} />
               <CommunityAction icon="bookmark" label={`${lead.saves}`} active={!!saved[lead.id]} onPress={() => toggleSave(lead.id)} />
-              <CommunityAction icon="send" label="SHARE" onPress={() => showToast('Shared', 'Fit link copied', 'send')} />
+              <CommunityAction icon="send" label="Share" onPress={() => showToast('Shared', 'Fit link copied', 'send')} />
             </View>
           </Pressable>
         </FadeInUp>
 
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <AsciiDivider />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 }}>TODAY'S FITS</Text>
-            <Text style={[T.monoB, { color: C.dim, fontSize: 9 }]}>{`${visiblePosts.length} POSTS`}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={[T.h2, { textTransform: 'uppercase' }]}>Today's fits</Text>
+            <Text style={[T.micro]}>{`${visiblePosts.length} posts`}</Text>
           </View>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
         </View>
 
         {rest.map((p, i) => (
@@ -430,9 +413,7 @@ export function CommunityFeedScreen() {
 
         <View style={{ marginTop: SP.xl }}>
           <View style={{ paddingHorizontal: SP.l }}>
-            <AsciiDivider />
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, marginTop: 6 }}>RISING CREATORS</Text>
-            <AsciiDivider faint style={{ marginTop: 4 }} />
+            <Text style={[T.h2, { textTransform: 'uppercase' }]}>Rising creators</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m, marginTop: SP.m }}>
             {FEED_POSTS.map((p, i) => (
@@ -441,8 +422,8 @@ export function CommunityFeedScreen() {
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                 </View>
                 <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.hairline }}>
-                  <Text style={[T.monoB, { fontSize: 9 }]} numberOfLines={1}>{p.user}</Text>
-                  <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{`#${i + 1} · ${p.city}`}</Text>
+                  <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>{p.user}</Text>
+                  <Text style={[T.micro, { marginTop: 2 }]}>{`#${i + 1} · ${p.city}`}</Text>
                 </View>
               </Pressable>
             ))}
@@ -455,8 +436,8 @@ export function CommunityFeedScreen() {
 
 function Avatar({ user, size = 30 }: { user: string; size?: number }) {
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }}>
-      <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: Math.max(11, size * 0.36) }}>{user[1]?.toUpperCase()}</Text>
+    <View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+      <Text style={[T.h2, { color: C.ink, fontSize: Math.max(11, size * 0.36) }]}>{user[1]?.toUpperCase()}</Text>
     </View>
   );
 }
@@ -464,8 +445,8 @@ function Avatar({ user, size = 30 }: { user: string; size?: number }) {
 function CommunityStat({ value, label }: { value: string; label: string }) {
   return (
     <View style={[{ flex: 1, backgroundColor: C.white, padding: SP.s }, BORDER(1)]}>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>{value}</Text>
-      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{label}</Text>
+      <Text style={[T.h2]}>{value}</Text>
+      <Text style={[T.micro, { marginTop: 2 }]}>{label}</Text>
     </View>
   );
 }
@@ -474,7 +455,7 @@ function CommunityAction({ icon, label, active, onPress }: { icon: keyof typeof 
   return (
     <Pressable onPress={onPress} style={{ flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline, backgroundColor: active ? C.ink : C.white, gap: 3 }}>
       <Feather name={icon} size={15} color={active ? C.white : C.ink} />
-      <Text style={[T.monoB, { fontSize: 8, color: active ? C.white : C.ink }]} numberOfLines={1}>{label}</Text>
+      <Text style={[T.micro, { color: active ? C.white : C.ink }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -486,11 +467,11 @@ function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare 
         <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 10 }}>
           <Avatar user={post.user} />
           <View style={{ flex: 1 }}>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{post.user}</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{`${post.city} · ${post.time} · ${post.fit}`}</Text>
+            <Text style={[T.caption, { color: C.ink }]}>{post.user}</Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>{`${post.city} · ${post.time} · ${post.fit}`}</Text>
           </View>
-          <View style={[{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>{`#0${index + 2}`}</Text>
+          <View style={[{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.white }, BORDER(1)]}>
+            <Text style={[T.micro, { color: C.ink }]}>{`#0${index + 2}`}</Text>
           </View>
         </View>
 
@@ -499,12 +480,12 @@ function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare 
           <View style={{ position: 'absolute', top: SP.s, left: SP.s, flexDirection: 'row', gap: 6 }}>
             {post.tags.slice(0, 2).map(tag => (
               <View key={tag} style={[{ backgroundColor: C.white, paddingHorizontal: 8, paddingVertical: 4 }, BORDER(1)]}>
-                <Text style={[T.monoB, { fontSize: 8 }]}>{tag.toUpperCase()}</Text>
+                <Text style={[T.micro, { color: C.ink }]}>{tag}</Text>
               </View>
             ))}
           </View>
-          <View style={{ position: 'absolute', right: SP.s, bottom: SP.s, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 6 }}>
-            <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`${post.heat}% FIT SCORE`}</Text>
+          <View style={[{ position: 'absolute', right: SP.s, bottom: SP.s, backgroundColor: C.white, paddingHorizontal: 10, paddingVertical: 6 }, BORDER(1)]}>
+            <Text style={[T.micro, { color: C.ink }]}>{`${post.heat}% fit score`}</Text>
           </View>
         </View>
 
@@ -512,14 +493,14 @@ function CommunityPostCard({ post, index, liked, saved, onLike, onSave, onShare 
           <CommunityAction icon="heart" label={`${post.likes + (liked ? 1 : 0)}`} active={liked} onPress={onLike} />
           <CommunityAction icon="message-square" label={`${post.comments}`} />
           <CommunityAction icon="bookmark" label={`${post.saves}`} active={saved} onPress={onSave} />
-          <CommunityAction icon="send" label="SEND" onPress={onShare} />
+          <CommunityAction icon="send" label="Send" onPress={onShare} />
         </View>
 
         <View style={{ padding: SP.m }}>
-          <Text style={[T.bodyB, { fontSize: 14 }]}>{post.caption}</Text>
+          <Text style={[T.bodyB]}>{post.caption}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.s, marginTop: SP.m }}>
-            <View style={{ flex: 1, height: 1, backgroundColor: C.ink }} />
-            <Text style={[T.monoB, { color: C.dim, fontSize: 8 }]}>SHOP SIMILAR</Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: C.hairline }} />
+            <Text style={[T.micro]}>Shop similar</Text>
             <Feather name="arrow-right" size={12} color={C.dim} />
           </View>
         </View>
@@ -535,7 +516,7 @@ const MOOD_PINS = [
     title: p.name,
     source: p.brand,
     img: p.img,
-    type: 'PRODUCT',
+    type: 'Product',
     fit: i % 2 === 0 ? 'contain' : 'cover',
   })),
   ...COMMUNITY.map((p, i) => ({
@@ -543,15 +524,15 @@ const MOOD_PINS = [
     title: ['Street texture', 'Soft color story', 'Date-night lines', 'Layered casual'][i] || 'Community fit',
     source: p.user,
     img: p.img,
-    type: 'FIT',
+    type: 'Fit',
     fit: 'cover',
   })),
 ];
 
 const INITIAL_MOOD_BOARDS = [
-  { id: 'summer', name: 'SUMMER FITS', pins: ['feed-cp1', 'prod-p5', 'prod-p6', 'feed-cp2', 'prod-p4', 'prod-p3'] },
-  { id: 'work', name: 'WORK OUTFITS', pins: ['prod-p1', 'feed-cp4', 'prod-p2', 'prod-p7'] },
-  { id: 'date', name: 'DATE NIGHT', pins: ['feed-cp3', 'prod-p5', 'prod-p6'] },
+  { id: 'summer', name: 'Summer fits', pins: ['feed-cp1', 'prod-p5', 'prod-p6', 'feed-cp2', 'prod-p4', 'prod-p3'] },
+  { id: 'work', name: 'Work outfits', pins: ['prod-p1', 'feed-cp4', 'prod-p2', 'prod-p7'] },
+  { id: 'date', name: 'Date night', pins: ['feed-cp3', 'prod-p5', 'prod-p6'] },
 ];
 
 export function MoodBoardScreen() {
@@ -578,9 +559,9 @@ export function MoodBoardScreen() {
     showToast('Removed', `${activeBoard.name}`, 'x');
   };
   const createBoard = () => {
-    const name = newBoardName.trim() || `BOARD ${boards.length + 1}`;
+    const name = newBoardName.trim() || `Board ${boards.length + 1}`;
     const id = `board-${Date.now()}`;
-    setBoards(prev => [{ id, name: name.toUpperCase(), pins: [] }, ...prev]);
+    setBoards(prev => [{ id, name, pins: [] }, ...prev]);
     setActiveId(id);
     setNewBoardName('');
     setCreateOpen(false);
@@ -609,12 +590,12 @@ export function MoodBoardScreen() {
       />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         <FadeInUp style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <Text style={[T.monoB, { fontSize: 11, color: C.dim }]}>{'SAVED_BOARDS'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), color: C.ink, letterSpacing: -1.2, marginTop: 4, lineHeight: rf(34) }}>YOUR{'\n'}MOOD BOARDS.</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{'Saved boards'}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Your mood boards.</Text>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-            <MoodStat value={`${boards.length}`} label="BOARDS" />
-            <MoodStat value={`${activeBoard.pins.length}`} label="PINS" />
-            <MoodStat value={`${suggestions.length}`} label="IDEAS" />
+            <MoodStat value={`${boards.length}`} label="Boards" />
+            <MoodStat value={`${activeBoard.pins.length}`} label="Pins" />
+            <MoodStat value={`${suggestions.length}`} label="Ideas" />
           </View>
         </FadeInUp>
 
@@ -637,26 +618,24 @@ export function MoodBoardScreen() {
                 )}
               </View>
               <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: activeId === b.id ? C.white : C.ink }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: activeId === b.id ? C.white : C.ink }} numberOfLines={1}>{b.name}</Text>
-                <Text style={[T.mono, { color: activeId === b.id ? C.white : C.dim, opacity: activeId === b.id ? 0.75 : 1, fontSize: 8, marginTop: 2 }]}>{`${b.pins.length} PINS`}</Text>
+                <Text style={[T.caption, { color: activeId === b.id ? C.white : C.ink }]} numberOfLines={1}>{b.name}</Text>
+                <Text style={[T.micro, { color: activeId === b.id ? C.white : C.dim, opacity: activeId === b.id ? 0.75 : 1, marginTop: 2 }]}>{`${b.pins.length} pins`}</Text>
               </View>
             </Pressable>
           ))}
         </ScrollView>
 
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <AsciiDivider />
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5 }} numberOfLines={1}>{activeBoard.name}</Text>
-              <Text style={[T.mono, { color: C.dim, marginTop: 2 }]}>{`${activeBoard.pins.length} saved pins`}</Text>
+              <Text style={[T.h2, { textTransform: 'uppercase' }]} numberOfLines={1}>{activeBoard.name}</Text>
+              <Text style={[T.micro, { marginTop: 2 }]}>{`${activeBoard.pins.length} saved pins`}</Text>
             </View>
             <Pressable onPress={quickAdd} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: C.ink }, BORDER(1)]}>
               <Feather name="plus" size={12} color={C.white} />
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>PIN IDEA</Text>
+              <Text style={[T.caption, { color: C.white }]}>Pin idea</Text>
             </Pressable>
           </View>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
         </View>
 
         {activePins.length ? (
@@ -673,16 +652,14 @@ export function MoodBoardScreen() {
           <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
             <View style={[{ height: 190, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, padding: SP.l }, BORDER(1)]}>
               <Feather name="image" size={30} color={C.ink} />
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink, marginTop: SP.m }}>EMPTY BOARD</Text>
-              <Text style={[T.mono, { color: C.dim, textAlign: 'center', marginTop: 4 }]}>Pin ideas below to build this mood.</Text>
+              <Text style={[T.h3, { marginTop: SP.m }]}>Empty board</Text>
+              <Text style={[T.micro, { textAlign: 'center', marginTop: 4 }]}>Pin ideas below to build this mood.</Text>
             </View>
           </View>
         )}
 
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <AsciiDivider />
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, marginTop: 6 }}>MORE IDEAS</Text>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
+          <Text style={[T.h2, { textTransform: 'uppercase' }]}>More ideas</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m, alignItems: 'flex-start' }}>
           {[0, 1].map(col => (
@@ -695,36 +672,26 @@ export function MoodBoardScreen() {
         </View>
       </ScrollView>
 
-      <Modal transparent visible={createOpen} animationType="none" onRequestClose={() => setCreateOpen(false)}>
-        <Pressable onPress={() => setCreateOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MotiView
-            from={{ translateY: 360 }}
-            animate={{ translateY: 0 }}
-            transition={{ type: 'timing', duration: 280 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>NEW_BOARD</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>CREATE A BOARD</Text>
-            <View style={[{ marginTop: SP.l, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 12, backgroundColor: C.bg }, BORDER(1)]}>
-              <Feather name="edit-3" size={16} color={C.ink} />
-              <TextInput
-                value={newBoardName}
-                onChangeText={setNewBoardName}
-                placeholder="Board name"
-                placeholderTextColor={C.dim}
-                autoCapitalize="characters"
-                style={{ flex: 1, fontFamily: 'Inter_700Bold', fontSize: 14, color: C.ink, padding: 0 }}
-              />
-            </View>
-            <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-              <BrutalButton label="Cancel" icon="x" variant="outline" onPress={() => setCreateOpen(false)} style={{ flex: 1 }} />
-              <BrutalButton label="Create" iconRight="arrow-right" onPress={createBoard} style={{ flex: 1 }} />
-            </View>
-          </MotiView>
-        </Pressable>
-      </Modal>
+      <OptionSheet visible={createOpen} title="Create a board" onClose={() => setCreateOpen(false)}>
+        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
+          <Text style={[T.caption, { color: C.dim }]}>New board</Text>
+          <View style={[{ marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 12, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+            <Feather name="edit-3" size={16} color={C.ink} />
+            <TextInput
+              value={newBoardName}
+              onChangeText={setNewBoardName}
+              placeholder="Board name"
+              placeholderTextColor={C.dim}
+              autoCapitalize="words"
+              style={[T.bodyB, { flex: 1, padding: 0 }]}
+            />
+          </View>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <BrutalButton label="Cancel" icon="x" variant="outline" onPress={() => setCreateOpen(false)} style={{ flex: 1 }} />
+            <BrutalButton label="Create" iconRight="arrow-right" onPress={createBoard} style={{ flex: 1 }} />
+          </View>
+        </View>
+      </OptionSheet>
     </View>
   );
 }
@@ -732,8 +699,8 @@ export function MoodBoardScreen() {
 function MoodStat({ value, label }: { value: string; label: string }) {
   return (
     <View style={[{ flex: 1, backgroundColor: C.white, padding: SP.s }, BORDER(1)]}>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>{value}</Text>
-      <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 2 }]}>{label}</Text>
+      <Text style={[T.h2]}>{value}</Text>
+      <Text style={[T.micro, { marginTop: 2 }]}>{label}</Text>
     </View>
   );
 }
@@ -744,15 +711,15 @@ function MoodPin({ pin, tall, saved, onPress }: { pin: typeof MOOD_PINS[number];
       <View style={{ height: tall ? 235 : 178, backgroundColor: C.hairline }}>
         <CachedImage source={{ uri: pin.img }} style={{ width: '100%', height: '100%' }} resizeMode={pin.fit as any} />
         <View style={{ position: 'absolute', top: 7, left: 7, backgroundColor: C.white, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: C.hairline }}>
-          <Text style={[T.monoB, { fontSize: 8 }]}>{pin.type}</Text>
+          <Text style={[T.micro, { color: C.ink }]}>{pin.type}</Text>
         </View>
         <View style={{ position: 'absolute', right: 7, bottom: 7, backgroundColor: saved ? C.ink : C.white, paddingHorizontal: 9, paddingVertical: 6, borderWidth: 1, borderColor: C.hairline }}>
-          <Text style={[T.monoB, { fontSize: 8, color: saved ? C.white : C.ink }]}>{saved ? 'REMOVE' : 'PIN'}</Text>
+          <Text style={[T.micro, { color: saved ? C.white : C.ink }]}>{saved ? 'Remove' : 'Pin'}</Text>
         </View>
       </View>
       <View style={{ padding: SP.s, borderTopWidth: 1, borderColor: C.hairline }}>
-        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }} numberOfLines={2}>{pin.title}</Text>
-        <Text style={[T.mono, { color: C.dim, fontSize: 8, marginTop: 3 }]} numberOfLines={1}>{pin.source}</Text>
+        <Text style={[T.productName]} numberOfLines={2}>{pin.title}</Text>
+        <Text style={[T.micro, { marginTop: 3 }]} numberOfLines={1}>{pin.source}</Text>
       </View>
     </Pressable>
   );
@@ -760,18 +727,18 @@ function MoodPin({ pin, tall, saved, onPress }: { pin: typeof MOOD_PINS[number];
 
 // ─── LUCKY DRAW — Scratch-card pick-one-of-three mini-game ──
 const DRAW_PRIZES = [
-  { label: '₹500 OFF', sub: 'Next order', icon: 'tag', rare: false },
-  { label: '2× POINTS', sub: '48 hrs', icon: 'zap', rare: false },
-  { label: 'FREE SHIP', sub: '10 orders', icon: 'truck', rare: false },
-  { label: 'MYSTERY BOX', sub: '3 items', icon: 'package', rare: true },
-  { label: 'iPHONE 17', sub: 'GRAND PRIZE', icon: 'smartphone', rare: true },
-  { label: 'BETTER LUCK', sub: 'Try tomorrow', icon: 'clock', rare: false },
+  { label: '₹500 off', sub: 'Next order', icon: 'tag', rare: false },
+  { label: '2× points', sub: '48 hrs', icon: 'zap', rare: false },
+  { label: 'Free ship', sub: '10 orders', icon: 'truck', rare: false },
+  { label: 'Mystery box', sub: '3 items', icon: 'package', rare: true },
+  { label: 'iPhone 17', sub: 'Grand prize', icon: 'smartphone', rare: true },
+  { label: 'Better luck', sub: 'Try tomorrow', icon: 'clock', rare: false },
 ];
 const RECENT_WINNERS = [
-  { user: '@maya.s', prize: '₹500 OFF', mins: 3 },
-  { user: '@kai.r', prize: '2× POINTS', mins: 12 },
-  { user: '@aria_x', prize: 'FREE SHIP', mins: 27 },
-  { user: '@neo_d', prize: 'MYSTERY BOX', mins: 45 },
+  { user: '@maya.s', prize: '₹500 off', mins: 3 },
+  { user: '@kai.r', prize: '2× points', mins: 12 },
+  { user: '@aria_x', prize: 'Free ship', mins: 27 },
+  { user: '@neo_d', prize: 'Mystery box', mins: 45 },
 ];
 
 export function LuckyDrawScreen() {
@@ -813,15 +780,15 @@ export function LuckyDrawScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
         {/* HERO — clean, centered */}
         <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
-            <Ionicons name="gift" size={40} color={C.white} />
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 8, letterSpacing: -0.5 }}>PICK A CARD</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.75, marginTop: 4, textAlign: 'center' }]}>1 free pick today · 1 in 3 chance to win big</Text>
+          <View style={[{ padding: SP.l, backgroundColor: '#F4F4F4', alignItems: 'center' }, BORDER(1)]}>
+            <Ionicons name="gift" size={40} color={C.ink} />
+            <Text style={[T.h1, { color: C.ink, marginTop: 8, textTransform: 'uppercase' }]}>Pick a card</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>1 free pick today · 1 in 3 chance to win big</Text>
           </View>
         </FadeInUp>
 
         {/* ─── 3 cards ─── */}
-        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>{played ? 'YOUR PICK' : 'TAP A CARD TO REVEAL'}</Text>
+        <Text style={[T.caption, { marginTop: SP.xl, marginBottom: SP.s }]}>{played ? 'Your pick' : 'Tap a card to reveal'}</Text>
         <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.m }}>
           {cards.map((card, i) => {
             const isOpen = revealed === i;
@@ -830,19 +797,19 @@ export function LuckyDrawScreen() {
                 <Animated.View style={{ transform: [{ scale: played && !isOpen ? 0.95 : isOpen ? 1 : played ? 1 : pulse }] }}>
                   {isOpen ? (
                     <MotiView from={{ rotateY: '180deg' }} animate={{ rotateY: '0deg' }} transition={{ type: 'timing', duration: 600 }} style={[{ height: 180, padding: SP.s, alignItems: 'center', justifyContent: 'space-between', backgroundColor: card.rare ? C.ink : C.white }, BORDER(1)]}>
-                      <Text style={[T.monoB, { fontSize: 9, color: card.rare ? C.white : C.ink }]}>{'▲ OPENED'}</Text>
+                      <Text style={[T.micro, { color: card.rare ? C.white : C.ink }]}>{'Opened'}</Text>
                       <Feather name={card.icon as any} size={40} color={card.rare ? C.white : C.ink} />
                       <View style={{ alignItems: 'center' }}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: card.rare ? C.white : C.ink, textAlign: 'center' }}>{card.label}</Text>
-                        <Text style={[T.mono, { fontSize: 8, color: card.rare ? C.white : C.dim, marginTop: 2 }]}>{card.sub}</Text>
+                        <Text style={[T.h3, { color: card.rare ? C.white : C.ink, textAlign: 'center' }]}>{card.label}</Text>
+                        <Text style={[T.micro, { color: card.rare ? C.white : C.dim, marginTop: 2 }]}>{card.sub}</Text>
                       </View>
                     </MotiView>
                   ) : (
                     <View style={[{ height: 180, padding: SP.s, alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.white, opacity: played ? 0.3 : 1 }, BORDER(1)]}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>?</Text>
+                      <Text style={[T.h3]}>?</Text>
                       {/* Covered tile — plain solid fill (was an ascii hatching pattern). */}
                       <View style={{ flex: 1, alignSelf: 'stretch', overflow: 'hidden', marginVertical: 8, backgroundColor: C.hairline }} />
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }}>{played ? '—' : 'TAP'}</Text>
+                      <Text style={[T.caption, { color: C.ink }]}>{played ? '—' : 'Tap'}</Text>
                     </View>
                   )}
                 </Animated.View>
@@ -854,40 +821,40 @@ export function LuckyDrawScreen() {
         {played && (
           <FadeInUp delay={400}>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
-              <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>NEXT DRAW IN</Text>
-              <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(22), color: C.ink, letterSpacing: 3, marginTop: 4 }}>23:59:12</Text>
+              <Text style={[T.micro]}>Next draw in</Text>
+              <Text style={[T.monoB, { fontSize: rf(22), letterSpacing: 3, marginTop: 4 }]}>23:59:12</Text>
             </View>
           </FadeInUp>
         )}
 
         {/* ─── Grand prize banner ─── */}
-        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>GRAND PRIZE</Text>
-        <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
+        <Text style={[T.caption, { marginTop: SP.xl, marginBottom: SP.s }]}>Grand prize</Text>
+        <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <View style={{ flex: 1 }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'APRIL 2026'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, marginTop: 6, letterSpacing: -0.8 }}>₹10,000{'\n'}GIFT CARD</Text>
-              <Text style={[T.mono, { color: C.white, marginTop: 6, fontSize: 9 }]}>+ 5 RUNNER-UP SLOTS</Text>
+              <Text style={[T.micro, { color: C.dim }]}>{'April 2026'}</Text>
+              <Text style={[T.h1, { color: C.ink, marginTop: 6, textTransform: 'uppercase' }]}>₹10,000{'\n'}Gift card</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>+ 5 runner-up slots</Text>
             </View>
-            <Ionicons name="trophy" size={56} color={C.white} />
+            <Ionicons name="trophy" size={56} color={C.ink} />
           </View>
-          <View style={{ marginTop: SP.m, height: 1, backgroundColor: C.white, opacity: 0.3 }} />
+          <View style={{ marginTop: SP.m, height: 1, backgroundColor: C.hairline }} />
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9 }]}>DRAWS · 30 APR</Text>
-            <Text style={[T.mono, { color: C.white, fontSize: 9 }]}>1,247 ENTRIES</Text>
+            <Text style={[T.micro, { color: C.dim }]}>Draws · 30 Apr</Text>
+            <Text style={[T.micro, { color: C.dim }]}>1,247 entries</Text>
           </View>
         </View>
 
         {/* ─── Live winners ticker ─── */}
-        <Text style={[T.label, { marginTop: SP.xl, marginBottom: SP.s }]}>RECENT WINNERS</Text>
+        <Text style={[T.caption, { marginTop: SP.xl, marginBottom: SP.s }]}>Recent winners</Text>
         {RECENT_WINNERS.map((w, i) => (
           <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderColor: C.hairline }}>
-            <View style={[{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`0${i + 1}`}</Text>
+            <View style={[{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+              <Text style={[T.micro, { color: C.ink }]}>{`0${i + 1}`}</Text>
             </View>
-            <Text style={[T.monoB, { marginLeft: 10, fontSize: 11, flex: 1 }]}>{w.user}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.ink }}>{w.prize}</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 9, marginLeft: 10 }]}>{w.mins}m</Text>
+            <Text style={[T.caption, { color: C.ink, marginLeft: 10, flex: 1 }]}>{w.user}</Text>
+            <Text style={[T.caption, { color: C.ink }]}>{w.prize}</Text>
+            <Text style={[T.micro, { marginLeft: 10 }]}>{w.mins}m</Text>
           </View>
         ))}
       </ScrollView>
@@ -897,11 +864,11 @@ export function LuckyDrawScreen() {
 
 // ─── INVITE FRIENDS — Tier progression + referral tree ──────
 const INVITE_TIERS = [
-  { name: 'BRONZE', need: 1, reward: '₹200', unlocked: true },
-  { name: 'SILVER', need: 5, reward: '₹1,200', unlocked: true },
-  { name: 'GOLD', need: 10, reward: '₹3,000', unlocked: false },
-  { name: 'PLATINUM', need: 25, reward: '₹10,000', unlocked: false },
-  { name: 'DIAMOND', need: 50, reward: 'MYSTERY', unlocked: false },
+  { name: 'Bronze', need: 1, reward: '₹200', unlocked: true },
+  { name: 'Silver', need: 5, reward: '₹1,200', unlocked: true },
+  { name: 'Gold', need: 10, reward: '₹3,000', unlocked: false },
+  { name: 'Platinum', need: 25, reward: '₹10,000', unlocked: false },
+  { name: 'Diamond', need: 50, reward: 'Mystery', unlocked: false },
 ];
 const INVITED = [
   { user: 'Sahil M', status: 'JOINED', earn: '₹200', date: '2d' },
@@ -951,59 +918,58 @@ export function InviteFriendsScreen() {
         <FadeInUp>
           <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
             {[
-              { label: 'INVITES', val: INVITED.length, sub: 'SENT' },
-              { label: 'JOINED', val: joined, sub: 'VERIFIED' },
-              { label: 'EARNED', val: `₹${joined * 200}`, sub: 'CASHBACK' },
+              { label: 'Invites', val: INVITED.length, sub: 'Sent' },
+              { label: 'Joined', val: joined, sub: 'Verified' },
+              { label: 'Earned', val: `₹${joined * 200}`, sub: 'Cashback' },
             ].map((s, i) => (
-              <View key={i} style={{ flex: 1, padding: SP.m, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.hairline, backgroundColor: i === 1 ? C.ink : C.white }}>
-                <Text style={[T.monoB, { fontSize: 8, color: i === 1 ? C.white : C.dim }]}>{s.label}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: i === 1 ? C.white : C.ink, marginTop: 4 }}>{s.val}</Text>
-                <Text style={[T.mono, { fontSize: 8, color: i === 1 ? C.white : C.dim, marginTop: 2 }]}>{s.sub}</Text>
+              <View key={i} style={{ flex: 1, padding: SP.m, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.hairline, backgroundColor: i === 1 ? '#F4F4F4' : C.white }}>
+                <Text style={[T.micro, { color: C.dim }]}>{s.label}</Text>
+                <Text style={[T.h1, { color: C.ink, marginTop: 4 }]}>{s.val}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{s.sub}</Text>
               </View>
             ))}
           </View>
         </FadeInUp>
 
-        {/* REFERRAL CODE — big brutalist block */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'YOUR_CODE'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        {/* REFERRAL CODE — big code block */}
+        <Text style={[T.caption, { marginTop: SP.xl, color: C.dim }]}>{'Your code'}</Text>
         <FadeInUp delay={60}>
           <View style={[{ marginTop: SP.s, overflow: 'hidden' }, BORDER(1)]}>
-            <View style={{ padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }}>
-              <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.6 }]}>{'TAP TO COPY'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(40), color: C.white, letterSpacing: 5, marginTop: 8 }}>TRENDZO42</Text>
+            <View style={{ padding: SP.l, backgroundColor: '#F4F4F4', alignItems: 'center' }}>
+              <Text style={[T.micro, { color: C.dim }]}>{'Tap to copy'}</Text>
+              <Text style={[T.monoB, { color: C.ink, fontSize: rf(22), letterSpacing: 5, marginTop: 8 }]}>TRENDZO42</Text>
               <View style={{ flexDirection: 'row', gap: 4, marginTop: 10 }}>
                 {'TRENDZO42'.split('').map((ch, i) => (
-                  <View key={i} style={{ width: 6, height: 2, backgroundColor: C.white }} />
+                  <View key={i} style={{ width: 6, height: 2, backgroundColor: C.ink }} />
                 ))}
               </View>
             </View>
             <View style={{ flexDirection: 'row', gap: 0, marginTop: 0, borderTopWidth: 1, borderColor: C.hairline }}>
-              <Pressable onPress={copyCode} style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white }}>
-                <Text style={[T.monoB, { fontSize: 11 }]}>{copied ? '✓ COPIED' : '⟡ COPY CODE'}</Text>
+              <Pressable onPress={copyCode} style={{ flex: 1, padding: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.white }}>
+                {copied && <Feather name="check" size={13} color={C.ink} />}
+                <Text style={[T.caption, { color: C.ink }]}>{copied ? 'Copied' : 'Copy code'}</Text>
               </Pressable>
               <Pressable onPress={() => setShareOpen(true)} style={{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.hairline }}>
-                <Text style={[T.monoB, { fontSize: 11, color: C.white }]}>◆ SHARE LINK</Text>
+                <Text style={[T.caption, { color: C.white }]}>Share link</Text>
               </Pressable>
             </View>
           </View>
         </FadeInUp>
 
         {/* TIER PROGRESS BAR */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{'TIER_PROGRESS'}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl, color: C.dim }]}>{'Tier progress'}</Text>
         <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, letterSpacing: -0.5 }}>{INVITE_TIERS[activeTier].name}</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>{joined}/{nextTier.need}</Text>
+            <Text style={[T.h3]}>{INVITE_TIERS[activeTier].name}</Text>
+            <Text style={[T.micro]}>{joined}/{nextTier.need}</Text>
           </View>
           <View style={[{ marginTop: 8, height: 10, flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
             {[...Array(nextTier.need)].map((_, i) => (
               <View key={i} style={{ flex: 1, backgroundColor: i < joined ? C.ink : 'transparent', borderRightWidth: i < nextTier.need - 1 ? 1 : 0, borderColor: C.hairline }} />
             ))}
           </View>
-          <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 6 }]}>
-            {currentTier === -1 ? '◆ MAX TIER REACHED' : `${nextTier.need - joined} MORE → ${nextTier.name} (${nextTier.reward})`}
+          <Text style={[T.micro, { marginTop: 6 }]}>
+            {currentTier === -1 ? 'Max tier reached' : `${nextTier.need - joined} more → ${nextTier.name} (${nextTier.reward})`}
           </Text>
         </View>
 
@@ -1013,91 +979,75 @@ export function InviteFriendsScreen() {
             const done = joined >= t.need;
             const isNext = i === currentTier;
             return (
-              <View key={t.name} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.s, backgroundColor: done ? C.ink : isNext ? C.white : C.bg }, BORDER(1)]}>
-                <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: done ? C.white : C.ink, marginRight: 10 }]}>
-                  {done ? <Feather name="check" size={16} color={C.ink} /> : <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>{`L${i + 1}`}</Text>}
+              <View key={t.name} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.s, backgroundColor: done ? '#F4F4F4' : C.white }, BORDER(1)]}>
+                <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, marginRight: 10 }]}>
+                  {done ? <Feather name="check" size={16} color={C.white} /> : <Text style={[T.micro, { color: C.white }]}>{`L${i + 1}`}</Text>}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: done ? C.white : C.ink }}>{t.name}</Text>
-                  <Text style={[T.mono, { fontSize: 9, color: done ? C.white : C.dim, marginTop: 2 }]}>{t.need} INVITES · {t.reward}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{t.name}</Text>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{t.need} invites · {t.reward}</Text>
                 </View>
-                {isNext && <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>▶ NEXT</Text>}
+                {isNext && <Text style={[T.micro, { color: C.ink }]}>Next</Text>}
               </View>
             );
           })}
         </View>
 
         {/* FRIENDS LIST */}
-        <Text style={[T.monoB, { marginTop: SP.xl, fontSize: 11 }]}>{`YOUR_INVITES (${INVITED.length})`}</Text>
-        <AsciiDivider style={{ marginTop: 4 }} />
+        <Text style={[T.caption, { marginTop: SP.xl, color: C.dim }]}>{`Your invites (${INVITED.length})`}</Text>
         <View style={{ marginTop: SP.s }}>
           {INVITED.map((f, i) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', padding: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
               <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: f.status === 'JOINED' ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={[T.monoB, { color: f.status === 'JOINED' ? C.white : C.ink, fontSize: 11 }]}>{f.user[0].toUpperCase()}</Text>
+                <Text style={[T.caption, { color: f.status === 'JOINED' ? C.white : C.ink }]}>{f.user[0].toUpperCase()}</Text>
               </View>
               <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={[T.bodyB, { fontSize: 12 }]}>{f.user}</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>{f.date} AGO · {f.status}</Text>
+                <Text style={[T.bodyB]}>{f.user}</Text>
+                <Text style={[T.micro]}>{f.date} ago · {f.status}</Text>
               </View>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: f.status === 'JOINED' ? C.ink : C.dim }}>{f.earn}</Text>
+              <Text style={[T.bodyB, { color: f.status === 'JOINED' ? C.ink : C.dim }]}>{f.earn}</Text>
             </View>
           ))}
         </View>
       </ScrollView>
 
-      {/* SHARE POPUP — brutalist sheet matching the rest of the app */}
-      <Modal transparent visible={shareOpen} animationType="none" onRequestClose={() => setShareOpen(false)}>
-        <Pressable onPress={() => setShareOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MotiView
-            from={{ translateY: 400 }}
-            animate={{ translateY: 0 }}
-            transition={{ type: 'timing', duration: 320 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.white, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.hairline }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SHARE_INVITE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 4 }}>DROP YOUR CODE.</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Every sign-up drops ₹200 in your pocket.</Text>
+      {/* SHARE POPUP — shared OptionSheet, custom content */}
+      <OptionSheet visible={shareOpen} title="Drop your code." onClose={() => setShareOpen(false)}>
+        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
+          <Text style={[T.caption, { color: C.dim }]}>Every sign-up drops ₹200 in your pocket.</Text>
 
-            {/* Link pill */}
-            <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
-              <Feather name="link" size={14} color={C.ink} />
-              <Text style={[T.mono, { flex: 1, fontSize: 11 }]} numberOfLines={1}>{shareLink}</Text>
-              <Pressable onPress={copyLink} hitSlop={8} style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
-                <Text style={[T.monoB, { fontSize: 9, color: C.white }]}>COPY</Text>
-              </Pressable>
-            </View>
-
-            <View style={{ marginTop: SP.l, gap: SP.s }}>
-              {[
-                { id: 'native', icon: 'share-2', title: 'SHARE VIA...', desc: 'WhatsApp, Messages, anywhere.', primary: true, onPress: openNativeShare },
-                { id: 'copy', icon: 'copy', title: 'COPY MESSAGE + LINK', desc: 'Paste it anywhere you like.', onPress: () => { showToast('Copied', 'Invite message copied', 'copy'); setShareOpen(false); } },
-              ].map((opt, i) => (
-                <MotiView key={opt.id} from={{ opacity: 0, translateX: -20 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: 120 + i * 80, type: 'timing', duration: 280 }}>
-                  <Pressable onPress={opt.onPress} style={[{ padding: SP.m, backgroundColor: opt.primary ? C.ink : C.white }, BORDER(1)]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <View style={{ width: 46, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: opt.primary ? C.white : C.ink }}>
-                        <Feather name={opt.icon as any} size={20} color={opt.primary ? C.ink : C.white} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: opt.primary ? C.white : C.ink, letterSpacing: 0.5 }}>{opt.title}</Text>
-                        <Text style={[T.mono, { fontSize: 9, color: opt.primary ? C.white : C.dim, marginTop: 3, opacity: 0.8 }]}>{opt.desc}</Text>
-                      </View>
-                      <Feather name="arrow-right" size={16} color={opt.primary ? C.white : C.ink} />
-                    </View>
-                  </Pressable>
-                </MotiView>
-              ))}
-            </View>
-
-            <Pressable onPress={() => setShareOpen(false)} style={{ marginTop: SP.m, alignSelf: 'center', paddingVertical: 8 }}>
-              <Text style={[T.mono, { color: C.dim, textDecorationLine: 'underline' }]}>cancel</Text>
+          {/* Link pill */}
+          <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
+            <Feather name="link" size={14} color={C.ink} />
+            <Text style={[T.micro, { flex: 1 }]} numberOfLines={1}>{shareLink}</Text>
+            <Pressable onPress={copyLink} hitSlop={8} style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.ink }}>
+              <Text style={[T.micro, { color: C.white }]}>Copy</Text>
             </Pressable>
-          </MotiView>
-        </Pressable>
-      </Modal>
+          </View>
+
+          <View style={{ marginTop: SP.l, gap: SP.s }}>
+            {[
+              { id: 'native', icon: 'share-2', title: 'Share via...', desc: 'WhatsApp, Messages, anywhere.', primary: true, onPress: openNativeShare },
+              { id: 'copy', icon: 'copy', title: 'Copy message + link', desc: 'Paste it anywhere you like.', primary: false, onPress: () => { showToast('Copied', 'Invite message copied', 'copy'); setShareOpen(false); } },
+            ].map((opt, i) => (
+              <MotiView key={opt.id} from={{ opacity: 0, translateX: -20 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: 120 + i * 80, type: 'timing', duration: 280 }}>
+                <Pressable onPress={opt.onPress} style={[{ padding: SP.m, backgroundColor: opt.primary ? C.ink : C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[{ width: 46, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: opt.primary ? C.white : '#F4F4F4' }, !opt.primary && BORDER(1)]}>
+                      <Feather name={opt.icon as any} size={20} color={C.ink} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.h3, { color: opt.primary ? C.white : C.ink }]}>{opt.title}</Text>
+                      <Text style={[T.micro, { color: opt.primary ? C.white : C.dim, marginTop: 3, opacity: 0.8 }]}>{opt.desc}</Text>
+                    </View>
+                    <Feather name="arrow-right" size={16} color={opt.primary ? C.white : C.ink} />
+                  </View>
+                </Pressable>
+              </MotiView>
+            ))}
+          </View>
+        </View>
+      </OptionSheet>
     </View>
   );
 }
@@ -1106,20 +1056,20 @@ export function InviteFriendsScreen() {
 type Challenge = { id: string; title: string; sub: string; progress: number; total: number; reward: string; xp: number; icon: string; done?: boolean };
 const QUESTS: Record<'DAILY' | 'WEEKLY' | 'MONTHLY', Challenge[]> = {
   DAILY: [
-    { id: 'd1', title: 'LOGIN STREAK', sub: 'Open app 1× today', progress: 1, total: 1, reward: '20 PTS', xp: 20, icon: 'sun', done: true },
-    { id: 'd2', title: 'WISHLIST ADD', sub: 'Save 2 items you love', progress: 1, total: 2, reward: '30 PTS', xp: 30, icon: 'heart' },
-    { id: 'd3', title: 'BROWSE BRANDS', sub: 'View 3 brand pages', progress: 2, total: 3, reward: '25 PTS', xp: 25, icon: 'search' },
+    { id: 'd1', title: 'Login streak', sub: 'Open app 1× today', progress: 1, total: 1, reward: '20 PTS', xp: 20, icon: 'sun', done: true },
+    { id: 'd2', title: 'Wishlist add', sub: 'Save 2 items you love', progress: 1, total: 2, reward: '30 PTS', xp: 30, icon: 'heart' },
+    { id: 'd3', title: 'Browse brands', sub: 'View 3 brand pages', progress: 2, total: 3, reward: '25 PTS', xp: 25, icon: 'search' },
   ],
   WEEKLY: [
-    { id: 'w1', title: 'STYLE STREAK', sub: 'Post 3 outfit photos', progress: 2, total: 3, reward: '150 PTS', xp: 150, icon: 'camera' },
-    { id: 'w2', title: 'REVIEW MASTER', sub: 'Write 5 product reviews', progress: 3, total: 5, reward: '250 PTS', xp: 250, icon: 'message-square' },
-    { id: 'w3', title: 'CART CHAMPION', sub: 'Complete 2 orders', progress: 2, total: 2, reward: '100 PTS', xp: 100, icon: 'shopping-bag', done: true },
-    { id: 'w4', title: 'EXPLORER', sub: 'Browse 10 categories', progress: 7, total: 10, reward: '80 PTS', xp: 80, icon: 'compass' },
+    { id: 'w1', title: 'Style streak', sub: 'Post 3 outfit photos', progress: 2, total: 3, reward: '150 PTS', xp: 150, icon: 'camera' },
+    { id: 'w2', title: 'Review master', sub: 'Write 5 product reviews', progress: 3, total: 5, reward: '250 PTS', xp: 250, icon: 'message-square' },
+    { id: 'w3', title: 'Cart champion', sub: 'Complete 2 orders', progress: 2, total: 2, reward: '100 PTS', xp: 100, icon: 'shopping-bag', done: true },
+    { id: 'w4', title: 'Explorer', sub: 'Browse 10 categories', progress: 7, total: 10, reward: '80 PTS', xp: 80, icon: 'compass' },
   ],
   MONTHLY: [
-    { id: 'm1', title: 'SOCIAL BUTTERFLY', sub: 'Refer 3 friends', progress: 1, total: 3, reward: '₹600', xp: 600, icon: 'users' },
-    { id: 'm2', title: 'SPENDER', sub: 'Spend ₹5,000 total', progress: 3400, total: 5000, reward: '₹500 CREDIT', xp: 500, icon: 'credit-card' },
-    { id: 'm3', title: 'COMMUNITY', sub: 'Like 50 community posts', progress: 23, total: 50, reward: '300 PTS', xp: 300, icon: 'thumbs-up' },
+    { id: 'm1', title: 'Social butterfly', sub: 'Refer 3 friends', progress: 1, total: 3, reward: '₹600', xp: 600, icon: 'users' },
+    { id: 'm2', title: 'Spender', sub: 'Spend ₹5,000 total', progress: 3400, total: 5000, reward: '₹500 CREDIT', xp: 500, icon: 'credit-card' },
+    { id: 'm3', title: 'Community', sub: 'Like 50 community posts', progress: 23, total: 50, reward: '300 PTS', xp: 300, icon: 'thumbs-up' },
   ],
 };
 
@@ -1146,16 +1096,16 @@ export function AppChallengesScreen() {
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }}>
         {/* LEVEL hero — clean badge + single progress bar */}
         <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
+          <View style={[{ padding: SP.l, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
               <View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink }}>{level}</Text>
+                <Text style={[T.h1]}>{level}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.white }}>LEVEL {level}</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 10, opacity: 0.7, marginTop: 2 }]}>{`${500 - (totalXP % 500)} XP to level ${level + 1}`}</Text>
-                <View style={{ marginTop: 8, height: 8, flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.2)' }}>
-                  <View style={{ flex: Math.max(0.001, levelProg), backgroundColor: C.white }} />
+                <Text style={[T.h2, { color: C.ink, textTransform: 'uppercase' }]}>Level {level}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{`${500 - (totalXP % 500)} XP to level ${level + 1}`}</Text>
+                <View style={[{ marginTop: 8, height: 8, flexDirection: 'row', backgroundColor: C.white }, BORDER(1)]}>
+                  <View style={{ flex: Math.max(0.001, levelProg), backgroundColor: C.ink }} />
                   <View style={{ flex: Math.max(0.001, 1 - levelProg) }} />
                 </View>
               </View>
@@ -1167,8 +1117,8 @@ export function AppChallengesScreen() {
         <View style={[{ flexDirection: 'row', marginTop: SP.l, overflow: 'hidden' }, BORDER(1)]}>
           {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map((t, i) => (
             <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, padding: SP.s, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white, borderRightWidth: i < 2 ? 1 : 0, borderColor: C.hairline }]}>
-              <Text style={[T.monoB, { fontSize: 10, color: tab === t ? C.white : C.ink }]}>{t}</Text>
-              <Text style={[T.mono, { fontSize: 8, color: tab === t ? C.white : C.dim, marginTop: 2 }]}>{QUESTS[t].filter(q => q.done || claimed[q.id]).length}/{QUESTS[t].length}</Text>
+              <Text style={[T.caption, { color: tab === t ? C.white : C.ink }]}>{t}</Text>
+              <Text style={[T.micro, { color: tab === t ? C.white : C.dim, marginTop: 2 }]}>{QUESTS[t].filter(q => q.done || claimed[q.id]).length}/{QUESTS[t].length}</Text>
             </Pressable>
           ))}
         </View>
@@ -1181,38 +1131,39 @@ export function AppChallengesScreen() {
             const isDone = q.done || claimed[q.id];
             return (
               <MotiView key={q.id} from={{ opacity: 0, translateX: -8 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: i * 60 }}>
-                <View style={[{ padding: SP.m, backgroundColor: isDone ? C.ink : C.white }, BORDER(1)]}>
+                <View style={[{ padding: SP.m, backgroundColor: isDone ? '#F4F4F4' : C.white }, BORDER(1)]}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: isDone ? C.white : C.ink }]}>
-                      <Feather name={q.icon as any} size={20} color={isDone ? C.ink : C.white} />
+                    <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
+                      <Feather name={q.icon as any} size={20} color={C.white} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: isDone ? C.white : C.ink }}>{q.title}</Text>
-                      <Text style={[T.mono, { fontSize: 9, color: isDone ? C.white : C.dim, marginTop: 2, opacity: isDone ? 0.7 : 1 }]}>{q.sub}</Text>
+                      <Text style={[T.h3, { color: C.ink }]}>{q.title}</Text>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{q.sub}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                      <View style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: isDone ? C.white : C.ink }]}>
-                        <Text style={[T.monoB, { color: isDone ? C.ink : C.white, fontSize: 9 }]}>{q.reward}</Text>
+                      <View style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.ink }]}>
+                        <Text style={[T.micro, { color: C.white }]}>{q.reward}</Text>
                       </View>
-                      <Text style={[T.mono, { color: isDone ? C.white : C.dim, fontSize: 8, marginTop: 4 }]}>+{q.xp} XP</Text>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>+{q.xp} XP</Text>
                     </View>
                   </View>
                   {/* Progress */}
                   <View style={{ marginTop: SP.s, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={{ flex: 1, height: 6, backgroundColor: isDone ? 'rgba(255,255,255,0.2)' : C.hairline }}>
-                      <View style={{ width: `${Math.min(100, (q.progress / q.total) * 100)}%`, height: '100%', backgroundColor: isDone ? C.white : C.ink }} />
+                    <View style={{ flex: 1, height: 6, backgroundColor: C.hairline }}>
+                      <View style={{ width: `${Math.min(100, (q.progress / q.total) * 100)}%`, height: '100%', backgroundColor: C.ink }} />
                     </View>
-                    <Text style={[T.mono, { color: isDone ? C.white : C.dim, fontSize: 9 }]}>{q.progress.toLocaleString()}/{q.total.toLocaleString()}</Text>
+                    <Text style={[T.micro, { color: C.dim }]}>{q.progress.toLocaleString()}/{q.total.toLocaleString()}</Text>
                   </View>
                   {/* Action */}
                   {canClaim && (
                     <Pressable onPress={() => claim(q)} style={[{ marginTop: SP.s, padding: SP.s, alignItems: 'center', backgroundColor: C.ink }]}>
-                      <Text style={[T.monoB, { color: C.white, fontSize: 11 }]}>{'◆ CLAIM REWARD'}</Text>
+                      <Text style={[T.caption, { color: C.white }]}>{'Claim reward'}</Text>
                     </Pressable>
                   )}
                   {isDone && (
-                    <View style={[{ marginTop: SP.s, padding: SP.s, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: C.white }]}>
-                      <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>✓ CLAIMED</Text>
+                    <View style={[{ marginTop: SP.s, padding: SP.s, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: C.white }, BORDER(1)]}>
+                      <Feather name="check" size={13} color={C.ink} />
+                      <Text style={[T.caption, { color: C.ink }]}>Claimed</Text>
                     </View>
                   )}
                 </View>
@@ -1225,10 +1176,10 @@ export function AppChallengesScreen() {
         <View style={[{ marginTop: SP.xl, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center', gap: 12 }, BORDER(1)]}>
           <Feather name="zap" size={24} color={C.ink} />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink }}>7-DAY QUEST STREAK</Text>
-            <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 2 }]}>Complete 1 quest/day for a bonus 500 XP at day 7</Text>
+            <Text style={[T.h3]}>7-day quest streak</Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>Complete 1 quest/day for a bonus 500 XP at day 7</Text>
           </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>5/7</Text>
+          <Text style={[T.h2]}>5/7</Text>
         </View>
       </ScrollView>
     </View>
@@ -1247,16 +1198,15 @@ export function NewArrivalsScreen() {
       <ScreenHeader title="New Arrivals" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'JUST_DROPPED'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>LATEST{'\n'}DROPS.</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{'Just dropped'}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Latest drops.</Text>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.l }}>
           {PRODUCTS.map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
               <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }}>
                 <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Text style={[T.monoB, { color: C.white, fontSize: 8 }]}>NEW</Text>
+                  <Text style={[T.micro, { color: C.white }]}>New</Text>
                 </View>
               </ProductCard>
             </FadeInUp>
@@ -1276,20 +1226,19 @@ export function DiscoverBrandsScreen() {
       <ScreenHeader title="Brands" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'BRAND_ARMY'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DISCOVER{'\n'}BRANDS.</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{'Brand army'}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Discover brands.</Text>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
-        <View style={{ gap: SP.m, marginTop: SP.m }}>
+        <View style={{ gap: SP.m, marginTop: SP.l }}>
           {BRANDS.map((b, i) => (
             <FadeInUp key={b.id} delay={i * 50}>
               <Pressable onPress={() => nav.navigate('Category', { id: 'brand-' + b.id, label: b.name })} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-                <View style={[{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.white }}>{b.name[0]}</Text>
+                <View style={[{ width: 56, height: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                  <Text style={[T.h2, { color: C.ink }]}>{b.name[0]}</Text>
                 </View>
                 <View style={{ flex: 1, marginLeft: SP.m }}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, letterSpacing: -0.5 }}>{b.name}</Text>
-                  <Text style={[T.mono, { color: C.dim, marginTop: 2 }]}>{Math.floor(Math.random() * 200 + 50)} PRODUCTS</Text>
+                  <Text style={[T.h2, { textTransform: 'uppercase' }]}>{b.name}</Text>
+                  <Text style={[T.micro, { marginTop: 2 }]}>{Math.floor(Math.random() * 200 + 50)} products</Text>
                 </View>
                 <Feather name="arrow-right" size={18} color={C.ink} />
               </Pressable>
@@ -1342,11 +1291,11 @@ export function ForHerScreen() {
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.25)' }]} />
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View style={[{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={[T.monoB, { fontSize: 10 }]}>♀ WOMEN_EDIT</Text>
+                <Text style={[T.micro, { color: C.ink }]}>Women edit</Text>
               </View>
               <View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2 }}>HER{'\n'}STYLE.</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'BOLD · FEMININE · UNAPOLOGETIC'}</Text>
+                <Text style={[T.h1, { fontSize: rf(40), lineHeight: rf(42), color: C.white, textTransform: 'uppercase' }]}>Her{'\n'}style.</Text>
+                <Text style={[T.micro, { color: C.white, marginTop: 8 }]}>{'Bold · Feminine · Unapologetic'}</Text>
               </View>
             </View>
           </View>
@@ -1355,8 +1304,8 @@ export function ForHerScreen() {
         {/* Intro */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{'CURATED_FOR_HER'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESSES, HEELS{'\n'}& EVERYTHING IN BETWEEN.</Text>
+            <Text style={[T.caption, { color: C.dim }]}>{'Curated for her'}</Text>
+            <Text style={[T.h2, { marginTop: 4, textTransform: 'uppercase' }]}>Dresses, heels & everything in between.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>From silk slips to block heels — the women's edit handpicked for the modern queen.</Text>
           </FadeInUp>
         </View>
@@ -1366,9 +1315,9 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
           {herCategories.map((c, i) => (
             <FadeInUp key={c.id} delay={i * 40}>
-              <Pressable onPress={() => nav.navigate('Category', { id: c.id, label: c.label })} style={[{ width: 100, height: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, gap: 6 }, BORDER(1)]}>
+              <Pressable onPress={() => nav.navigate('Category', { id: c.id, label: c.label })} style={[{ width: 100, height: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FBDCE9', gap: 6 }, BORDER(1)]}>
                 <Feather name={c.icon as any} size={20} color={C.ink} />
-                <Text style={[T.monoB, { fontSize: 9 }]}>{c.label}</Text>
+                <Text style={[T.caption, { color: C.ink }]}>{c.label}</Text>
               </Pressable>
             </FadeInUp>
           ))}
@@ -1393,11 +1342,11 @@ export function ForHerScreen() {
             </View>
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View>
-                <Text style={[T.monoB, { fontSize: 9 }]}>{`BAG_EDIT_01`}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.ink, marginTop: 6, letterSpacing: -0.5 }}>DESIGNER{'\n'}TOTES</Text>
-                <Text style={[T.body, { fontSize: 11, color: C.dim, marginTop: 4 }]}>Hand-picked from Paris boutiques</Text>
+                <Text style={[T.micro, { color: C.dim }]}>{`Bag edit 01`}</Text>
+                <Text style={[T.h2, { marginTop: 6, textTransform: 'uppercase' }]}>Designer{'\n'}totes</Text>
+                <Text style={[T.micro, { marginTop: 4 }]}>Hand-picked from Paris boutiques</Text>
               </View>
-              <Text style={[T.monoB]}>{'SHOP ──▶'}</Text>
+              <Text style={[T.caption, { color: C.ink }]}>{'Shop'}</Text>
             </View>
           </Pressable>
         </View>
@@ -1408,8 +1357,8 @@ export function ForHerScreen() {
             <CachedImage source={{ uri: HER_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.1)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l, backgroundColor: 'rgba(0,0,0,0.4)' }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'FEMININE_ESSENTIALS'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>SOFT POWER.</Text>
+              <Text style={[T.micro, { color: C.white }]}>{'Feminine essentials'}</Text>
+              <Text style={[T.h1, { color: C.white, textTransform: 'uppercase' }]}>Soft power.</Text>
             </View>
           </View>
         </View>
@@ -1474,14 +1423,14 @@ export function ForHimScreen() {
         <FadeInUp>
           <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, height: 320, overflow: 'hidden' }, BORDER(1)]}>
             <CachedImage source={{ uri: HIM_BANNER }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)' }]} />
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between', alignItems: 'flex-end' }}>
-              <View style={[{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.ink, borderWidth: 1, borderColor: C.white }]}>
-                <Text style={[T.monoB, { fontSize: 10, color: C.white }]}>♂ MEN_EDIT</Text>
+              <View style={[{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>Men edit</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.white, lineHeight: rf(48), letterSpacing: -2, textAlign: 'right' }}>HIS{'\n'}CODE.</Text>
-                <Text style={[T.mono, { color: C.white, fontSize: 10, marginTop: 8 }]}>{'RAW · RUGGED · REFINED'}</Text>
+                <Text style={[T.h1, { fontSize: rf(40), lineHeight: rf(42), color: C.white, textTransform: 'uppercase', textAlign: 'right' }]}>His{'\n'}code.</Text>
+                <Text style={[T.micro, { color: C.white, marginTop: 8 }]}>{'Raw · Rugged · Refined'}</Text>
               </View>
             </View>
           </View>
@@ -1490,8 +1439,8 @@ export function ForHimScreen() {
         {/* Intro */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{'CURATED_FOR_HIM'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DENIM, SNEAKERS{'\n'}& STREET STAPLES.</Text>
+            <Text style={[T.caption, { color: C.dim }]}>{'Curated for him'}</Text>
+            <Text style={[T.h2, { marginTop: 4, textTransform: 'uppercase' }]}>Denim, sneakers & street staples.</Text>
             <Text style={[T.body, { color: C.dim, marginTop: SP.s }]}>Workwear to streetwear — gear that moves with you. No filler, no frills.</Text>
           </FadeInUp>
         </View>
@@ -1501,9 +1450,9 @@ export function ForHimScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
           {himCategories.map((c, i) => (
             <FadeInUp key={c.id} delay={i * 40}>
-              <Pressable onPress={() => nav.navigate('Category', { id: c.id, label: c.label })} style={[{ width: 100, height: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, gap: 6 }, BORDER(1)]}>
-                <Feather name={c.icon as any} size={20} color={C.white} />
-                <Text style={[T.monoB, { fontSize: 9, color: C.white }]}>{c.label}</Text>
+              <Pressable onPress={() => nav.navigate('Category', { id: c.id, label: c.label })} style={[{ width: 100, height: 80, alignItems: 'center', justifyContent: 'center', backgroundColor: '#DCE9FB', gap: 6 }, BORDER(1)]}>
+                <Feather name={c.icon as any} size={20} color={C.ink} />
+                <Text style={[T.caption, { color: C.ink }]}>{c.label}</Text>
               </Pressable>
             </FadeInUp>
           ))}
@@ -1522,16 +1471,16 @@ export function ForHimScreen() {
         {/* Sneakers feature — full-width */}
         <SectionHead title="SNEAKER" emphasis="DROP" action="VIEW" onAction={() => nav.navigate('Category', { id: 'sneakers', label: 'Sneakers' })} />
         <View style={{ paddingHorizontal: SP.l }}>
-          <Pressable onPress={() => goToProduct(HIM_PRODUCTS[2])} style={[{ flexDirection: 'row', backgroundColor: C.ink, height: 160, overflow: 'hidden' }, BORDER(1)]}>
+          <Pressable onPress={() => goToProduct(HIM_PRODUCTS[2])} style={[{ flexDirection: 'row', backgroundColor: C.white, height: 160, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View>
-                <Text style={[T.monoB, { fontSize: 9, color: C.white }]}>{`SNEAKER_DROP_01`}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 20, color: C.white, marginTop: 6, letterSpacing: -0.5 }}>COURT{'\n'}CLASSICS</Text>
-                <Text style={[T.body, { fontSize: 11, color: C.white, marginTop: 4 }]}>Low-tops. Clean lines. Undefeated.</Text>
+                <Text style={[T.micro, { color: C.ink }]}>{`Sneaker drop 01`}</Text>
+                <Text style={[T.h2, { color: C.ink, marginTop: 6, textTransform: 'uppercase' }]}>Court{'\n'}classics</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Low-tops. Clean lines. Undefeated.</Text>
               </View>
-              <Text style={[T.monoB, { color: C.white }]}>{'COP ──▶'}</Text>
+              <Text style={[T.caption, { color: C.ink }]}>{'Cop'}</Text>
             </View>
-            <View style={{ width: 160, backgroundColor: '#1a1a1a', borderLeftWidth: 1, borderColor: C.white }}>
+            <View style={{ width: 160, backgroundColor: '#DCE9FB', borderLeftWidth: 1, borderColor: C.hairline }}>
               <CachedImage source={{ uri: HIM_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
             </View>
           </Pressable>
@@ -1541,10 +1490,10 @@ export function ForHimScreen() {
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
           <View style={[{ height: 200, overflow: 'hidden' }, BORDER(1)]}>
             <CachedImage source={{ uri: HIM_BANNER_2 }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)' }]} />
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.l }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{'STREET_UNIFORM'}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24), color: C.white, letterSpacing: -0.8 }}>BUILT DIFFERENT.</Text>
+              <Text style={[T.micro, { color: C.white }]}>{'Street uniform'}</Text>
+              <Text style={[T.h1, { color: C.white, textTransform: 'uppercase' }]}>Built different.</Text>
             </View>
           </View>
         </View>
@@ -1582,20 +1531,19 @@ export function OccasionShoppingScreen() {
       <ScreenHeader title="Occasions" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
         <FadeInUp>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'SHOP_BY_OCCASION'}</Text>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(32), color: C.ink, letterSpacing: -1.2, marginTop: 4 }}>DRESS FOR{'\n'}THE MOMENT.</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{'Shop by occasion'}</Text>
+          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Dress for the moment.</Text>
         </FadeInUp>
-        <AsciiDivider style={{ marginTop: SP.l }} />
         {OCCASIONS.map((o, i) => (
           <FadeInUp key={o.id} delay={i * 50}>
             <Pressable onPress={() => nav.navigate('Category', { id: o.id, label: o.label })} style={[{ marginTop: SP.m, height: 160, overflow: 'hidden', backgroundColor: C.white }, BORDER(1)]}>
               <CachedImage source={{ uri: o.img }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.4)' }]} />
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
               <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9 }]}>{`MODE_0${i + 1}`}</Text>
+                <Text style={[T.micro, { color: C.white }]}>{`Mode 0${i + 1}`}</Text>
                 <View>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: C.white, letterSpacing: -0.5 }}>{o.label.toUpperCase()}</Text>
-                  <Text style={[T.mono, { color: C.white, marginTop: 4 }]}>{'SHOP NOW ──▶'}</Text>
+                  <Text style={[T.h2, { color: C.white, textTransform: 'uppercase' }]}>{o.label}</Text>
+                  <Text style={[T.caption, { color: C.white, marginTop: 4 }]}>{'Shop now'}</Text>
                 </View>
               </View>
             </Pressable>

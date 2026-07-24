@@ -1,13 +1,12 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, Dimensions, Modal, FlatList, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, Dimensions, FlatList, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MotiView } from 'moti';
 import LottieView from 'lottie-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, ProductCard } from '../components/Brutal';
+import { BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, ProductCard, OptionSheet } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { PRODUCTS, HERO_IMG, HERO_IMG_2 } from '../data/mockData';
@@ -16,7 +15,7 @@ import { listProducts, isBackendCategoryId } from '../services/catalog';
 
 const { width: W, height: H } = Dimensions.get('window');
 const FILTERS = ['ALL', 'NEW IN', 'TOPS', 'BOTTOMS', 'DRESSES', 'SHOES', 'BAGS'];
-const SORTS = ['NEWEST', 'PRICE ↑', 'PRICE ↓', 'RATING'];
+const SORTS = ['NEWEST', 'PRICE: LOW TO HIGH', 'PRICE: HIGH TO LOW', 'RATING'];
 
 export default function CategoryScreen() {
   const nav = useNavigation<any>();
@@ -36,7 +35,7 @@ export default function CategoryScreen() {
   }, [isFlash]));
   const playRight = () => { if (flashFocused.current) { rightCart.current?.reset?.(); rightCart.current?.play?.(); } };
   const playLeft = () => { if (flashFocused.current) { leftCart.current?.reset?.(); leftCart.current?.play?.(); } };
-  const { night, toggleNight, gender } = useApp();
+  const { gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<Record<string, any>>({});
   const [filter, setFilter] = useState('ALL');
@@ -45,7 +44,6 @@ export default function CategoryScreen() {
   const [activeOption, setActiveOption] = useState<string | null>(null);
   const [genderTab, setGenderTab] = useState<'MEN' | 'WOMEN'>('MEN');
   const [sheet, setSheet] = useState<null | 'sort' | 'gender' | 'filter'>(null);
-  const [shown, setShown] = useState(false); // drives the slide up / down
   const insets = useSafeAreaInsets();
   // Live products for this category from the backend. A real category tile passes
   // a `cat_…` id → filter by it; home-rail pseudo ids ('flash'/'trending'/'all')
@@ -62,14 +60,9 @@ export default function CategoryScreen() {
       .catch(() => { /* keep mock fallback */ });
     return () => { cancelled = true; };
   }, [catId, gender, searchTerm]);
-  // Remember the last-opened sheet so the CLOSING fade keeps showing the same content
-  // (otherwise `sheet` becomes null and the ternaries flash the FILTER sheet mid-close).
-  const lastSheet = useRef<'sort' | 'gender' | 'filter'>('sort');
-  if (sheet) lastSheet.current = sheet;
-  const activeSheet = lastSheet.current;
-  // Open = mount modal + slide up. Close = slide down, then unmount after the slide.
-  const openSheet = (s: 'sort' | 'gender' | 'filter') => { setSheet(s); setShown(true); };
-  const closeSheet = () => { setShown(false); setTimeout(() => setSheet(null), 280); };
+  // Open / close the shared OptionSheet (it owns its own slide + fade animation).
+  const openSheet = (s: 'sort' | 'gender' | 'filter') => setSheet(s);
+  const closeSheet = () => setSheet(null);
 
   // Inflate catalog & generate deterministic "random-ish" extras. Uses the live
   // backend products for this category when available, else the mock catalog.
@@ -90,8 +83,8 @@ export default function CategoryScreen() {
   // Sort based on selected SORT
   const sorted = useMemo(() => {
     const arr = [...data];
-    if (sort === 'PRICE ↑') arr.sort((a, b) => a.price - b.price);
-    else if (sort === 'PRICE ↓') arr.sort((a, b) => b.price - a.price);
+    if (sort === 'PRICE: LOW TO HIGH') arr.sort((a, b) => a.price - b.price);
+    else if (sort === 'PRICE: HIGH TO LOW') arr.sort((a, b) => b.price - a.price);
     else if (sort === 'RATING') arr.sort((a, b) => b.rating - a.rating);
     return arr;
   }, [sort, data]);
@@ -100,19 +93,20 @@ export default function CategoryScreen() {
   const avgPrice = Math.round(totalValue / data.length);
   const newCount = data.filter(p => p.tag === 'NEW').length;
   const hotCount = data.filter(p => p.tag === 'HOT').length;
-  // WOMEN mode rounds the cards/tiles (the app's soft "her" look); MEN stays sharp.
-  const cardRadius = genderTab === 'WOMEN' ? 14 : 0;
-  // Header bg + its 0-alpha twin for gradients (fading to 'transparent' = transparent BLACK
-  // causes a dark fringe; fading to the same colour at alpha 0 keeps it clean).
-  const HDR = night ? '#1a1a1a' : '#FFFFFF';
-  const HDR0 = night ? 'rgba(26,26,26,0)' : 'rgba(255,255,255,0)';
+  // Sharp corners app-wide — no rounding on cards/tiles.
+  const cardRadius = 0;
+  // Header bg + its 0-alpha twin for the Lottie edge-fade gradients (fading to
+  // 'transparent' = transparent BLACK causes a dark fringe; fading to the same
+  // colour at alpha 0 keeps it clean).
+  const HDR = '#FFFFFF';
+  const HDR0 = 'rgba(255,255,255,0)';
   // Pink cart for HER — recolour the Lottie's layers via colorFilters (MEN keeps the originals).
   const cartFilters = genderTab === 'WOMEN'
     ? ['Cart 2/BLF3 Outlines', 'Orange/BLF3 Outlines', 'Red/BLF3 Outlines', 'Black/BLF3 Outlines'].map((keypath) => ({ keypath, color: '#FF3D77' }))
     : undefined;
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#0a0a0a' : '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
       {/* ═══ HEADER — exact same as Home: TRENDZO wordmark + location + theme/cart ═══ */}
       <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.white }}>
@@ -122,11 +116,11 @@ export default function CategoryScreen() {
               <Feather name="arrow-left" size={22} color={C.ink} />
             </Pressable>
             <View>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1 }}>TRENDZO</Text>
+              <Text style={[T.h1, { textTransform: 'uppercase' }]}>TRENDZO</Text>
               <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
                 <Feather name="map-pin" size={11} color={C.ink} />
-                <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>Deliver to</Text>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 11, color: C.ink, letterSpacing: -0.2 }} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                <Text style={[T.micro]}>Deliver to</Text>
+                <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>Bandra, Mumbai 400050</Text>
                 <Feather name="chevron-down" size={13} color={C.ink} />
               </Pressable>
             </View>
@@ -151,13 +145,13 @@ export default function CategoryScreen() {
             <LinearGradient colors={[HDR0, HDR]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 16 }} pointerEvents="none" />
             {/* Centered FLASH SALE text on top (pink for her) */}
             <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }} pointerEvents="none">
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), color: C.ink, letterSpacing: -1.5, lineHeight: rf(30), textAlign: 'center' }}>FLASH SALE</Text>
-              <Text style={[T.monoB, { color: C.ink, fontSize: 10, marginTop: 4, textAlign: 'center' }]}>UP TO 70% OFF · ENDS SOON</Text>
+              <Text style={[T.h1, { textTransform: 'uppercase', textAlign: 'center' }]}>FLASH SALE</Text>
+              <Text style={[T.micro, { color: C.ink, marginTop: 4, textAlign: 'center' }]}>Up to 70% off · Ends soon</Text>
             </View>
           </View>
         )}
       </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+      <View style={{ height: 1, backgroundColor: C.hairline }} />
 
       <ScrollView showsVerticalScrollIndicator={false} removeClippedSubviews={Platform.OS === 'android'} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* ═══ QUICK OPTIONS — Myntra-style tiles (above the banner) ═══ */}
@@ -172,7 +166,7 @@ export default function CategoryScreen() {
               <Pressable key={o.key} onPress={() => setActiveOption(on ? null : o.key)} style={{ flex: 1 }}>
                 <View style={[{ paddingVertical: SP.m, alignItems: 'center', gap: 6, backgroundColor: on ? C.ink : C.white }, BORDER(1), { borderRadius: cardRadius }]}>
                   <Feather name={o.icon as any} size={18} color={on ? C.white : C.ink} />
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 9, color: on ? C.white : C.ink, textAlign: 'center', letterSpacing: 0.5, lineHeight: 12 }}>{o.label}</Text>
+                  <Text style={[T.micro, { color: on ? C.white : C.ink, textAlign: 'center' }]}>{o.label}</Text>
                 </View>
               </Pressable>
             );
@@ -200,7 +194,7 @@ export default function CategoryScreen() {
                       {/* Low stock */}
                       {p.stock < 15 && (
                         <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 6, paddingVertical: 3 }}>
-                          <Text style={[T.monoB, { color: '#FFFFFF', fontSize: 8 }]}>{`◆ ONLY ${p.stock} LEFT`}</Text>
+                          <Text style={[T.caption, { color: '#FFFFFF' }]}>{`Only ${p.stock} left`}</Text>
                         </View>
                       )}
                     </ProductCard>
@@ -218,28 +212,28 @@ export default function CategoryScreen() {
                       <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                       {p.tag && (
                         <View style={[{ position: 'absolute', top: 0, left: 0, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.ink }]}>
-                          <Text style={{ fontFamily: 'Inter_900Black', fontSize: 8, color: C.white }}>{p.tag}</Text>
+                          <Text style={[T.caption, { color: C.white }]}>{p.tag}</Text>
                         </View>
                       )}
                     </View>
                     <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
                       <View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{p.brand}</Text>
-                          <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{`${p.reviews} REVIEWS`}</Text>
+                          <Text style={[T.caption, { color: C.ink }]}>{p.brand}</Text>
+                          <Text style={[T.micro]}>{`${p.reviews} reviews`}</Text>
                         </View>
-                        <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 14, color: C.ink, marginTop: 4 }} numberOfLines={2}>{p.name}</Text>
+                        <Text style={[T.productName, { marginTop: 4 }]} numberOfLines={2}>{p.name}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                           <Ionicons name="star" size={11} color={C.ink} />
-                          <Text style={[T.monoB, { fontSize: 11, color: C.ink }]}>{p.rating}</Text>
-                          <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>· {p.stock} LEFT</Text>
+                          <Text style={[T.caption, { color: C.ink }]}>{p.rating}</Text>
+                          <Text style={[T.micro]}>· {p.stock} left</Text>
                         </View>
                       </View>
                       <View>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink }}>₹{p.price}</Text>
+                        <Text style={[T.price]}>₹{p.price}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                          <Text style={{ fontFamily: 'SpaceMono_400Regular', fontSize: 10, color: C.dim, textDecorationLine: 'line-through' }}>₹{p.original}</Text>
-                          <Text style={[T.monoB, { fontSize: 9, color: C.ink }]}>{'-' + p.discount + '%'}</Text>
+                          <Text style={[T.mrp]}>₹{p.original}</Text>
+                          <Text style={[T.discount]}>{'-' + p.discount + '%'}</Text>
                         </View>
                       </View>
                     </View>
@@ -252,10 +246,8 @@ export default function CategoryScreen() {
 
         {/* ═══ END-OF-FEED CALLOUT ═══ */}
         <View style={{ marginHorizontal: SP.l, marginTop: SP.xl, padding: SP.l, alignItems: 'center' }}>
-          <AsciiDivider />
-          <Text style={[T.monoB, { color: C.dim, marginTop: 8 }]}>{'◆ END OF FEED ◆'}</Text>
-          <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 4, textAlign: 'center' }]}>{'MORE DROPS INCOMING · CHECK BACK IN 60 MIN'}</Text>
-          <AsciiDivider faint style={{ marginTop: 8 }} />
+          <Text style={[T.caption, { color: C.ink }]}>End of feed</Text>
+          <Text style={[T.micro, { marginTop: 4, textAlign: 'center' }]}>{'More drops incoming · Check back in 60 min'}</Text>
         </View>
       </ScrollView>
 
@@ -263,67 +255,45 @@ export default function CategoryScreen() {
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline, paddingBottom: insets.bottom }}>
         <Pressable onPress={() => openSheet('sort')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
           <Feather name="sliders" size={15} color={C.ink} />
-          <Text style={[T.monoB, { fontSize: 11, color: C.ink }]} numberOfLines={1}>SORT</Text>
+          <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>Sort</Text>
         </Pressable>
-        <View style={{ width: 1, backgroundColor: C.ink }} />
+        <View style={{ width: 1, backgroundColor: C.hairline }} />
         <Pressable onPress={() => openSheet('gender')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
           <Feather name="users" size={15} color={C.ink} />
-          <Text style={[T.monoB, { fontSize: 11, color: C.ink }]}>{genderTab}</Text>
+          <Text style={[T.caption, { color: C.ink }]}>{genderTab}</Text>
         </Pressable>
-        <View style={{ width: 1, backgroundColor: C.ink }} />
+        <View style={{ width: 1, backgroundColor: C.hairline }} />
         <Pressable onPress={() => openSheet('filter')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
           <Feather name="filter" size={15} color={C.ink} />
-          <Text style={[T.monoB, { fontSize: 11, color: C.ink }]} numberOfLines={1}>{filter === 'ALL' ? 'FILTER' : filter}</Text>
+          <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>{filter === 'ALL' ? 'Filter' : filter}</Text>
         </Pressable>
       </View>
 
-      {/* ═══ BOTTOM SHEET — half-screen modal for Sort / Gender / Filter ═══ */}
-      <Modal visible={sheet !== null} transparent animationType="none" onRequestClose={closeSheet}>
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          {/* Backdrop — fades in on open, out on close, in sync with the sheet slide. */}
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: shown ? 1 : 0 }}
-            transition={{ type: 'timing', duration: 260 }}
-            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.45)' }}
-          >
-            <Pressable style={{ flex: 1 }} onPress={closeSheet} />
-          </MotiView>
-          <MotiView
-            from={{ translateY: H }}
-            animate={{ translateY: shown ? 0 : H }}
-            transition={{ type: 'timing', duration: 260 }}
-            style={{ backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline, paddingBottom: insets.bottom + SP.m, maxHeight: '55%' }}
-          >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: 1 }}>
-              {activeSheet === 'sort' ? 'SORT BY' : activeSheet === 'gender' ? 'SHOP FOR' : 'FILTER'}
-            </Text>
-            <Pressable onPress={closeSheet} hitSlop={10}><Feather name="x" size={20} color={C.ink} /></Pressable>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
-            {(activeSheet === 'sort' ? SORTS : activeSheet === 'gender' ? ['MEN', 'WOMEN'] : FILTERS).map(opt => {
-              const selected = activeSheet === 'sort' ? sort === opt : activeSheet === 'gender' ? genderTab === opt : filter === opt;
-              return (
-                <Pressable
-                  key={opt}
-                  onPress={() => {
-                    if (activeSheet === 'sort') setSort(opt);
-                    else if (activeSheet === 'gender') setGenderTab(opt as 'MEN' | 'WOMEN');
-                    else setFilter(opt);
-                    closeSheet();
-                  }}
-                  style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 14, backgroundColor: selected ? C.ink : C.white }, BORDER(1)]}
-                >
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, letterSpacing: 0.5, color: selected ? C.white : C.ink }}>{opt}</Text>
-                  {selected && <Feather name="check" size={16} color={C.white} />}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          </MotiView>
-        </View>
-      </Modal>
+      {/* ═══ BOTTOM SHEETS — shared OptionSheet (list mode) for Sort / Gender / Filter ═══ */}
+      <OptionSheet
+        visible={sheet === 'sort'}
+        title="Sort by"
+        options={SORTS}
+        selected={sort}
+        onSelect={(v) => { setSort(v); closeSheet(); }}
+        onClose={closeSheet}
+      />
+      <OptionSheet
+        visible={sheet === 'gender'}
+        title="Shop for"
+        options={['MEN', 'WOMEN']}
+        selected={genderTab}
+        onSelect={(v) => { setGenderTab(v as 'MEN' | 'WOMEN'); closeSheet(); }}
+        onClose={closeSheet}
+      />
+      <OptionSheet
+        visible={sheet === 'filter'}
+        title="Filter"
+        options={FILTERS}
+        selected={filter}
+        onSelect={(v) => { setFilter(v); closeSheet(); }}
+        onClose={closeSheet}
+      />
     </View>
   );
 }
@@ -332,9 +302,9 @@ export default function CategoryScreen() {
 const CAT_BANNER_3 = 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=900&q=80&auto=format&fit=crop';
 function CategoryBanner({ label, cardRadius }: { label: string; cardRadius: number }) {
   const slides = [
-    { img: HERO_IMG, kicker: 'TRENDZO · STORE', title: label.toUpperCase() },
-    { img: HERO_IMG_2, kicker: 'LIMITED OFFER', title: 'EXTRA 10% OFF' },
-    { img: CAT_BANNER_3, kicker: '60-MIN DELIVERY', title: 'FREE SHIPPING' },
+    { img: HERO_IMG, kicker: 'Trendzo · Store', title: label },
+    { img: HERO_IMG_2, kicker: 'Limited offer', title: 'Extra 10% off' },
+    { img: CAT_BANNER_3, kicker: '60-min delivery', title: 'Free shipping' },
   ];
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
@@ -367,8 +337,8 @@ function CategoryBanner({ label, cardRadius }: { label: string; cardRadius: numb
               <CachedImage source={{ uri: item.img }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
               <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.42)' }} />
               <View style={{ flex: 1, padding: SP.m, justifyContent: 'flex-end' }}>
-                <Text style={[T.monoB, { color: C.white, fontSize: 9, opacity: 0.85 }]}>{item.kicker}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.white, letterSpacing: -1, marginTop: 2 }} numberOfLines={1}>{item.title}</Text>
+                <Text style={[T.caption, { color: C.white, opacity: 0.85 }]}>{item.kicker}</Text>
+                <Text style={[T.h1, { color: C.white, letterSpacing: -1, marginTop: 2 }]} numberOfLines={1}>{item.title}</Text>
               </View>
             </View>
           </View>
@@ -387,8 +357,8 @@ function CategoryBanner({ label, cardRadius }: { label: string; cardRadius: numb
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <View style={{ flex: 1, alignItems: 'center' }}>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.white }}>{value}</Text>
-      <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 8, color: C.white, opacity: 0.5, marginTop: 2, letterSpacing: 1 }}>{label}</Text>
+      <Text style={[T.h3, { color: C.white }]}>{value}</Text>
+      <Text style={[T.micro, { color: C.white, opacity: 0.5, marginTop: 2 }]}>{label}</Text>
     </View>
   );
 }

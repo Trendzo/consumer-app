@@ -3,8 +3,8 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, TextIn
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
+import { C, T, SP, BORDER } from '../theme/brutal';
+import { ScreenHeader, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
 import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { PRODUCTS } from '../data/mockData';
@@ -13,17 +13,17 @@ import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 const TAB_BAR_HEIGHT = 72;
 
 const METHOD_META: Record<DeliveryMethod, { label: string; icon: string; time: string; fee: number; blurb: string }> = {
-  express:  { label: 'EXPRESS · 60 MIN',     icon: 'zap',     time: '60 MIN',     fee: 99, blurb: 'From your block · in under an hour' },
-  standard: { label: 'STANDARD · 2-3 DAYS',  icon: 'package', time: '2-3 DAYS',   fee: 49, blurb: 'Tracked shipping · door-to-door' },
-  pickup:   { label: 'INSTORE PICKUP',       icon: 'map-pin', time: 'IN STORE',   fee: 0,  blurb: 'Ready at your nearest store · free' },
+  express:  { label: 'Express · 60 min',     icon: 'zap',     time: '60 min',     fee: 99, blurb: 'From your block · in under an hour' },
+  standard: { label: 'Standard · 2-3 days',  icon: 'package', time: '2-3 days',   fee: 49, blurb: 'Tracked shipping · door-to-door' },
+  pickup:   { label: 'Instore pickup',       icon: 'map-pin', time: 'In store',   fee: 0,  blurb: 'Ready at your nearest store · free' },
 };
 const METHOD_ORDER: DeliveryMethod[] = ['express', 'standard', 'pickup'];
 
 export default function CartScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, night, theme, showToast, requireAuth } = useApp();
-  const s = React.useMemo(() => makeS(), [night]);
+  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, showToast, requireAuth } = useApp();
+  const s = React.useMemo(() => makeS(), []);
   const tabScroll = useTabBarScroll();
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
@@ -74,15 +74,15 @@ export default function CartScreen() {
   };
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      <StatusBar barStyle="dark-content" />
       <ScreenHeader title="Bag" />
 
       {cart.length === 0 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(56), color: C.ink, letterSpacing: -2 }}>{'[ ]'}</Text>
-          <Text style={[T.h2, { marginTop: 12 }]}>YOUR BAG IS EMPTY</Text>
-          <Text style={[T.body, { color: C.dim, marginTop: 6, textAlign: 'center' }]}>Add some fits and they'll appear here.</Text>
+          <Feather name="shopping-bag" size={40} color={C.dim} />
+          <Text style={[T.h3, { marginTop: 14 }]}>Your bag is empty</Text>
+          <Text style={[T.caption, { marginTop: 6, textAlign: 'center' }]}>Add some fits and they'll appear here.</Text>
           <BrutalButton label="Start shopping" iconRight="arrow-right" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: 18 }} />
         </View>
       ) : (
@@ -90,8 +90,7 @@ export default function CartScreen() {
           <ScrollView {...tabScroll} contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
             {/* Top meta */}
             <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-              <Text style={[T.mono, { color: C.dim }]}>{`${cartCount} ITEMS · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} DELIVERY SPLIT${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 'S' : ''}`}</Text>
-              <AsciiDivider style={{ marginTop: 6 }} />
+              <Text style={[T.caption]}>{`${cartCount} items · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} delivery split${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 's' : ''}`}</Text>
             </View>
 
             {/* ═══ BUCKETED SECTIONS — one block per method ═══ */}
@@ -102,31 +101,31 @@ export default function CartScreen() {
               const sub = bucketSubtotal(m);
               const fee = bucketFee(m);
               const bucketLabel =
-                m === 'express' ? 'Checkout · 60 MIN' :
-                m === 'standard' ? 'Checkout · STANDARD' :
-                'Checkout · IN STORE';
+                m === 'express' ? 'Checkout · 60 min' :
+                m === 'standard' ? 'Checkout · Standard' :
+                'Checkout · In store';
               return (
                 <View key={m} style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-                  {/* Bucket header — brutalist block showing the method info */}
-                  <BrutalBox solid maxRadius={14} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.s }}>
-                    <BrutalBox maxRadius={10} border={0} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
+                  {/* Bucket header — block showing the method info */}
+                  <BrutalBox style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.s }}>
+                    <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }}>
                       <Feather name={meta.icon as any} size={16} color={C.ink} />
-                    </BrutalBox>
+                    </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{meta.label}</Text>
+                      <Text style={[T.bodyB, { color: C.ink }]}>{meta.label}</Text>
                       {m === 'express' ? (
-                        <Text style={[T.monoB, { fontSize: 9, color: C.white, marginTop: 1 }]}>{`GET IT BY ~${40 + (items.length % 4) * 5} MIN`}</Text>
+                        <Text style={[T.micro, { color: C.dim, marginTop: 1 }]}>{`Get it by ~${40 + (items.length % 4) * 5} min`}</Text>
                       ) : (
-                        <Text style={[T.mono, { fontSize: 9, color: C.white, opacity: 0.65, marginTop: 1 }]}>{`${items.length} ITEM${items.length > 1 ? 'S' : ''} · ${meta.blurb}`}</Text>
+                        <Text style={[T.micro, { color: C.dim, marginTop: 1 }]}>{`${items.length} item${items.length > 1 ? 's' : ''} · ${meta.blurb}`}</Text>
                       )}
                     </View>
-                    <BrutalBox maxRadius={10} border={0} style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }}>
-                      <Text style={[T.monoB, { color: C.ink, fontSize: 9 }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
-                    </BrutalBox>
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#F4F4F4' }}>
+                      <Text style={[T.caption, { color: C.ink }]}>{fee === 0 ? 'Free' : `₹${fee}`}</Text>
+                    </View>
                   </BrutalBox>
 
                   {/* Items in this bucket */}
-                  <BrutalBox maxRadius={14} style={{ marginTop: 6 }}>
+                  <BrutalBox style={{ marginTop: 6 }}>
                     {items.map((it, i) => (
                       <View key={it.id + it.size + m} style={{ borderTopWidth: i === 0 ? 0 : 1, borderColor: C.hairline }}>
                         <View style={s.row}>
@@ -134,16 +133,16 @@ export default function CartScreen() {
                             <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
                           </View>
                           <View style={{ flex: 1, marginLeft: SP.m }}>
-                            <Text style={[T.monoB, { fontSize: 9 }]}>{it.brand}</Text>
-                            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 2 }} numberOfLines={2}>{it.name}</Text>
-                            <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>SIZE: {it.size}</Text>
+                            <Text style={[T.caption]}>{it.brand}</Text>
+                            <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{it.name}</Text>
+                            <Text style={[T.caption, { marginTop: 4 }]}>Size {it.size}</Text>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                               <View style={[s.qtyWrap, BORDER(1)]}>
                                 <Pressable onPress={() => updateQty(it.id, it.qty - 1)} style={s.qtyBtn}><Feather name="minus" size={12} color={C.ink} /></Pressable>
-                                <Text style={[T.monoB, { paddingHorizontal: 14 }]}>{it.qty}</Text>
+                                <Text style={[T.bodyB, { paddingHorizontal: 14 }]}>{it.qty}</Text>
                                 <Pressable onPress={() => updateQty(it.id, it.qty + 1)} style={s.qtyBtn}><Feather name="plus" size={12} color={C.ink} /></Pressable>
                               </View>
-                              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>₹{it.price * it.qty}</Text>
+                              <Text style={[T.price]}>₹{it.price * it.qty}</Text>
                             </View>
                           </View>
                           <Pressable onPress={() => removeFromCart(it.id)} style={[s.removeBtn, BORDER(1)]}>
@@ -151,15 +150,15 @@ export default function CartScreen() {
                           </Pressable>
                         </View>
                         {/* Inline method switcher — move this item to another bucket */}
-                        <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, paddingBottom: 10, gap: 4 }}>
-                          <Text style={[T.mono, { color: C.dim, fontSize: 9, alignSelf: 'center', marginRight: 4 }]}>MOVE TO:</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingBottom: 10, gap: 6 }}>
+                          <Text style={[T.micro, { marginRight: 2 }]}>Move to</Text>
                           {METHOD_ORDER.filter(x => x !== m).map(x => (
                             <Pressable
                               key={x}
                               onPress={() => updateMethod(it.id, x)}
-                              style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}
+                              style={[{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.white }, BORDER(1)]}
                             >
-                              <Text style={[T.monoB, { fontSize: 8, color: C.ink, letterSpacing: 0.5 }]}>{METHOD_META[x].time}</Text>
+                              <Text style={[T.caption, { color: C.ink }]}>{METHOD_META[x].time}</Text>
                             </Pressable>
                           ))}
                         </View>
@@ -167,18 +166,12 @@ export default function CartScreen() {
                     ))}
 
                     {/* Per-bucket checkout footer */}
-                    <View style={{ borderTopWidth: 1, borderColor: C.hairline, flexDirection: 'row', alignItems: 'stretch' }}>
-                      <View style={{ flex: 1, paddingHorizontal: SP.m, paddingVertical: 10, justifyContent: 'center' }}>
-                        <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>SUBTOTAL · {items.length} ITEM{items.length > 1 ? 'S' : ''}</Text>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, marginTop: 2 }}>₹{sub + fee}</Text>
+                    <View style={{ borderTopWidth: 1, borderColor: C.hairline, padding: SP.m }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <Text style={[T.micro]}>Subtotal · {items.length} item{items.length > 1 ? 's' : ''}</Text>
+                        <Text style={[T.h2]}>₹{sub + fee}</Text>
                       </View>
-                      <Pressable
-                        onPress={() => checkoutBucket(m)}
-                        style={{ paddingHorizontal: SP.l, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.hairline, flexDirection: 'row', gap: 6 }}
-                      >
-                        <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 12, letterSpacing: 0.5 }}>{bucketLabel.toUpperCase()}</Text>
-                        <Feather name="arrow-right" size={14} color={C.white} />
-                      </Pressable>
+                      <BrutalButton label={bucketLabel} iconRight="arrow-right" block onPress={() => checkoutBucket(m)} />
                     </View>
                   </BrutalBox>
                 </View>
@@ -188,9 +181,9 @@ export default function CartScreen() {
             {/* COUPON */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={[T.label]}>{'APPLY COUPON'}</Text>
+                <Text style={[T.caption]}>{'Apply coupon'}</Text>
                 <Pressable onPress={() => nav.navigate('CouponWallet')} hitSlop={8}>
-                  <Text style={[T.monoB, { fontSize: 10, textDecorationLine: 'underline' }]}>{'VIEW WALLET ──▶'}</Text>
+                  <Text style={[T.caption, { textDecorationLine: 'underline', color: C.ink }]}>{'View wallet'}</Text>
                 </Pressable>
               </View>
               <View style={[{ flexDirection: 'row', alignItems: 'stretch', height: 46, overflow: 'hidden' }, BORDER(1)]}>
@@ -203,7 +196,7 @@ export default function CartScreen() {
                     placeholderTextColor={C.dim}
                     autoCapitalize="characters"
                     editable={!applied}
-                    style={{ flex: 1, marginLeft: 8, fontFamily: 'SpaceMono_700Bold', fontSize: 12, letterSpacing: 1, color: C.ink, padding: 0 }}
+                    style={[T.monoB, { flex: 1, marginLeft: 8, letterSpacing: 1, padding: 0 }]}
                   />
                   {coupon.length > 0 && !applied && (
                     <Pressable onPress={() => setCoupon('')} hitSlop={10}>
@@ -216,48 +209,47 @@ export default function CartScreen() {
                   disabled={!!applied}
                   style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? '#666' : C.ink, borderLeftWidth: 1, borderColor: C.hairline }}
                 >
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>
-                    {applied ? 'APPLIED' : 'APPLY'}
+                  <Text style={[T.button]}>
+                    {applied ? 'Applied' : 'Apply'}
                   </Text>
                 </Pressable>
               </View>
               {applied > 0 && (
                 <Pressable onPress={() => { setApplied(0); setCoupon(''); }} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <Text style={[T.mono, { color: C.dim, textDecorationLine: 'underline', fontSize: 10 }]}>× Remove coupon</Text>
+                  <Text style={[T.caption, { textDecorationLine: 'underline' }]}>× Remove coupon</Text>
                 </Pressable>
               )}
             </View>
 
             {/* GRAND SUMMARY */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-              <AsciiDivider faint />
               {agg ? (
                 <>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{toRupees(agg.itemsSubtotalPaise)}</Text></View>
-                  {agg.discountPaise > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DISCOUNT</Text><Text style={[T.bodyB]}>−₹{toRupees(agg.discountPaise)}</Text></View>}
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DELIVERY</Text><Text style={[T.bodyB]}>{agg.deliveryFeePaise === 0 ? 'FREE' : `₹${toRupees(agg.deliveryFeePaise)}`}</Text></View>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>TAX · GST</Text><Text style={[T.bodyB]}>₹{toRupees(agg.taxPaise)}</Text></View>
-                  <AsciiDivider />
-                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{toRupees(agg.grandTotalPaise)}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Subtotal</Text><Text style={[T.bodyB]}>₹{toRupees(agg.itemsSubtotalPaise)}</Text></View>
+                  {agg.discountPaise > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Discount</Text><Text style={[T.bodyB]}>−₹{toRupees(agg.discountPaise)}</Text></View>}
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Delivery</Text><Text style={[T.bodyB]}>{agg.deliveryFeePaise === 0 ? 'Free' : `₹${toRupees(agg.deliveryFeePaise)}`}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Tax · GST</Text><Text style={[T.bodyB]}>₹{toRupees(agg.taxPaise)}</Text></View>
+                  <View style={{ height: 1, backgroundColor: C.hairline }} />
+                  <View style={s.sumRow}><Text style={[T.h2]}>Total</Text><Text style={[T.h1]}>₹{toRupees(agg.grandTotalPaise)}</Text></View>
                 </>
               ) : (
                 <>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Subtotal</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
                   {METHOD_ORDER.map(m => buckets[m].length > 0 && bucketFee(m) > 0 ? (
                     <View key={m} style={s.sumRow}>
                       <Text style={[T.body, { color: C.dim }]}>{METHOD_META[m].label.split('·')[0].trim()} · {METHOD_META[m].time}</Text>
                       <Text style={[T.bodyB]}>₹{bucketFee(m)}</Text>
                     </View>
                   ) : null)}
-                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>COUPON</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
-                  <AsciiDivider />
-                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{total}</Text></View>
+                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Coupon</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
+                  <View style={{ height: 1, backgroundColor: C.hairline }} />
+                  <View style={s.sumRow}><Text style={[T.h2]}>Total</Text><Text style={[T.h1]}>₹{total}</Text></View>
                 </>
               )}
             </View>
 
             {/* YOU MIGHT ALSO LIKE */}
-            <SectionHead title="YOU MIGHT" emphasis="ALSO LIKE" />
+            <SectionHead title="You might" emphasis="Also like" />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
               {PRODUCTS.filter(p => !cart.find(c => c.id === p.id)).slice(0, 6).map((p, i) => (
                 <FadeInUp key={p.id} delay={i * 30}>

@@ -128,6 +128,17 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
 
+      {/* Black backdrop — fades OUT as the particles disperse, so the
+          already-mounted home shows through the spreading burst instead of
+          the splash ending on a static black frame. */}
+      <MotiView
+        pointerEvents="none"
+        from={{ opacity: 1 }}
+        animate={{ opacity: zooming ? 0 : 1 }}
+        transition={{ type: 'timing', duration: 750, delay: 200, easing: Easing.inOut(Easing.cubic) }}
+        style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}
+      />
+
       <View style={styles.heroWrap}>
         <View style={styles.stack}>
           <PixelGrid rows={CART} cell={CART_CELL} base={200} zooming={zooming} zoomBase={0} />
@@ -135,8 +146,13 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
         </View>
       </View>
 
-      {/* ── Bottom loader — plain white sweep ── */}
-      <View style={styles.bottomWrap}>
+      {/* ── Bottom loader — plain white sweep (fades with the burst) ── */}
+      <MotiView
+        from={{ opacity: 1 }}
+        animate={{ opacity: zooming ? 0 : 1 }}
+        transition={{ type: 'timing', duration: 400 }}
+        style={styles.bottomWrap}
+      >
         <View style={styles.barTrack}>
           <MotiView
             from={{ translateX: -width }}
@@ -145,7 +161,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
             style={[StyleSheet.absoluteFill, { backgroundColor: '#fff' }]}
           />
         </View>
-      </View>
+      </MotiView>
     </View>
   );
 }
@@ -153,7 +169,9 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000',
+    // Transparent — the animated black backdrop above handles the fill, so it
+    // can fade out to reveal the pre-mounted home underneath.
+    backgroundColor: 'transparent',
     paddingHorizontal: 22,
     paddingTop: 70,
     paddingBottom: 48,
