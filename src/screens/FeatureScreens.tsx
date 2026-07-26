@@ -255,33 +255,53 @@ export function CouponWalletScreen() {
     listCoupons().then((c) => { if (!cancelled && c.length) setCoupons(c); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
+  const activeCount = coupons.filter((c) => c.active).length;
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
       <ScreenHeader title="Coupons" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
-        <FadeInUp>
-          <Text style={[T.caption, { color: C.dim }]}>{'Coupon wallet'}</Text>
-          <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Your coupons.</Text>
-        </FadeInUp>
-        {coupons.map((c, i) => (
-          <FadeInUp key={c.id} delay={i * 50}>
-            <View style={[{ marginTop: SP.m, flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
-              <View style={{ width: 90, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline }}>
-                <Text numberOfLines={2} adjustsFontSizeToFit style={[T.h3, { color: C.ink, textAlign: 'center' }]}>{c.discount}</Text>
-              </View>
-              <View style={{ flex: 1, padding: SP.m }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.monoB]}>{c.code}</Text>
-                  <Pressable onPress={() => showToast('Copied', `${c.code} copied to clipboard`, 'copy')}>
-                    <Feather name="copy" size={14} color={C.ink} />
-                  </Pressable>
-                </View>
-                <Text style={[T.micro, { marginTop: 4 }]}>{c.min} · Expires {c.expires}</Text>
-              </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+        {/* ─── editorial header + faded wordmark ─── */}
+        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.m, overflow: 'hidden' }}>
+          <Text numberOfLines={1} style={{ position: 'absolute', top: -2, left: 0, right: 0, fontFamily: 'Inter_900Black', fontSize: 62, letterSpacing: -2, color: '#F2F2F2', textTransform: 'uppercase' }}>Coupons</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 34 }}>
+            <View>
+              <Text style={[T.h1, { textTransform: 'uppercase' }]}>Your Wallet</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>Apply at checkout to save instantly</Text>
             </View>
-          </FadeInUp>
-        ))}
+            <View style={[{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.ink }]}>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: '#fff', textAlign: 'center' }}>{activeCount}</Text>
+              <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5 }]}>live</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ─── coupon tickets ─── */}
+        <View style={{ paddingHorizontal: SP.l, gap: SP.s }}>
+          {coupons.map((c, i) => (
+            <FadeInUp key={c.id} delay={i * 40}>
+              <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
+                {/* left stub — discount in green */}
+                <View style={{ width: 96, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline, borderStyle: 'dashed' }}>
+                  <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.green, textAlign: 'center' }}>{c.discount}</Text>
+                </View>
+                {/* right body */}
+                <View style={{ flex: 1, padding: SP.m }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                      <Text style={[T.monoB, { color: C.ink }]}>{c.code}</Text>
+                    </View>
+                    <Pressable onPress={() => showToast('Copied', `${c.code} copied to clipboard`, 'copy')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Feather name="copy" size={13} color={C.ink} />
+                      <Text style={[T.caption, { color: C.ink, fontFamily: 'Inter_600SemiBold' }]}>{c.active ? 'Copy' : 'Used'}</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>{c.min} · Expires {c.expires}</Text>
+                </View>
+              </View>
+            </FadeInUp>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );

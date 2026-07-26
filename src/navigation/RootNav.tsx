@@ -4,7 +4,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { PixelIcon, PixelIconName } from '../components/PixelIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
@@ -41,8 +41,14 @@ import {
 import {
   ImageSearchScreen, CouponWalletScreen, CommunityFeedScreen, MoodBoardScreen,
   LuckyDrawScreen, InviteFriendsScreen, AppChallengesScreen, NewArrivalsScreen,
-  DiscoverBrandsScreen, ForHerScreen, ForHimScreen, OccasionShoppingScreen,
+  DiscoverBrandsScreen, OccasionShoppingScreen,
 } from '../screens/FeatureScreens';
+import {
+  StealsScreen, TopStoriesScreen, ShopByOccasionScreen, FlashFitScreen,
+  ForHerEditScreen, ForHimEditScreen,
+} from '../screens/HomeSectionScreens';
+import { PushWinScreen } from '../screens/PushWinScreen';
+import { SpinWinPopup } from '../components/SpinWinPopup';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -238,6 +244,18 @@ export default function RootNav() {
     return () => clearTimeout(t);
   }, []);
 
+  // SPIN & WIN welcome popup — fires once per app launch, right after the
+  // splash particles clear AND the main app is on screen (if the user goes
+  // through onboarding first, it waits and fires when they land in the app).
+  const [spinPopup, setSpinPopup] = useState(false);
+  const spinShownRef = React.useRef(false);
+  useEffect(() => {
+    if (!splashDone || phase !== 'main' || spinShownRef.current) return;
+    spinShownRef.current = true;
+    const t = setTimeout(() => setSpinPopup(true), 700);
+    return () => clearTimeout(t);
+  }, [splashDone, phase]);
+
   // Android hardware back: route → Home tab → "press again to exit"
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -290,16 +308,38 @@ export default function RootNav() {
           <SplashScreen onDone={() => setSplashDone(true)} />
         </View>
       )}
+      {/* Welcome-gift wheel — only ever visible after the splash is gone */}
+      <SpinWinPopup
+        visible={spinPopup}
+        onClose={() => setSpinPopup(false)}
+        onShop={() => {
+          setSpinPopup(false);
+          if (navigationRef.current?.isReady()) navigationRef.current.navigate('Steals');
+        }}
+      />
     </View>
   );
 }
 
 function MainApp() {
   const NightOverlay = () => null;
+  const { tabBarOffset } = useApp();
   return (
     <ZoomProvider navRef={navigationRef}>
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer
+      ref={navigationRef}
+      onStateChange={(state) => {
+        // Whenever the root stack returns to the tab screens (a modal like
+        // Search / ProductDetail / CategoryZoom was dismissed), re-reveal the
+        // floating tab bar. Those are transparentModals that don't reliably
+        // re-fire focus on the tab underneath, so a scroll-hidden bar would
+        // otherwise stay stuck off-screen. Fires on nav changes only, never on
+        // scroll, so it doesn't fight the scroll-to-hide behaviour.
+        const top = state?.routes?.[state.index ?? 0]?.name;
+        if (top === 'Tabs') tabBarOffset.value = withTiming(0, { duration: 200 });
+      }}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
         {/* Profile moved out of the bottom tabs — still reachable as a pushed
@@ -309,7 +349,8 @@ function MainApp() {
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
         {/* Category hero-morph — transparent so Home stays visible under the flight */}
         <Stack.Screen name="CategoryZoom" component={CategoryZoomScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
-            <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
+            {/* transparent so the search bar can morph in place over Home */}
+            <Stack.Screen name="Search" component={SearchScreen} options={{ presentation: 'transparentModal', animation: 'none', contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
             <Stack.Screen name="Categories" component={CategoryBrowseScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
@@ -353,9 +394,17 @@ function MainApp() {
         <Stack.Screen name="AppChallenges" component={AppChallengesScreen} />
         <Stack.Screen name="NewArrivals" component={NewArrivalsScreen} />
         <Stack.Screen name="DiscoverBrands" component={DiscoverBrandsScreen} />
-        <Stack.Screen name="ForHer" component={ForHerScreen} />
-        <Stack.Screen name="ForHim" component={ForHimScreen} />
+        {/* Gender campaign edits — redesigned pages the hero banner opens */}
+        <Stack.Screen name="ForHer" component={ForHerEditScreen} />
+        <Stack.Screen name="ForHim" component={ForHimEditScreen} />
         <Stack.Screen name="OccasionShopping" component={OccasionShoppingScreen} />
+        {/* Dedicated pages for the Home sections (redesigned, modern UI) */}
+        <Stack.Screen name="Steals" component={StealsScreen} />
+        <Stack.Screen name="TopStories" component={TopStoriesScreen} />
+        <Stack.Screen name="ShopByOccasion" component={ShopByOccasionScreen} />
+        <Stack.Screen name="FlashFit" component={FlashFitScreen} />
+        {/* Push & Win arcade — slides up like a game sheet */}
+        <Stack.Screen name="PushWin" component={PushWinScreen} options={{ animation: 'slide_from_bottom' }} />
       </Stack.Navigator>
     </NavigationContainer>
     <NightOverlay />

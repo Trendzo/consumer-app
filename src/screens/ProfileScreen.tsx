@@ -8,9 +8,8 @@ import { useApp } from '../state/AppState';
 
 const APP_VERSION = '1.0.0';
 const BAND = '#F4F4F4';       // light grey separator band
-const CREAM = '#F7F1E5';      // insider banner background
-const GOLD = '#B58A2E';       // insider accent
-const NEW = '#F1315B';        // "NEW" badge
+const GOLD = '#B58A2E';       // rewards accent
+const NEW = '#F1315B';        // avatar ring / "NEW" badge
 
 // Everything is Helvetica — weight carries the hierarchy. `H` builds a text style.
 const HELV = 'Helvetica Neue';
@@ -53,7 +52,7 @@ export default function ProfileScreen() {
         {user && (
           <Pressable
             onPress={() => go('LoyaltyRewards')}
-            style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, marginRight: SP.s }, BORDER(1), { borderRadius: 22 }]}
+            style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, marginRight: SP.s }, BORDER(1), { borderRadius: 0 }]}
           >
             <Feather name="star" size={13} color={GOLD} />
             <Text style={H(13, '700', C.ink)}>1,240</Text>
@@ -64,59 +63,24 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
         {user ? (
           <>
-            {/* ─── Insider promo banner ─── */}
-            <Pressable
-              onPress={() => go('LoyaltyRewards')}
-              style={{ marginHorizontal: SP.l, marginTop: SP.s, backgroundColor: CREAM, borderRadius: 14, padding: SP.l, overflow: 'hidden' }}
-            >
-              <Text style={{ position: 'absolute', right: 14, top: 10, fontSize: 46 }}>👑</Text>
-              <Text style={H(20, '800', C.ink, { letterSpacing: -0.3 })} numberOfLines={1}>{name.split(' ')[0]}, go Insider!</Text>
-              <Text style={H(13, '400', '#6a5f47', { marginTop: 6, maxWidth: '70%' })}>
-                Unlock extra rewards and better discounts.
-              </Text>
-              <View style={{ alignSelf: 'flex-start', marginTop: 14, backgroundColor: GOLD, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 22 }}>
-                <Text style={H(13, '800', '#fff', { letterSpacing: 0.3 })}>Know More</Text>
+            {/* ─── Centered avatar + name (same as the guest layout) ─── */}
+            <View style={{ alignItems: 'center', paddingTop: SP.m, paddingBottom: SP.l }}>
+              <View style={{ width: 100, height: 100, borderRadius: 0, borderWidth: 2, borderColor: NEW, alignItems: 'center', justifyContent: 'center', backgroundColor: BAND }}>
+                <Text style={H(32, '800', C.ink)}>{initials}</Text>
               </View>
-            </Pressable>
-
-            {/* ─── Shopping for + avatar row ─── */}
-            <Text style={H(18, '800', C.ink, { paddingHorizontal: SP.l, marginTop: SP.xl })}>Shopping for {name.split(' ')[0]}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SP.l, paddingHorizontal: SP.l, marginTop: SP.m }}>
-              <View style={{ alignItems: 'center', width: 72 }}>
-                <View style={{ width: 68, height: 68, borderRadius: 34, borderWidth: 2, borderColor: NEW, alignItems: 'center', justifyContent: 'center', backgroundColor: BAND }}>
-                  <Text style={H(24, '800', C.ink)}>{initials}</Text>
-                </View>
-                <Text style={H(12, '600', C.ink, { marginTop: 6 })} numberOfLines={1}>{name.split(' ')[0]}</Text>
-              </View>
-              <Pressable onPress={() => nav.navigate('EditProfile')} style={{ alignItems: 'center', width: 72 }}>
-                <View style={{ width: 68, height: 68, borderRadius: 34, borderWidth: 1, borderColor: C.hairline, alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name="plus" size={26} color={C.dim} />
-                </View>
-                <Text style={H(12, '400', C.dim, { marginTop: 6 })}>Add</Text>
+              <Text style={H(24, '800', C.ink, { letterSpacing: -0.4, marginTop: SP.m })} numberOfLines={1}>{name}</Text>
+              {user.email ? <Text style={H(13, '400', C.dim, { marginTop: 3 })} numberOfLines={1}>{user.email}</Text> : null}
+              <Pressable onPress={() => nav.navigate('EditProfile')} hitSlop={6} style={{ marginTop: SP.s }}>
+                <Text style={H(12, '600', C.ink, { textDecorationLine: 'underline' })}>Edit profile</Text>
               </Pressable>
             </View>
 
-            {/* ─── Section pills ─── */}
-            <View style={{ backgroundColor: BAND, marginTop: SP.l, paddingVertical: SP.m }}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s }}>
-                {[
-                  { label: 'Basics', screen: 'CompleteProfile' },
-                  { label: 'Size Details', screen: 'Measurement' },
-                  { label: 'Style', screen: 'StylePreferences' },
-                ].map(p => (
-                  <Pressable key={p.label} onPress={() => go(p.screen)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 11, backgroundColor: '#fff' }, BORDER(1), { borderRadius: 24 }]}>
-                    <Text style={H(13, '700', C.ink)}>{p.label}</Text>
-                    <Feather name="chevron-right" size={14} color={C.ink} />
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
 
             {/* ─── 2×2 card grid ─── */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.l, gap: SP.s }}>
               <View style={{ flexDirection: 'row', gap: SP.s }}>
                 <GridCard icon="package" label="Orders" onPress={() => go('OrderHistory')} />
-                <GridCard icon="award" label="Insider" onPress={() => go('LoyaltyRewards')} />
+                <GridCard icon="award" label="Rewards" onPress={() => go('LoyaltyRewards')} />
               </View>
               <View style={{ flexDirection: 'row', gap: SP.s }}>
                 <GridCard icon="headphones" label="Help Center" onPress={() => go('CustomerSupport')} />
@@ -124,20 +88,20 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            {/* ─── Feature list rows ─── */}
+            {/* ─── Feature list rows — the app's real features ─── */}
             <View style={{ marginTop: SP.l }}>
-              <ListRow icon="star" title="Glam Clan" isNew sub="Trendzo creator program for shoppers" onPress={() => go('CommunityFeed')} />
-              <ListRow icon="gift" title="Refer & Earn" isNew sub="Invite friends, get shopping credit" onPress={() => go('ReferralRewards')} />
-              <ListRow icon="credit-card" title="Payments" sub="Balance and saved payment methods" onPress={() => go('PaymentMethods')} />
-              <ListRow icon="award" title="Earn & Redeem" sub="View prizes and earn rewards" onPress={() => go('LoyaltyRewards')} />
-              <ListRow icon="edit-3" title="Manage Account" sub="Account and saved addresses" onPress={() => go('SavedAddresses')} />
-              <ListRow icon="settings" title="Settings" sub="Manage notifications" onPress={() => go('NotificationSettings')} />
+              <ListRow icon="rotate-ccw" title="Returns & Exchanges" sub="7-day easy returns" onPress={() => go('OrderReturn')} />
+              <ListRow icon="map-pin" title="Saved Addresses" sub="Home, office & more" onPress={() => go('SavedAddresses')} />
+              <ListRow icon="credit-card" title="Payment Methods" sub="UPI, cards, wallet & COD" onPress={() => go('PaymentMethods')} />
+              <ListRow icon="gift" title="Refer & Earn" sub="Invite friends, get shopping credit" onPress={() => go('ReferralRewards')} />
+              <ListRow icon="sliders" title="Style & Fit" sub="Preferences, sizes & measurements" onPress={() => go('StylePreferences')} />
+              <ListRow icon="bell" title="Notifications" sub="Push, email & deal alerts" onPress={() => go('NotificationSettings')} />
             </View>
           </>
         ) : (
           // ─── Guest state — simple centered login ───
           <View style={{ alignItems: 'center', paddingTop: SP.m, paddingBottom: SP.xl }}>
-            <View style={{ width: 100, height: 100, borderRadius: 50, backgroundColor: BAND, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.hairline }}>
+            <View style={{ width: 100, height: 100, borderRadius: 0, backgroundColor: BAND, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.hairline }}>
               <Feather name="user" size={46} color={C.dim} />
             </View>
             <Text style={H(24, '800', C.ink, { letterSpacing: -0.4, marginTop: SP.m })}>Guest</Text>
@@ -177,7 +141,7 @@ export default function ProfileScreen() {
                 confirmLabel: 'Log out', cancelLabel: 'Stay', danger: true, icon: 'log-out',
                 onConfirm: signOut,
               })}
-              style={{ height: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: NEW, borderRadius: 6, backgroundColor: '#fff' }}
+              style={{ height: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: NEW, borderRadius: 0, backgroundColor: '#fff' }}
             >
               <Text style={H(15, '800', NEW, { letterSpacing: 0.5 })}>LOG OUT</Text>
             </Pressable>
@@ -198,7 +162,7 @@ export default function ProfileScreen() {
 // ─── 2×2 grid card ───
 function GridCard({ icon, label, onPress }: { icon: any; label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16 }, BORDER(1), { borderRadius: 10 }]}>
+    <Pressable onPress={onPress} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16 }, BORDER(1), { borderRadius: 0 }]}>
       <Feather name={icon} size={20} color={C.ink} />
       <Text style={H(15, '700', C.ink, { flex: 1, marginLeft: 10 })} numberOfLines={1}>{label}</Text>
       <Feather name="chevron-right" size={18} color={C.dim} />
@@ -215,7 +179,7 @@ function ListRow({ icon, title, sub, isNew, onPress }: { icon: any; title: strin
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <Text style={H(16, '700', C.ink)}>{title}</Text>
           {isNew && (
-            <View style={{ backgroundColor: NEW, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+            <View style={{ backgroundColor: NEW, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 0 }}>
               <Text style={H(9, '800', '#fff', { letterSpacing: 0.5 })}>NEW</Text>
             </View>
           )}

@@ -251,7 +251,11 @@ export default function ProductDetailScreen() {
     const action = sizeSheet;
     setSize(sz);
     setSizeSheet(null);
-    setTimeout(() => { if (action === 'add') doAdd(sz); else if (action === 'buy') doBuy(sz); }, 260);
+    // Continue the pending action straight away — picking the size IS the
+    // confirmation, so don't make the user tap Buy now / Add again. A short
+    // delay lets the size sheet dismiss before we navigate / open the auth sheet.
+    if (action === 'add') setTimeout(() => doAdd(sz), 80);
+    else if (action === 'buy') setTimeout(() => doBuy(sz), 80);
   };
 
   return (

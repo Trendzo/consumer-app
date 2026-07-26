@@ -1,8 +1,8 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { View, Text, ScrollView, Pressable } from 'react-native';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, BrutalInput, Chip, OptionSheet } from '../components/Brutal';
@@ -36,7 +36,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
 }
 
 type HeroProps = {
-  code: string;           // legacy system-ID eyebrow — no longer rendered
+  code?: string;          // legacy system-ID eyebrow — no longer rendered
   title: string;          // big display copy (can contain \n)
   intro?: string;         // one-line subhead
   chips?: { label: string; solid?: boolean }[];
@@ -82,6 +82,26 @@ function SectionLabel({ label, right }: { label: string; right?: string }) {
         <Text style={[T.h2, { textTransform: 'uppercase' }]}>{label}</Text>
         {right && <Text style={[T.caption, { color: C.dim }]}>{sentence(right)}</Text>}
       </View>
+    </View>
+  );
+}
+
+// New editorial section header — plain T.h3 uppercase, edge-to-edge, matching
+// the flagship Loyalty / Style screens. Optional right-hand meta in micro.
+function SectionHead({ title, right, style }: { title: string; right?: string; style?: any }) {
+  return (
+    <View style={[{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }, style]}>
+      <Text style={[T.h3, { textTransform: 'uppercase' }]}>{title}</Text>
+      {right ? <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{right}</Text> : null}
+    </View>
+  );
+}
+
+// Reusable grey icon tile — grey square, hairline border, ink Feather glyph.
+function IconTile({ icon, size = 40, on }: { icon: string; size?: number; on?: boolean }) {
+  return (
+    <View style={[{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : TILE }, BORDER(1), on && { borderColor: C.white }]}>
+      <Feather name={icon as any} size={Math.round(size * 0.42)} color={C.ink} />
     </View>
   );
 }
@@ -137,7 +157,7 @@ export function SavedAddressesScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Addresses" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={`ADDRESSES · ${addresses.length} SAVED`}
           title={'Your\naddresses.'}
@@ -145,38 +165,46 @@ export function SavedAddressesScreen() {
           chips={[{ label: 'DELIVERY' }]}
         />
 
-        <SectionLabel label="SAVED" right={`${addresses.length} ENTRIES`} />
-        {loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>Loading…</Text>}
-        {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
-        {addresses.map((a, i) => (
-          <FadeInUp key={a.id} delay={i * 60}>
-            <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-                <View style={[{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: TILE }, BORDER(1)]}>
-                  <Text style={[T.caption, { color: C.ink }]}>{a.label || 'Address'}</Text>
-                </View>
-                {a.isDefault ? (
-                  <View style={[{ paddingHorizontal: 6, paddingVertical: 3, marginLeft: 6 }, BORDER(1)]}>
-                    <Text style={T.micro}>Default</Text>
+        <SectionHead title="Saved" right={`${addresses.length} entries`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>Loading…</Text>}
+          {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
+          {addresses.map((a, i) => {
+            const lbl = (a.label || '').toLowerCase();
+            const icon = lbl.includes('home') ? 'home' : (lbl.includes('office') || lbl.includes('work')) ? 'briefcase' : 'map-pin';
+            return (
+              <FadeInUp key={a.id} delay={i * 60}>
+                <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: SP.m }}>
+                    <IconTile icon={icon} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={T.bodyB}>{a.label || 'Address'}</Text>
+                        {a.isDefault && (
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
+                            <Text style={[T.micro, { color: C.white }]}>Default</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{formatAddress(a)}</Text>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{a.stateCode} · {a.pincode}</Text>
+                    </View>
+                    <Pressable onPress={() => onDelete(a)} hitSlop={8} style={{ padding: 4 }}>
+                      <Feather name="trash-2" size={15} color={C.dim} />
+                    </Pressable>
                   </View>
-                ) : (
-                  <Pressable onPress={() => onSetDefault(a)} style={{ marginLeft: 6 }}>
-                    <Text style={[T.micro, { textDecorationLine: 'underline' }]}>Set default</Text>
-                  </Pressable>
-                )}
-                <View style={{ flex: 1 }} />
-                <Pressable onPress={() => onDelete(a)} style={{ padding: 6, marginLeft: 4 }}>
-                  <Feather name="trash-2" size={13} color={C.ink} />
-                </Pressable>
-              </View>
-              <View style={{ padding: SP.m }}>
-                <Text style={[T.body, { color: C.dim }]}>{formatAddress(a)}</Text>
-                <Text style={[T.micro, { marginTop: 4 }]}>{a.stateCode} · {a.pincode}</Text>
-              </View>
-            </View>
-          </FadeInUp>
-        ))}
-        <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
+                  {!a.isDefault && (
+                    <Pressable onPress={() => onSetDefault(a)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: 1, borderColor: C.hairline }}>
+                      <Text style={[T.caption, { color: C.ink }]}>Set as default</Text>
+                      <Feather name="chevron-right" size={14} color={C.ink} />
+                    </Pressable>
+                  )}
+                </View>
+              </FadeInUp>
+            );
+          })}
+          <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
+        </View>
       </ScrollView>
 
       <OptionSheet visible={formOpen} title="New address" onClose={() => setFormOpen(false)}>
@@ -217,7 +245,7 @@ export function PaymentMethodsScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Payment" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'PAYMENT_METHODS_v2'}
           title={'Your\nwallets.'}
@@ -225,38 +253,38 @@ export function PaymentMethodsScreen() {
           chips={[{ label: 'SECURE' }, { label: '256-BIT' }, { label: 'PCI DSS' }]}
         />
 
-        <SectionLabel label="METHODS" right={`${PAYMENTS.length} LINKED`} />
-        {PAYMENTS.map((p, i) => {
-          const on = selected === p.id;
-          return (
-            <FadeInUp key={p.id} delay={i * 60}>
-              <Pressable onPress={() => setSelected(p.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : C.ink }]}>
-                  <Feather name={p.icon as any} size={18} color={on ? C.ink : C.white} />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{p.type}</Text>
-                  <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{p.label}</Text>
-                  <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>{p.sub}</Text>
-                </View>
-                <View style={[{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
-                  {on && <Feather name="check" size={13} color={C.ink} />}
-                </View>
-              </Pressable>
-            </FadeInUp>
-          );
-        })}
+        <SectionHead title="Methods" right={`${PAYMENTS.length} linked`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {PAYMENTS.map((p, i) => {
+            const on = selected === p.id;
+            return (
+              <FadeInUp key={p.id} delay={i * 60}>
+                <Pressable onPress={() => setSelected(p.id)} style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                  <IconTile icon={p.icon} size={44} on={on} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{p.type}</Text>
+                    <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{p.label}</Text>
+                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>{p.sub}</Text>
+                  </View>
+                  <View style={[{ width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
+                    {on && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: C.ink }} />}
+                  </View>
+                </Pressable>
+              </FadeInUp>
+            );
+          })}
+        </View>
 
-        <SectionLabel label="ADD NEW" />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
+        <SectionHead title="Add new" />
+        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l }}>
           {[
             { icon: 'smartphone', label: 'UPI' },
-            { icon: 'credit-card', label: 'CARD' },
-            { icon: 'briefcase', label: 'WALLET' },
+            { icon: 'credit-card', label: 'Card' },
+            { icon: 'briefcase', label: 'Wallet' },
           ].map(o => (
-            <Pressable key={o.label} onPress={() => showToast('Add ' + o.label, 'Coming soon', 'plus')} style={[{ flex: 1, padding: SP.m, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-              <Feather name={o.icon as any} size={18} color={C.ink} />
-              <Text style={[T.caption, { color: C.ink, marginTop: 6 }]}>{o.label}</Text>
+            <Pressable key={o.label} onPress={() => showToast('Add ' + o.label, 'Coming soon', 'plus')} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', gap: 8, backgroundColor: C.white }, BORDER(1)]}>
+              <IconTile icon={o.icon} size={36} />
+              <Text style={[T.caption, { color: C.ink }]}>{o.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -280,88 +308,146 @@ export function LoyaltyRewardsScreen() {
   const points = 1240;
   const currentTier = TIERS.filter(t => points >= t.min).pop()!;
   const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
-  const progress = nextTier ? points / nextTier.min : 1;
+  const curIdx = TIERS.indexOf(currentTier);
+  const progress = nextTier ? Math.min((points - currentTier.min) / (nextTier.min - currentTier.min), 1) : 1;
+  const toNext = nextTier ? nextTier.min - points : 0;
 
   return (
     <PageShell>
-      <ScreenHeader title="Loyalty" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
-        <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={[T.caption, { color: C.dim }]}>{'Tier · ' + sentence(currentTier.name)}</Text>
-              <Text style={[T.caption, { color: C.dim }]}>{new Date().toLocaleDateString()}</Text>
-            </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.ink, letterSpacing: -2, marginTop: 6, lineHeight: rf(52) }}>{points.toLocaleString()}</Text>
-            <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>Loyalty points</Text>
+      <ScreenHeader title="Rewards" onBack={() => nav.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
 
-            {nextTier && (
-              <View style={{ marginTop: SP.l }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={[T.caption, { color: C.ink }]}>{sentence(currentTier.name)}</Text>
-                  <Text style={[T.caption, { color: C.ink }]}>{sentence(nextTier.name)}</Text>
-                </View>
-                <View style={{ marginTop: 6, height: 6, backgroundColor: TILE }}>
-                  <View style={{ width: `${Math.min(progress * 100, 100)}%`, height: '100%', backgroundColor: C.ink }} />
-                </View>
-                <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>{nextTier.min - points} pts to {sentence(nextTier.name)}</Text>
+        {/* ─── PREMIUM MEMBERSHIP CARD — black, big points, faded wordmark ─── */}
+        <FadeInUp>
+          <View style={{ marginHorizontal: SP.l, marginTop: SP.m, backgroundColor: C.ink, overflow: 'hidden' }}>
+            <Text numberOfLines={1} style={{ position: 'absolute', right: -8, top: -12, fontFamily: 'Inter_900Black', fontSize: rf(88), letterSpacing: -4, color: 'rgba(255,255,255,0.05)', textTransform: 'uppercase' }}>{currentTier.name}</Text>
+            <View style={{ padding: SP.l }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Feather name="star" size={13} color="#F0C23C" />
+                <Text style={[T.caption, { color: '#F0C23C', fontFamily: 'Inter_700Bold', letterSpacing: 1, textTransform: 'uppercase' }]}>{currentTier.name} Member</Text>
               </View>
-            )}
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(52), color: '#fff', letterSpacing: -2.5, marginTop: SP.s, lineHeight: rf(54) }}>{points.toLocaleString()}</Text>
+              <Text style={[T.caption, { color: 'rgba(255,255,255,0.6)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 1 }]}>Loyalty points</Text>
+
+              {nextTier ? (
+                <View style={{ marginTop: SP.l }}>
+                  <View style={{ height: 5, backgroundColor: 'rgba(255,255,255,0.15)' }}>
+                    <View style={{ width: `${progress * 100}%`, height: '100%', backgroundColor: '#F0C23C' }} />
+                  </View>
+                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', marginTop: 8 }]}>
+                    <Text style={{ color: '#fff', fontFamily: 'Inter_700Bold' }}>{toNext.toLocaleString()} pts</Text> to {sentence(nextTier.name)}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', marginTop: SP.l }]}>You've reached the top tier ✦</Text>
+              )}
+            </View>
+            {/* redeem strip */}
+            <Pressable onPress={() => nav.navigate('CouponWallet')} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 12, borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.14)' }}>
+              <Text style={[T.caption, { color: '#fff', fontFamily: 'Inter_600SemiBold', textTransform: 'uppercase', letterSpacing: 0.5 }]}>Redeem points</Text>
+              <Feather name="arrow-right" size={16} color="#fff" />
+            </Pressable>
           </View>
         </FadeInUp>
 
-        <SectionLabel label="TIERS" />
-        <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
-          {TIERS.map((t, i) => {
-            const reached = points >= t.min;
-            const isCurrent = t.name === currentTier.name;
-            return (
-              <View
-                key={t.name}
-                style={[
-                  { flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: isCurrent ? C.ink : C.white },
-                  i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
-                ]}
-              >
-                <Text style={[T.caption, { color: isCurrent ? C.white : reached ? C.ink : C.dim }]}>{t.name}</Text>
-                <Text style={[T.micro, { color: isCurrent ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{t.min >= 1000 ? `${t.min / 1000}K+` : t.min + '+'}</Text>
-              </View>
-            );
-          })}
+        {/* ─── TIER LADDER — stepper with a connecting track ─── */}
+        {/* The track is ONE pair of absolute lines behind the whole row (grey
+            full track + black progress). The old per-column connectors used
+            left:'-50%' to reach into the previous column, and because later
+            columns render on top, each line drew OVER its neighbour's node —
+            the overlapping-lines bug. A single behind-everything track can't
+            overlap anything. First/last node centres sit at 12.5% / 87.5% of
+            the row (4 equal columns), so the track spans exactly that. */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }]}>Your Journey</Text>
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View>
+            <View style={{ position: 'absolute', top: 13, left: '12.5%', right: '12.5%', height: 2, backgroundColor: C.hairline }} />
+            <View style={{ position: 'absolute', top: 13, left: '12.5%', width: `${(curIdx / (TIERS.length - 1)) * 75}%`, height: 2, backgroundColor: C.ink }} />
+            <View style={{ flexDirection: 'row' }}>
+              {TIERS.map((t, i) => {
+                const reached = i <= curIdx;
+                const isCurrent = i === curIdx;
+                return (
+                  <View key={t.name} style={{ flex: 1, alignItems: 'center' }}>
+                    <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: reached ? C.ink : '#fff' }, BORDER(1)]}>
+                      {reached ? <Feather name={isCurrent ? 'star' : 'check'} size={13} color="#fff" /> : <Text style={[T.micro, { color: C.dim }]}>{i + 1}</Text>}
+                    </View>
+                    <Text numberOfLines={1} style={[T.micro, { color: reached ? C.ink : C.dim, fontFamily: isCurrent ? 'Inter_700Bold' : 'Inter_400Regular', marginTop: 6, textTransform: 'uppercase' }]}>{t.name}</Text>
+                    <Text style={[T.micro, { color: C.dim, marginTop: 1 }]}>{t.min >= 1000 ? `${t.min / 1000}K` : t.min}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
         </View>
 
-        <SectionLabel label="HOW TO EARN" />
-        {[
-          { label: 'Every ₹100 spent', pts: '+10', icon: 'shopping-bag' },
-          { label: 'Daily login streak', pts: '+10-70', icon: 'zap' },
-          { label: 'Write a product review', pts: '+50', icon: 'message-square' },
-          { label: 'Refer a friend (on first order)', pts: '+200', icon: 'users' },
-          { label: 'Complete your style quiz', pts: '+100', icon: 'help-circle' },
-        ].map((r, i) => (
-          <FadeInUp key={i} delay={60 + i * 30}>
-            <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-              <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
-                <Feather name={r.icon as any} size={14} color={C.ink} />
+        {/* ─── PLAY & EARN — the arcade. One game, done properly: PUSH & WIN. ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>Play & Earn</Text>
+        <View style={{ paddingHorizontal: SP.l }}>
+          <FadeInUp>
+            <Pressable onPress={() => nav.navigate('PushWin')} style={[{ backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+              {/* faded editorial wordmark — ink on white, like the app's heroes */}
+              <Text numberOfLines={1} style={{ position: 'absolute', right: -6, bottom: -16, fontFamily: 'Inter_900Black', fontSize: rf(72), letterSpacing: -3, color: 'rgba(0,0,0,0.04)' }}>PUSH&WIN</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.l, gap: SP.m }}>
+                {/* slot-machine tile — grey app tile, ink icon */}
+                <View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                  <MaterialCommunityIcons name="slot-machine-outline" size={32} color={C.ink} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  {/* title with the Home highlighter bar */}
+                  <View style={{ alignSelf: 'flex-start' }}>
+                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: '#F2E63C' }} />
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink, letterSpacing: 0.5 }}>PUSH & WIN</Text>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Match 3 on the machine · win up to ₹500</Text>
+                  <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600', marginTop: 2 }]}>3 free pushes today</Text>
+                </View>
+                {/* PLAY — black slab on a yellow offset shadow */}
+                <View>
+                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: '#F2E63C', borderWidth: 1, borderColor: C.ink }} />
+                  <View style={{ backgroundColor: C.ink, paddingHorizontal: 18, paddingVertical: 11 }}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 2 }}>PLAY</Text>
+                  </View>
+                </View>
               </View>
-              <Text style={[T.body, { flex: 1, marginLeft: 12 }]}>{r.label}</Text>
-              <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: TILE }, BORDER(1)]}>
-                <Text style={[T.caption, { color: C.ink }]}>{r.pts} pts</Text>
-              </View>
-            </View>
+            </Pressable>
           </FadeInUp>
-        ))}
+        </View>
 
-        <SectionLabel label="PERKS · BRONZE" />
-        {[
-          'Early access to sales',
-          'Free shipping above ₹999',
-          'Birthday surprise gift',
-        ].map((p, i) => (
-          <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: 8, alignItems: 'center' }}>
-            <Feather name="check" size={14} color={C.ink} />
-            <Text style={[T.body, { flex: 1 }]}>{p}</Text>
-          </View>
-        ))}
+        {/* ─── WAYS TO EARN — grey tiles, green points ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>Ways to Earn</Text>
+        <View style={{ paddingHorizontal: SP.l, gap: SP.s }}>
+          {[
+            { label: 'Every ₹100 spent', pts: '+10', icon: 'shopping-bag' },
+            { label: 'Daily login streak', pts: '+70', icon: 'zap' },
+            { label: 'Write a product review', pts: '+50', icon: 'message-square' },
+            { label: 'Refer a friend', pts: '+200', icon: 'users' },
+            { label: 'Complete your style quiz', pts: '+100', icon: 'help-circle' },
+          ].map((r, i) => (
+            <FadeInUp key={i} delay={40 + i * 30}>
+              <View style={[{ padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                <View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                  <Feather name={r.icon as any} size={17} color={C.ink} />
+                </View>
+                <Text style={[T.body, { flex: 1, marginLeft: 12, fontFamily: 'Inter_500Medium' }]}>{r.label}</Text>
+                <Text style={[T.body, { color: C.green, fontFamily: 'Inter_700Bold' }]}>{r.pts}</Text>
+              </View>
+            </FadeInUp>
+          ))}
+        </View>
+
+        {/* ─── PERKS ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>{sentence(currentTier.name)} Perks</Text>
+        <View style={{ paddingHorizontal: SP.l }}>
+          {['Early access to sales', 'Free shipping above ₹999', 'Birthday surprise gift', 'Priority customer support'].map((p, i) => (
+            <View key={i} style={{ flexDirection: 'row', gap: 12, alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderColor: C.hairline }}>
+              <View style={{ width: 20, height: 20, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
+                <Feather name="check" size={12} color="#fff" />
+              </View>
+              <Text style={[T.body, { flex: 1 }]}>{p}</Text>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </PageShell>
   );
@@ -381,7 +467,7 @@ export function GiftCardScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Gift Card" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'GIFT_CARD · DIGITAL'}
           title={'Give the\ngift of fit.'}
@@ -389,33 +475,44 @@ export function GiftCardScreen() {
           chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
         />
 
-        {/* Live preview card */}
-        <View style={[{ marginTop: SP.l, padding: SP.l, backgroundColor: C.white, minHeight: 180 }, BORDER(1)]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={[T.caption, { color: C.dim }]}>{'Trendzo · Gift card'}</Text>
-            <Text style={[T.caption, { color: C.dim }]}>Preview</Text>
-          </View>
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(48), color: C.ink, letterSpacing: -2, marginTop: 12 }}>₹{amount || '—'}</Text>
-          <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>To: {toEmail || '—'}</Text>
-          <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>Note: {note || '—'}</Text>
+        {/* Signature black gift-card — live preview, faded wordmark */}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+          <FadeInUp>
+            <View style={{ backgroundColor: C.ink, overflow: 'hidden', minHeight: 200 }}>
+              <Text numberOfLines={1} style={{ position: 'absolute', right: -10, bottom: -22, fontFamily: 'Inter_900Black', fontSize: rf(96), color: 'rgba(255,255,255,0.05)', letterSpacing: -4, textTransform: 'uppercase' }}>GIFT</Text>
+              <View style={{ padding: SP.l }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={[T.caption, { color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1 }]}>Trendzo Gift Card</Text>
+                  <Feather name="gift" size={16} color="rgba(255,255,255,0.85)" />
+                </View>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(52), color: '#fff', letterSpacing: -2.5, marginTop: SP.l }}>₹{amount || '—'}</Text>
+                <View style={{ marginTop: SP.l, gap: 4 }}>
+                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>TO — {toEmail || '—'}</Text>
+                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>NOTE — {note || '—'}</Text>
+                </View>
+              </View>
+            </View>
+          </FadeInUp>
         </View>
 
-        <SectionLabel label="SELECT AMOUNT" />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-          {amounts.map(a => (
-            <Pressable key={a} onPress={() => setAmount(String(a))} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: amount === String(a) ? C.ink : C.white }, BORDER(1)]}>
-              <Text style={[T.bodyB, { color: amount === String(a) ? C.white : C.ink }]}>₹{a}</Text>
-            </Pressable>
-          ))}
+        <SectionHead title="Select amount" />
+        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l }}>
+          {amounts.map(a => {
+            const on = amount === String(a);
+            return (
+              <Pressable key={a} onPress={() => setAmount(String(a))} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>₹{a}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        <SectionLabel label="RECIPIENT" />
-        <View style={{ marginTop: 8 }}>
+        <SectionHead title="Recipient" />
+        <View style={{ paddingHorizontal: SP.l }}>
           <BrutalInput value={toEmail} onChangeText={setToEmail} placeholder="friend@example.com" label="Send to (email)" icon="mail" />
           <BrutalInput value={note} onChangeText={setNote} placeholder="You're the best. Go buy something good." label="Personal note" icon="message-square" />
+          <BrutalButton label={`Buy gift card — ₹${amount || '0'}`} icon="gift" block onPress={() => showToast('Gift Card', 'Purchase coming soon', 'gift')} style={{ marginTop: SP.l }} />
         </View>
-
-        <BrutalButton label={`Buy gift card — ₹${amount || '0'}`} icon="gift" block onPress={() => showToast('Gift Card', 'Purchase coming soon', 'gift')} style={{ marginTop: SP.l }} />
       </ScrollView>
     </PageShell>
   );
@@ -430,7 +527,7 @@ export function ReferralRewardsScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Refer & Earn" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'REFERRAL · ₹200 EACH'}
           title={'Share the\ndrip.'}
@@ -438,43 +535,53 @@ export function ReferralRewardsScreen() {
           chips={[{ label: '7 INVITED' }, { label: '4 JOINED' }, { label: '₹800 EARNED', solid: true }]}
         />
 
-        <FadeInUp delay={60}>
-          <View style={[{ marginTop: SP.l, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-            <Text style={[T.caption, { color: C.dim }]}>{'Your code'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.ink, marginTop: 8, letterSpacing: 4 }}>TRENDZO42</Text>
-            <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>Tap copy to share</Text>
-          </View>
-        </FadeInUp>
+        {/* Signature black referral-code card */}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+          <FadeInUp delay={60}>
+            <View style={{ backgroundColor: C.ink, overflow: 'hidden' }}>
+              <Text numberOfLines={1} style={{ position: 'absolute', right: -8, top: -18, fontFamily: 'Inter_900Black', fontSize: rf(80), color: 'rgba(255,255,255,0.05)', letterSpacing: -3 }}>₹200</Text>
+              <View style={{ padding: SP.xl, alignItems: 'center' }}>
+                <Text style={[T.caption, { color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 1 }]}>Your referral code</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(42), color: '#fff', marginTop: 10, letterSpacing: 4 }}>TRENDZO42</Text>
+                <Text style={[T.micro, { color: 'rgba(255,255,255,0.55)', marginTop: 8, textTransform: 'uppercase', letterSpacing: 1 }]}>Give ₹200 · Get ₹200</Text>
+              </View>
+            </View>
+          </FadeInUp>
 
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-          <BrutalButton label="Copy code" icon="copy" variant="outline" style={{ flex: 1 }} onPress={() => showToast('Copied', 'Code copied to clipboard', 'copy')} />
-          <BrutalButton label="Share" icon="share-2" style={{ flex: 1 }} onPress={() => showToast('Share', 'Share sheet coming soon', 'share-2')} />
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s }}>
+            <BrutalButton label="Copy code" icon="copy" variant="outline" style={{ flex: 1 }} onPress={() => showToast('Copied', 'Code copied to clipboard', 'copy')} />
+            <BrutalButton label="Share" icon="share-2" style={{ flex: 1 }} onPress={() => showToast('Share', 'Share sheet coming soon', 'share-2')} />
+          </View>
         </View>
 
-        <SectionLabel label="HOW IT WORKS" />
-        {[
-          { i: 1, t: 'Share your code', sub: 'Send TRENDZO42 to your friends' },
-          { i: 2, t: 'Friend signs up', sub: 'They apply the code at checkout' },
-          { i: 3, t: 'They order', sub: 'First order of ₹499 or more unlocks it' },
-          { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
-        ].map(s => (
-          <View key={s.i} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-            <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
-              <Text style={[T.bodyB, { color: C.ink }]}>{s.i}</Text>
-            </View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={[T.bodyB]}>{s.t}</Text>
-              <Text style={[T.micro, { marginTop: 2 }]}>{s.sub}</Text>
-            </View>
+        <SectionHead title="Your stats" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
+            {[{ label: 'INVITED', value: '7', green: false }, { label: 'JOINED', value: '4', green: false }, { label: 'EARNED', value: '₹800', green: true }].map((s, i) => (
+              <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
+                <Text style={[T.h1, s.green && { color: C.green }]}>{s.value}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{s.label}</Text>
+              </View>
+            ))}
           </View>
-        ))}
+        </View>
 
-        <SectionLabel label="YOUR STATS" />
-        <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
-          {[{ label: 'INVITED', value: '7' }, { label: 'JOINED', value: '4' }, { label: 'EARNED', value: '₹800' }].map((s, i) => (
-            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
-              <Text style={T.h1}>{s.value}</Text>
-              <Text style={[T.caption, { marginTop: 4 }]}>{s.label}</Text>
+        <SectionHead title="How it works" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {[
+            { i: 1, t: 'Share your code', sub: 'Send TRENDZO42 to your friends' },
+            { i: 2, t: 'Friend signs up', sub: 'They apply the code at checkout' },
+            { i: 3, t: 'They order', sub: 'First order of ₹499 or more unlocks it' },
+            { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
+          ].map(s => (
+            <View key={s.i} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+              <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                <Text style={[T.bodyB, { color: C.ink }]}>{s.i}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={T.bodyB}>{s.t}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{s.sub}</Text>
+              </View>
             </View>
           ))}
         </View>
@@ -522,7 +629,7 @@ export function NotificationSettingsScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Notifications" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'PUSH_SETTINGS'}
           title={'Stay in\nthe loop.'}
@@ -532,22 +639,25 @@ export function NotificationSettingsScreen() {
 
         {groups.map(grp => (
           <View key={grp.title}>
-            <SectionLabel label={grp.title} />
-            <View style={[{ marginTop: 8, backgroundColor: C.white }, BORDER(1)]}>
-              {grp.items.map((item, i) => (
-                <Pressable key={item.key} onPress={() => toggle(item.key)} style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center' }, i < grp.items.length - 1 && { borderBottomWidth: 1, borderColor: C.hairline }]}>
-                  <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
-                    <Feather name={item.icon as any} size={14} color={C.ink} />
-                  </View>
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={[T.bodyB]}>{item.label}</Text>
-                    <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{item.sub}</Text>
-                  </View>
-                  <View style={[{ width: 44, height: 24, justifyContent: 'center', padding: 2, backgroundColor: settings[item.key] ? C.ink : C.white }, BORDER(1)]}>
-                    <View style={{ width: 16, height: 16, backgroundColor: settings[item.key] ? C.white : C.ink, alignSelf: settings[item.key] ? 'flex-end' : 'flex-start' }} />
-                  </View>
-                </Pressable>
-              ))}
+            <SectionHead title={grp.title} />
+            <View style={{ paddingHorizontal: SP.l }}>
+              <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
+                {grp.items.map((item, i) => {
+                  const on = settings[item.key];
+                  return (
+                    <Pressable key={item.key} onPress={() => toggle(item.key)} style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center' }, i < grp.items.length - 1 && { borderBottomWidth: 1, borderColor: C.hairline }]}>
+                      <IconTile icon={item.icon as string} size={36} />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={T.bodyB}>{item.label}</Text>
+                        <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{item.sub}</Text>
+                      </View>
+                      <View style={[{ width: 44, height: 24, justifyContent: 'center', padding: 2, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                        <View style={{ width: 16, height: 16, backgroundColor: on ? C.white : C.ink, alignSelf: on ? 'flex-end' : 'flex-start' }} />
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           </View>
         ))}
@@ -577,7 +687,7 @@ export function LanguageScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Language" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'LOCALE · 8 LANGUAGES'}
           title={'Choose\nlanguage.'}
@@ -585,31 +695,35 @@ export function LanguageScreen() {
           chips={[{ label: 'Current: ' + (LANGUAGES.find(l => l.code === selected)?.label || 'English'), solid: true }]}
         />
 
-        <SectionLabel label="ALL LANGUAGES" right={`${LANGUAGES.length} AVAILABLE`} />
-        <View style={[{ marginTop: 8, backgroundColor: C.white }, BORDER(1)]}>
-          {LANGUAGES.map((lang, i) => {
-            const on = selected === lang.code;
-            return (
-              <Pressable
-                key={lang.code}
-                onPress={() => { setSelected(lang.code); showToast('Language', `${lang.label} selected`, 'globe'); }}
-                style={[
-                  { padding: SP.m, flexDirection: 'row', alignItems: 'center', backgroundColor: on ? C.ink : 'transparent' },
-                  i < LANGUAGES.length - 1 && { borderBottomWidth: 1, borderColor: on ? C.ink : C.hairline },
-                ]}
-              >
-                <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : C.white }, BORDER(1), on && { borderColor: C.white }]}>
-                  <Text style={[T.caption, { color: C.ink }]}>{lang.code.toUpperCase()}</Text>
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[T.body, { color: on ? C.white : C.ink }]}>{lang.label}</Text>
-                  <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>{lang.native}</Text>
-                </View>
-                <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginRight: 10 }]}>{lang.region}</Text>
-                {on && <Feather name="check" size={16} color={C.white} />}
-              </Pressable>
-            );
-          })}
+        <SectionHead title="All languages" right={`${LANGUAGES.length} available`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
+            {LANGUAGES.map((lang, i) => {
+              const on = selected === lang.code;
+              return (
+                <Pressable
+                  key={lang.code}
+                  onPress={() => { setSelected(lang.code); showToast('Language', `${lang.label} selected`, 'globe'); }}
+                  style={[
+                    { padding: SP.m, flexDirection: 'row', alignItems: 'center' },
+                    i < LANGUAGES.length - 1 && { borderBottomWidth: 1, borderColor: C.hairline },
+                  ]}
+                >
+                  <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                    <Text style={[T.caption, { color: C.ink }]}>{lang.code.toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[T.body, { color: C.ink, fontFamily: on ? 'Inter_700Bold' : undefined }]}>{lang.label}</Text>
+                    <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{lang.native}</Text>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim, marginRight: 12 }]}>{lang.region}</Text>
+                  <View style={[{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1), on && { borderColor: C.ink }]}>
+                    {on && <Feather name="check" size={13} color={C.white} />}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
       </ScrollView>
     </PageShell>
@@ -619,70 +733,89 @@ export function LanguageScreen() {
 // ═══════════════════════════════════════════════════════════
 // CUSTOMER SUPPORT
 // ═══════════════════════════════════════════════════════════
+const SUPPORT_CONTACTS = [
+  { key: 'chat', label: 'Live chat', sub: 'Online now · avg 2 min', icon: 'message-circle', toast: ['Live chat', 'Connecting you to an agent', 'message-circle'] as const },
+  { key: 'call', label: 'Call us', sub: 'Mon–Sun · 9am–9pm', icon: 'phone', toast: ['Call support', '1800-266-0000', 'phone'] as const },
+  { key: 'email', label: 'Email', sub: 'care@trendzo.in · replies in 24h', icon: 'mail', toast: ['Email support', 'care@trendzo.in', 'mail'] as const },
+];
+
+const SUPPORT_TOPICS = [
+  { label: 'Track my order', icon: 'package' },
+  { label: 'Return or exchange', icon: 'rotate-ccw' },
+  { label: 'Payment & refunds', icon: 'credit-card' },
+  { label: 'Size & fit help', icon: 'maximize' },
+];
+
+const SUPPORT_FAQ = [
+  { q: 'How long does delivery take?', a: 'Standard delivery lands in 3–5 days. Metro cities often get it next-day. Try & Buy orders are delivered the following day.' },
+  { q: 'What is the return window?', a: 'You have 7 days from delivery to start a free return. We schedule a doorstep pickup and refund within 3–5 days of receiving the item.' },
+  { q: 'When will I get my refund?', a: 'Refunds hit the original payment method 3–5 working days after we collect the return. Wallet refunds are instant.' },
+  { q: 'How do I use a gift card or coupon?', a: 'Apply it at checkout under “Apply code”. Gift cards never expire and can be combined with most offers.' },
+  { q: 'Can I change my delivery address?', a: 'Yes — as long as the order has not shipped. Head to Orders, open the order, and tap “Change address”.' },
+];
+
 export function CustomerSupportScreen() {
   const nav = useNavigation<any>();
-  const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<{ from: 'bot' | 'user'; text: string }[]>([
-    { from: 'bot', text: "Hey! I'm CX-Bot. How can I help you today?" },
-  ]);
-  const quick = ['Track order', 'Return item', 'Payment issue', 'Size help'];
-
-  const send = (text?: string) => {
-    const msg = (text ?? message).trim();
-    if (!msg) return;
-    setMessages(prev => [
-      ...prev,
-      { from: 'user', text: msg },
-      { from: 'bot', text: "Got it! Let me look into that. A human agent will follow up shortly." },
-    ]);
-    setMessage('');
-  };
+  const { showToast } = useApp();
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   return (
     <PageShell>
-      <ScreenHeader title="Support" onBack={() => nav.goBack()} />
-      <View style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 20 }}>
-          <Hero
-            code={'CX_BOT_v2 · 24×7'}
-            title={'We got\nyou.'}
-            intro="Live chat with CX-Bot. Escalates to a human agent in seconds."
-            chips={[{ label: 'ONLINE NOW', solid: true }, { label: 'AVG 2 MIN' }]}
-          />
+      <ScreenHeader title="Help Center" onBack={() => nav.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+        <Hero
+          code={'HELP_CENTER · 24×7'}
+          title={'We got\nyou.'}
+          intro="Browse answers or reach a human — support is online around the clock."
+          chips={[{ label: 'ONLINE NOW', solid: true }, { label: 'AVG 2 MIN' }]}
+        />
 
-          <SectionLabel label="QUICK HELP" />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {quick.map(q => (
-              <Pressable key={q} onPress={() => send(q)} style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={[T.caption, { color: C.ink }]}>{q}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <SectionLabel label="CONVERSATION" />
-          {messages.map((m, i) => (
-            <FadeInUp key={i} delay={i * 40}>
-              <View style={{ marginTop: SP.s, alignItems: m.from === 'bot' ? 'flex-start' : 'flex-end' }}>
-                {m.from === 'bot' && <Text style={[T.micro, { marginBottom: 4 }]}>CX-Bot</Text>}
-                {m.from === 'user' && <Text style={[T.micro, { marginBottom: 4 }]}>You</Text>}
-                <View style={[{ padding: SP.m, maxWidth: '85%', backgroundColor: m.from === 'bot' ? C.white : C.ink }, BORDER(1)]}>
-                  <Text style={[T.body, { color: m.from === 'bot' ? C.ink : C.white }]}>{m.text}</Text>
-                </View>
+        <SectionHead title="Contact us" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {SUPPORT_CONTACTS.map((c, i) => (
+            <Pressable key={c.key} onPress={() => showToast(c.toast[0], c.toast[1], c.toast[2])} style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+              <IconTile icon={c.icon} size={40} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={T.bodyB}>{c.label}</Text>
+                <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{c.sub}</Text>
               </View>
-            </FadeInUp>
+              <Feather name="chevron-right" size={16} color={C.ink} />
+            </Pressable>
           ))}
-        </ScrollView>
-        <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.s, borderTopWidth: 1, borderColor: C.hairline, backgroundColor: C.white }}>
-          <TextInput
-            value={message}
-            onChangeText={setMessage}
-            placeholder="Type your message..."
-            placeholderTextColor={C.dim}
-            style={[T.body, { flex: 1, padding: SP.m }, BORDER(1)]}
-          />
-          <BrutalButton label="Send" icon="send" small onPress={() => send()} />
         </View>
-      </View>
+
+        <SectionHead title="Popular topics" />
+        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+          {SUPPORT_TOPICS.map(t => (
+            <Pressable key={t.label} onPress={() => showToast(t.label, 'Opening help article', t.icon)} style={[{ width: '48.5%', padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
+              <Feather name={t.icon as any} size={16} color={C.ink} />
+              <Text style={[T.caption, { color: C.ink, flex: 1 }]} numberOfLines={2}>{t.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <SectionHead title="FAQ" right={`${SUPPORT_FAQ.length} answers`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
+            {SUPPORT_FAQ.map((f, i) => {
+              const open = openFaq === i;
+              return (
+                <View key={i} style={i < SUPPORT_FAQ.length - 1 ? { borderBottomWidth: 1, borderColor: C.hairline } : undefined}>
+                  <Pressable onPress={() => setOpenFaq(open ? null : i)} style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: 12 }}>
+                    <Text style={[T.body, { flex: 1, fontFamily: open ? 'Inter_700Bold' : undefined }]}>{f.q}</Text>
+                    <Feather name={open ? 'minus' : 'plus'} size={16} color={C.ink} />
+                  </Pressable>
+                  {open && (
+                    <View style={{ paddingHorizontal: SP.m, paddingBottom: SP.m, marginTop: -4 }}>
+                      <Text style={[T.caption, { color: C.dim, lineHeight: rf(19) }]}>{f.a}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </ScrollView>
     </PageShell>
   );
 }
@@ -702,51 +835,64 @@ export function StylePreferencesScreen() {
 
   const toggle = <T,>(arr: T[], setter: (v: T[]) => void, v: T) => setter(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
 
+  const swatchNames = ['Black', 'White', 'Tan', 'Navy', 'Beige', 'Coral'];
   return (
     <PageShell>
-      <ScreenHeader title="Style Prefs" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScreenHeader title="Style & Fit" onBack={() => nav.goBack()} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
         <Hero
-          code={'STYLE_DNA'}
-          title={'Your\naesthetic.'}
-          intro="Pick your vibes, sizes, and colors. Your feed tunes itself to match."
-          chips={[{ label: `${vibes.length} VIBES` }, { label: `${sizes.length} SIZES` }, { label: `${colors.length} COLORS` }]}
+          title={'Your\nAesthetic'}
+          intro="Pick your vibes, sizes and colours — your feed tunes itself to match."
+          chips={[{ label: `${vibes.length} vibes` }, { label: `${sizes.length} sizes` }, { label: `${colors.length} colours` }]}
         />
 
-        <SectionLabel label="SELECT VIBES" right={`${vibes.length} / ${allVibes.length}`} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: 8 }}>
-          {allVibes.map(v => (
-            <Chip key={v} label={v} active={vibes.includes(v)} onPress={() => toggle(vibes, setVibes, v)} />
-          ))}
-        </View>
-
-        <SectionLabel label="PREFERRED COLORS" right={`${colors.length} / ${swatches.length}`} />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-          {swatches.map((c, i) => {
-            const on = colors.includes(i);
+        {/* ─── VIBES — selectable 2-col tiles ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>Your Vibe</Text>
+        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+          {allVibes.map(v => {
+            const on = vibes.includes(v);
             return (
-              <Pressable key={i} onPress={() => toggle(colors, setColors, i)} style={[{ width: 48, height: 48, backgroundColor: c, alignItems: 'center', justifyContent: 'center' }, BORDER(on ? 2 : 1)]}>
-                {on && <Feather name="check" size={16} color={c === '#fff' || c === '#e8d5c4' ? C.ink : C.white} />}
+              <Pressable key={v} onPress={() => toggle(vibes, setVibes, v)} style={[{ width: '48.5%', paddingVertical: 16, paddingHorizontal: 14, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, BORDER(1)]}>
+                <Text style={[T.body, { color: on ? '#fff' : C.ink, fontFamily: on ? 'Inter_700Bold' : 'Inter_400Regular' }]}>{sentence(v)}</Text>
+                {on && <Feather name="check" size={16} color="#fff" />}
               </Pressable>
             );
           })}
         </View>
 
-        <SectionLabel label="SIZE RANGE" right={`${sizes.length} selected`} />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
-          {allSizes.map(s => (
-            <Chip key={s} label={s} active={sizes.includes(s)} onPress={() => toggle(sizes, setSizes, s)} />
-          ))}
+        {/* ─── COLOURS — labelled swatches ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>Colours You Love</Text>
+        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.m }}>
+          {swatches.map((c, i) => {
+            const on = colors.includes(i);
+            const light = c === '#fff' || c === '#e8d5c4';
+            return (
+              <Pressable key={i} onPress={() => toggle(colors, setColors, i)} style={{ alignItems: 'center', width: 48 }}>
+                <View style={[{ width: 48, height: 48, backgroundColor: c, alignItems: 'center', justifyContent: 'center' }, BORDER(on ? 2 : 1)]}>
+                  {on && <Feather name="check" size={16} color={light ? C.ink : '#fff'} />}
+                </View>
+                <Text style={[T.micro, { color: on ? C.ink : C.dim, marginTop: 5, fontFamily: on ? 'Inter_600SemiBold' : 'Inter_400Regular' }]}>{swatchNames[i]}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        <SectionLabel label="SHOPPING FOR" />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-          {['WOMEN', 'MEN', 'UNISEX'].map(g => (
-            <Chip key={g} label={g} active={g === 'UNISEX'} />
-          ))}
+        {/* ─── SIZES ─── */}
+        <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.s }]}>Your Sizes</Text>
+        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: SP.s, flexWrap: 'wrap' }}>
+          {allSizes.map(s => {
+            const on = sizes.includes(s);
+            return (
+              <Pressable key={s} onPress={() => toggle(sizes, setSizes, s)} style={[{ width: 52, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                <Text style={[T.body, { color: on ? '#fff' : C.ink, fontFamily: on ? 'Inter_700Bold' : 'Inter_400Regular' }]}>{s}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
-        <BrutalButton label="Save preferences" icon="check" block onPress={() => { showToast('Saved', 'Style preferences updated', 'check'); nav.goBack(); }} style={{ marginTop: SP.xl }} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <BrutalButton label="Save preferences" icon="check" block onPress={() => { showToast('Saved', 'Style preferences updated', 'check'); nav.goBack(); }} style={{ marginTop: SP.xl }} />
+        </View>
       </ScrollView>
     </PageShell>
   );
@@ -798,18 +944,17 @@ export function MeasurementScreen() {
           ))}
         </View>
 
-        <SectionLabel label="POINTS" right={`${measurements.length} RECORDED`} />
-        <View style={{ marginTop: 8, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+        <SectionLabel label="POINTS" right={`${measurements.length} recorded`} />
+        {/* Compact list — icon tile · label · value (no oversized numerals) */}
+        <View style={[{ marginTop: 8 }, BORDER(1)]}>
           {measurements.map((m, i) => (
-            <FadeInUp key={m.label} delay={i * 40} style={{ width: '48.5%' }}>
-              <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Feather name={m.icon as any} size={12} color={C.dim} />
-                  <Text style={T.caption}>{m.label}</Text>
-                </View>
-                <Text style={[T.h1, { marginTop: 6 }]}>{convert(m.valueCm)}</Text>
+            <View key={m.label} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
+              <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                <Feather name={m.icon as any} size={14} color={C.ink} />
               </View>
-            </FadeInUp>
+              <Text style={[T.body, { flex: 1, marginLeft: 10 }]}>{m.label}</Text>
+              <Text style={[T.body, { fontFamily: 'Inter_700Bold' }]}>{convert(m.valueCm)}</Text>
+            </View>
           ))}
         </View>
 
@@ -839,7 +984,7 @@ export function FashionCalendarScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Calendar" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'UPCOMING · 6 EVENTS'}
           title={'Fashion\ncalendar.'}
@@ -847,26 +992,30 @@ export function FashionCalendarScreen() {
           chips={[{ label: 'APR—JUN 2026', solid: true }]}
         />
 
-        <SectionLabel label="UPCOMING" />
-        <View style={{ marginTop: 8, gap: SP.s }}>
+        <SectionHead title="Upcoming" right={`${events.length} events`} />
+        <View style={{ paddingHorizontal: SP.l }}>
           {events.map((e, i) => (
             <FadeInUp key={i} delay={i * 50}>
-              <View style={[{ flexDirection: 'row', backgroundColor: C.white }, BORDER(1)]}>
-                {/* Date column */}
-                <View style={{ width: 80, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline }}>
-                  <Text style={[T.micro, { color: C.dim }]}>{e.day}</Text>
-                  <Text style={[T.bodyB, { color: C.ink, marginTop: 2 }]}>{e.date}</Text>
+              <View style={{ flexDirection: 'row' }}>
+                {/* Timeline rail — node + connecting line */}
+                <View style={{ width: 28, alignItems: 'center' }}>
+                  <View style={[{ width: 12, height: 12, backgroundColor: C.ink, marginTop: 4 }]} />
+                  {i < events.length - 1 && <View style={{ flex: 1, width: 1, backgroundColor: C.hairline, marginTop: 2 }} />}
                 </View>
-                {/* Content */}
-                <View style={{ flex: 1, padding: SP.m }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <View style={[{ paddingHorizontal: 6, paddingVertical: 2 }, BORDER(1)]}>
-                      <Text style={T.micro}>{e.tag}</Text>
+                {/* Content card */}
+                <View style={{ flex: 1, paddingBottom: SP.s }}>
+                  <View style={[{ backgroundColor: C.white, padding: SP.m }, BORDER(1)]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, backgroundColor: C.ink }}>
+                        <Text style={[T.micro, { color: C.white, letterSpacing: 0.5 }]}>{e.tag}</Text>
+                      </View>
+                      <Text style={[T.micro, { color: C.dim }]}>{e.day} · {e.date}</Text>
+                      <View style={{ flex: 1 }} />
+                      <Feather name={e.icon as any} size={13} color={C.dim} />
                     </View>
-                    <Feather name={e.icon as any} size={12} color={C.dim} />
+                    <Text style={T.h3}>{e.title}</Text>
+                    <Text style={[T.caption, { color: C.dim, marginTop: 3 }]}>{e.sub}</Text>
                   </View>
-                  <Text style={T.h3}>{e.title}</Text>
-                  <Text style={[T.body, { color: C.dim, marginTop: 3 }]}>{e.sub}</Text>
                 </View>
               </View>
             </FadeInUp>
@@ -897,7 +1046,7 @@ export function SustainabilityScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Eco" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'ECO_MODE · IMPACT_2026'}
           title={'Fashion\nfor good.'}
@@ -905,33 +1054,35 @@ export function SustainabilityScreen() {
           chips={[{ label: 'CARBON NEUTRAL', solid: true }, { label: 'B-CORP' }]}
         />
 
-        <SectionLabel label="YOUR IMPACT" />
-        <View style={[{ flexDirection: 'row', marginTop: 8, overflow: 'hidden' }, BORDER(1)]}>
-          {impact.map((s, i) => (
-            <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
-              <Text style={T.h2}>{s.value}</Text>
-              <Text style={[T.caption, { marginTop: 4 }]}>{s.label}</Text>
-            </View>
-          ))}
+        <SectionHead title="Your impact" right="this year" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
+            {impact.map((s, i) => (
+              <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
+                <Text style={[T.h2, { color: C.green }]}>{s.value}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' }]}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        <SectionLabel label="PILLARS" />
-        {pillars.map((item, i) => (
-          <FadeInUp key={i} delay={i * 50}>
-            <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={[{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
-                  <Feather name={item.icon as any} size={16} color={C.ink} />
+        <SectionHead title="Pillars" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {pillars.map((item, i) => (
+            <FadeInUp key={i} delay={i * 50}>
+              <View style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <IconTile icon={item.icon} size={40} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={T.bodyB}>{item.title}</Text>
+                    <Text style={[T.caption, { color: C.dim, marginTop: 3 }]}>{item.sub}</Text>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim }]}>{String(i + 1).padStart(2, '0')}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={T.h3}>{item.title}</Text>
-                  <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{item.sub}</Text>
-                </View>
-                <Text style={[T.micro, { color: C.dim }]}>{String(i + 1).padStart(2, '0')}</Text>
               </View>
-            </View>
-          </FadeInUp>
-        ))}
+            </FadeInUp>
+          ))}
+        </View>
       </ScrollView>
     </PageShell>
   );
@@ -1017,7 +1168,7 @@ export function OrderReturnScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Returns" onBack={back} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'RETURN_FLOW · 7D'}
           title={'Easy\nreturns.'}
@@ -1025,21 +1176,19 @@ export function OrderReturnScreen() {
           chips={[{ label: `STEP ${stepIndex + 1}/3`, solid: true }, { label: 'FREE PICKUP' }]}
         />
 
-        {/* Step progress */}
-        <View style={[{ flexDirection: 'row', marginTop: SP.l, overflow: 'hidden' }, BORDER(1)]}>
+        {/* Step progress — numbered nodes with a connecting track */}
+        <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.l }}>
           {stepLabels.map((label, i) => {
             const active = i === stepIndex;
             const done = i < stepIndex;
+            const reached = active || done;
             return (
-              <View
-                key={label}
-                style={[
-                  { flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: active || done ? C.ink : C.white },
-                  i > 0 && { borderLeftWidth: 1, borderColor: C.hairline },
-                ]}
-              >
-                <Text style={[T.caption, { color: active || done ? C.white : C.ink }]}>{label}</Text>
-                <Text style={[T.micro, { marginTop: 2, color: active || done ? 'rgba(255,255,255,0.6)' : C.dim }]}>0{i + 1}</Text>
+              <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                {i > 0 && <View style={{ position: 'absolute', top: 13, right: '50%', left: '-50%', height: 2, backgroundColor: reached ? C.ink : C.hairline }} />}
+                <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: reached ? C.ink : '#fff' }, BORDER(1)]}>
+                  {done ? <Feather name="check" size={13} color="#fff" /> : <Text style={[T.micro, { color: active ? '#fff' : C.dim }]}>{i + 1}</Text>}
+                </View>
+                <Text style={[T.micro, { color: reached ? C.ink : C.dim, fontFamily: active ? 'Inter_700Bold' : undefined, marginTop: 6, textTransform: 'uppercase' }]}>{label}</Text>
               </View>
             );
           })}
@@ -1047,8 +1196,8 @@ export function OrderReturnScreen() {
 
         {/* ── STEP 1: PICK ORDER ── */}
         {step === 'order' && (
-          <>
-            <SectionLabel label="SELECT ORDER" right={`${RETURNABLE_ORDERS.length} ELIGIBLE`} />
+          <View style={{ paddingHorizontal: SP.l }}>
+            <SectionHead title="Select order" right={`${RETURNABLE_ORDERS.length} eligible`} style={{ paddingHorizontal: 0 }} />
             {RETURNABLE_ORDERS.map((o, i) => {
               const expired = o.daysLeft <= 0;
               return (
@@ -1090,29 +1239,27 @@ export function OrderReturnScreen() {
                 </FadeInUp>
               );
             })}
-          </>
+          </View>
         )}
 
         {/* ── STEP 2: PICK ITEM ── */}
         {step === 'item' && selectedOrder && (
-          <>
+          <View style={{ paddingHorizontal: SP.l }}>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
-              <Text style={[T.caption, { color: C.dim }]}>{'Selected order'}</Text>
+              <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{'Selected order'}</Text>
               <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{`#${selectedOrder.id}`}</Text>
               <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D left in window</Text>
             </View>
 
-            <SectionLabel label="SELECT ITEM TO RETURN" right={`${selectedOrder.items.length} ITEMS`} />
+            <SectionHead title="Select item to return" right={`${selectedOrder.items.length} items`} style={{ paddingHorizontal: 0 }} />
             {selectedOrder.items.map((it, i) => {
               const on = itemId === it.id;
               return (
                 <FadeInUp key={it.id} delay={i * 40}>
                   <Pressable onPress={() => pickItem(it.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
-                      <Feather name="shopping-bag" size={16} color={on ? C.ink : C.ink} />
-                    </View>
+                    <IconTile icon="shopping-bag" size={44} on={on} />
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{it.brand}</Text>
+                      <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{it.brand}</Text>
                       <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{it.name}</Text>
                       <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>₹{it.price}</Text>
                     </View>
@@ -1121,27 +1268,25 @@ export function OrderReturnScreen() {
                 </FadeInUp>
               );
             })}
-          </>
+          </View>
         )}
 
         {/* ── STEP 3: PICK REASON ── */}
         {step === 'reason' && selectedOrder && selectedItem && (
-          <>
+          <View style={{ paddingHorizontal: SP.l }}>
             <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
-              <Text style={[T.caption, { color: C.dim }]}>{'Returning'}</Text>
+              <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{'Returning'}</Text>
               <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{selectedItem.name}</Text>
               <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
             </View>
 
-            <SectionLabel label="WHY ARE YOU RETURNING?" />
+            <SectionHead title="Why are you returning?" style={{ paddingHorizontal: 0 }} />
             {reasons.map((r, i) => {
               const on = reason === r.label;
               return (
                 <FadeInUp key={r.label} delay={i * 30}>
                   <Pressable onPress={() => setReason(r.label)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
-                      <Feather name={r.icon as any} size={14} color={C.ink} />
-                    </View>
+                    <IconTile icon={r.icon} size={36} on={on} />
                     <Text style={[T.body, { color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }]}>{r.label}</Text>
                     {on && <Feather name="check" size={16} color={C.white} />}
                   </Pressable>
@@ -1150,7 +1295,7 @@ export function OrderReturnScreen() {
             })}
 
             <BrutalButton label="Initiate return" icon="rotate-ccw" block disabled={!reason} onPress={submit} style={{ marginTop: SP.xl }} />
-          </>
+          </View>
         )}
       </ScrollView>
     </PageShell>
@@ -1175,7 +1320,7 @@ export function ReviewsScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Reviews" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'YOUR_REVIEWS'}
           title={'Your\nfeedback.'}
@@ -1183,43 +1328,59 @@ export function ReviewsScreen() {
           chips={[{ label: `${MOCK_REVIEWS.length} POSTED`, solid: true }, { label: `AVG ${avg}★` }, { label: 'HELPFUL' }]}
         />
 
-        <SectionLabel label="FILTER" />
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
+        {/* Summary strip */}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+          <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
+            <View style={{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }}>
+              <Text style={T.h1}>{avg}</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Avg rating</Text>
+            </View>
+            <View style={{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.hairline }}>
+              <Text style={T.h1}>{MOCK_REVIEWS.length}</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Reviews</Text>
+            </View>
+          </View>
+        </View>
+
+        <SectionHead title="Filter" />
+        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l }}>
           {(['ALL', '5', '4', '3'] as const).map(f => (
             <Chip key={f} label={f === 'ALL' ? 'ALL' : `${f} STAR`} active={filter === f} onPress={() => setFilter(f)} />
           ))}
         </View>
 
-        <SectionLabel label="POSTED" right={`${filtered.length} RESULTS`} />
-        {filtered.map((r, i) => (
-          <FadeInUp key={r.id} delay={i * 50}>
-            <View style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={T.caption}>{r.brand}</Text>
-                  <Text style={[T.bodyB, { marginTop: 2 }]}>{r.product}</Text>
+        <SectionHead title="Posted" right={`${filtered.length} results`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {filtered.map((r, i) => (
+            <FadeInUp key={r.id} delay={i * 50}>
+              <View style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{r.brand}</Text>
+                    <Text style={[T.bodyB, { marginTop: 2 }]}>{r.product}</Text>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim }]}>{r.date}</Text>
                 </View>
-                <Text style={T.micro}>{r.date}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 2, marginTop: 8 }}>
-                {[1, 2, 3, 4, 5].map(s => (
-                  <Text key={s} style={[T.h3, { color: s <= r.rating ? C.ink : C.hairline }]}>★</Text>
-                ))}
-              </View>
-              <Text style={[T.body, { marginTop: 8 }]}>{r.text}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: C.hairline, gap: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <Feather name="thumbs-up" size={12} color={C.ink} />
-                  <Text style={T.micro}>{r.likes} helpful</Text>
+                <View style={{ flexDirection: 'row', gap: 2, marginTop: 8 }}>
+                  {[1, 2, 3, 4, 5].map(s => (
+                    <Text key={s} style={[T.h3, { color: s <= r.rating ? C.ink : C.hairline }]}>★</Text>
+                  ))}
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <Feather name="edit-2" size={12} color={C.dim} />
-                  <Text style={T.micro}>Edit</Text>
+                <Text style={[T.body, { marginTop: 8 }]}>{r.text}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: C.hairline, gap: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Feather name="thumbs-up" size={12} color={C.ink} />
+                    <Text style={[T.micro, { color: C.dim }]}>{r.likes} helpful</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Feather name="edit-2" size={12} color={C.dim} />
+                    <Text style={[T.micro, { color: C.dim }]}>Edit</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          </FadeInUp>
-        ))}
+            </FadeInUp>
+          ))}
+        </View>
       </ScrollView>
     </PageShell>
   );
@@ -1242,7 +1403,7 @@ export function StorePickupScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Store Pickup" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         <Hero
           code={'PICKUP · ZERO_DELIVERY_FEE'}
           title={'Buy online.\nPick it up.'}
@@ -1251,44 +1412,42 @@ export function StorePickupScreen() {
           inverted
         />
 
-        <SectionLabel label="HOW_IT_WORKS" />
-        <View style={{ marginTop: 8, gap: SP.s }}>
+        <SectionHead title="How it works" />
+        <View style={{ paddingHorizontal: SP.l }}>
           {[
             { i: 1, t: 'Shop as normal', sub: 'Add anything from the app to your bag' },
             { i: 2, t: 'Pick in-store pickup at checkout', sub: 'Choose your nearest store from the list' },
             { i: 3, t: "We ping you when it's ready", sub: 'Show the QR at the counter — walk out with it' },
-          ].map(step => (
-            <View key={step.i} style={[{ flexDirection: 'row', padding: SP.s, gap: 10, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+          ].map((step, i) => (
+            <View key={step.i} style={[{ marginTop: i === 0 ? 0 : SP.s, flexDirection: 'row', padding: SP.m, gap: 12, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
               <View style={[{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
                 <Text style={[T.bodyB, { color: C.ink }]}>{step.i}</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB]}>{step.t}</Text>
-                <Text style={[T.micro, { marginTop: 2 }]}>{step.sub}</Text>
+                <Text style={T.bodyB}>{step.t}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{step.sub}</Text>
               </View>
             </View>
           ))}
         </View>
 
-        <SectionLabel label="STORES_NEAR_YOU" right={`${PICKUP_STORES.length} FOUND`} />
-        <View style={{ marginTop: 8, gap: SP.s }}>
-          {PICKUP_STORES.map(st => {
+        <SectionHead title="Stores near you" right={`${PICKUP_STORES.length} found`} />
+        <View style={{ paddingHorizontal: SP.l }}>
+          {PICKUP_STORES.map((st, idx) => {
             const on = picked === st.id;
             return (
-              <Pressable key={st.id} onPress={() => setPicked(st.id)} style={[{ padding: SP.m, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+              <Pressable key={st.id} onPress={() => setPicked(st.id)} style={[{ marginTop: idx === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                  <View style={[{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : C.ink }]}>
-                    <Feather name="map-pin" size={20} color={on ? C.ink : C.white} />
-                  </View>
+                  <IconTile icon="map-pin" size={44} on={on} />
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>{st.name}</Text>
-                      <View style={[{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : C.ink }]}>
+                      <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : C.ink }}>
                         <Text style={[T.micro, { color: on ? C.ink : C.white }]}>{st.dist}</Text>
                       </View>
                     </View>
                     <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3 }]}>{st.addr}</Text>
-                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6, alignItems: 'center' }}>
                       <Text style={[T.caption, { color: on ? C.white : C.ink }]}>Ready in {st.eta}</Text>
                       <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{st.open}</Text>
                     </View>
@@ -1297,9 +1456,9 @@ export function StorePickupScreen() {
               </Pressable>
             );
           })}
-        </View>
 
-        <BrutalButton label="Shop now — pickup in store" iconRight="arrow-right" block onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.xl }} />
+          <BrutalButton label="Shop now — pickup in store" iconRight="arrow-right" block onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.xl }} />
+        </View>
       </ScrollView>
     </PageShell>
   );
@@ -1313,7 +1472,7 @@ export function TryAndBuyScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Try & Buy" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         <Hero
           code={'TRY_AT_HOME // FREE_RETURNS'}
           title={"Try it.\nKeep it.\nOr don't."}
@@ -1322,40 +1481,47 @@ export function TryAndBuyScreen() {
           inverted
         />
 
-        <SectionLabel label="HOW_IT_WORKS" />
-        <View style={{ marginTop: 8, gap: 8 }}>
+        <SectionHead title="How it works" />
+        <View style={{ paddingHorizontal: SP.l }}>
           {[
             { i: 1, t: 'Add up to 5 items to your bag' },
             { i: 2, t: 'Pick Try & Buy at checkout' },
             { i: 3, t: 'Courier delivers next day, waits 15 min at your door' },
             { i: 4, t: 'Try everything on — keep what fits' },
             { i: 5, t: 'Return the rest on the spot · zero hassle, zero fee' },
-          ].map(step => (
-            <View key={step.i} style={[{ flexDirection: 'row', padding: SP.s, gap: 10, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-              <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
-                <Text style={[T.bodyB, { color: C.ink }]}>{step.i}</Text>
+          ].map((step, i) => (
+            <View key={step.i} style={{ flexDirection: 'row' }}>
+              <View style={{ width: 28, alignItems: 'center' }}>
+                <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
+                  <Text style={[T.bodyB, { color: C.white }]}>{step.i}</Text>
+                </View>
+                {i < 4 && <View style={{ flex: 1, width: 1, backgroundColor: C.hairline, marginVertical: 2 }} />}
               </View>
-              <Text style={[T.body, { flex: 1 }]}>{step.t}</Text>
+              <View style={{ flex: 1, paddingBottom: i < 4 ? SP.m : 0, paddingLeft: 12, paddingTop: 4 }}>
+                <Text style={[T.body, { flex: 1 }]}>{step.t}</Text>
+              </View>
             </View>
           ))}
         </View>
 
-        <SectionLabel label="GOOD_TO_KNOW" />
-        <View style={[{ marginTop: 8, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-          {[
-            'Only get charged for what you keep',
-            'COD not available for Try & Buy orders',
-            'Max trial slots per month: 3',
-            'Must be home when the courier arrives',
-          ].map((t, i) => (
-            <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: i === 0 ? 0 : 8, alignItems: 'center' }}>
-              <Feather name="check" size={14} color={C.ink} />
-              <Text style={[T.body, { flex: 1 }]}>{t}</Text>
-            </View>
-          ))}
-        </View>
+        <SectionHead title="Good to know" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+            {[
+              'Only get charged for what you keep',
+              'COD not available for Try & Buy orders',
+              'Max trial slots per month: 3',
+              'Must be home when the courier arrives',
+            ].map((t, i) => (
+              <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: i === 0 ? 0 : 10, alignItems: 'center' }}>
+                <Feather name="check" size={14} color={C.ink} />
+                <Text style={[T.body, { flex: 1 }]}>{t}</Text>
+              </View>
+            ))}
+          </View>
 
-        <BrutalButton label="Shop Try & Buy →" iconRight="arrow-right" block onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.xl }} />
+          <BrutalButton label="Shop Try & Buy →" iconRight="arrow-right" block onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.xl }} />
+        </View>
       </ScrollView>
     </PageShell>
   );

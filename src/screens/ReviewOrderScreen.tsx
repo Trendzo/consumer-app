@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import { View, Text, ScrollView, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
+import Animated, { useDerivedValue, useAnimatedStyle, withTiming, interpolateColor, Easing } from 'react-native-reanimated';
 import { C, T, SP, BORDER } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, OptionSheet, BrutalButton } from '../components/Brutal';
 import { useApp } from '../state/AppState';
@@ -17,12 +18,39 @@ const PAYMENTS = [
 ];
 const REWARD_BALANCE = 240; // MyTrendz reward points (₹1 = 1 pt)
 
-// Small monochrome on/off switch
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+// Call right BEFORE a setState that changes layout (expand a box, apply a
+// coupon, update the price rows) so the change eases in/out instead of jumping.
+const animateNext = () =>
+  LayoutAnimation.configureNext({
+    duration: 240,
+    create: { type: 'easeInEaseOut', property: 'opacity' },
+    update: { type: 'easeInEaseOut' },
+    delete: { type: 'easeInEaseOut', property: 'opacity' },
+  });
+
+// Standard pill switch — green track = ON, grey track = OFF. The knob slides
+// and the track colour crossfades smoothly (spring-y timing) on toggle.
 function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
-  // Knob is absolutely positioned so it visibly slides left↔right (flex didn't move it)
+  const p = useDerivedValue(() => withTiming(on ? 1 : 0, { duration: 220, easing: Easing.inOut(Easing.cubic) }), [on]);
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(p.value, [0, 1], ['#CFCFCF', '#1D9E63']),
+  }));
+  const knobStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: p.value * 20 }], // 50 − padding*2 − knob(24) = 20
+  }));
   return (
-    <Pressable onPress={onPress} hitSlop={12} style={[{ width: 50, height: 28, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
-      <View style={{ position: 'absolute', top: 3, left: on ? 26 : 2, width: 20, height: 20, backgroundColor: on ? C.white : C.ink }} />
+    <Pressable onPress={onPress} hitSlop={12}>
+      <Animated.View style={[{ width: 50, height: 30, borderRadius: 15, padding: 3, justifyContent: 'center', alignItems: 'flex-start' }, trackStyle]}>
+        <Animated.View
+          style={[{
+            width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF',
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+          }, knobStyle]}
+        />
+      </Animated.View>
     </Pressable>
   );
 }
@@ -149,7 +177,7 @@ export default function ReviewOrderScreen() {
                   </View>
                   <Text style={[T.bodyB]}>{user?.name || 'You'}</Text>
                 </View>
-                <Pressable onPress={() => setAddrOpen((v) => !v)} hitSlop={8}>
+                <Pressable onPress={() => { animateNext(); setAddrOpen((v) => !v); }} hitSlop={8}>
                   <Text style={[T.caption, { color: C.ink }]}>{addrOpen ? 'Close' : 'Change'}</Text>
                 </Pressable>
               </View>
@@ -162,7 +190,7 @@ export default function ReviewOrderScreen() {
                 {addresses.map((a) => {
                   const sel = a.id === addrId;
                   return (
-                    <Pressable key={a.id} onPress={() => { setAddrId(a.id); setAddrOpen(false); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
+                    <Pressable key={a.id} onPress={() => { animateNext(); setAddrId(a.id); setAddrOpen(false); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
                       <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
                       <View style={{ flex: 1 }}>
                         <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{a.label || 'Address'}</Text>
@@ -196,7 +224,7 @@ export default function ReviewOrderScreen() {
                 <Text style={[T.bodyB]}>Try & Buy</Text>
                 <Text style={[T.caption, { marginTop: 1 }]}>Try at home first · keep what you love · +₹99</Text>
               </View>
-              <Toggle on={tryBuy} onPress={() => setTryBuy((v) => !v)} />
+              <Toggle on={tryBuy} onPress={() => { animateNext(); setTryBuy((v) => !v); }} />
             </View>
 
             {/* ITEMS — read-only, no qty controls */}
@@ -221,7 +249,7 @@ export default function ReviewOrderScreen() {
             </View>
 
             {/* COUPON */}
-            <Pressable onPress={() => setCoupon((v) => !v)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+            <Pressable onPress={() => { animateNext(); setCoupon((v) => !v); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
               <Feather name="tag" size={16} color={C.ink} />
               <View style={{ flex: 1 }}>
                 <Text style={[T.bodyB]}>{coupon ? 'TRENDZO50 applied' : 'Apply coupon'}</Text>
@@ -239,7 +267,7 @@ export default function ReviewOrderScreen() {
                 <Text style={[T.bodyB]}>MyTrendz Rewards</Text>
                 <Text style={[T.caption, { marginTop: 1 }]}>{`Use ${REWARD_BALANCE} pts · saves ₹${REWARD_BALANCE}`}</Text>
               </View>
-              <Toggle on={useReward} onPress={() => setUseReward((v) => !v)} />
+              <Toggle on={useReward} onPress={() => { animateNext(); setUseReward((v) => !v); }} />
             </View>
 
             {/* PRICE DETAILS */}

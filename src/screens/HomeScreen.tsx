@@ -200,6 +200,19 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 
 export default function HomeScreen() {
   const nav = useNavigation<any>();
+  // Search opens as an in-place morph: measure the tapped bar and hand its
+  // on-screen frame to the Search screen so it can grow from exactly there.
+  const heroSearchRef = useRef<any>(null);
+  const floatSearchRef = useRef<any>(null);
+  const openSearch = (r: React.RefObject<any>) => {
+    const node = r.current;
+    if (node?.measureInWindow) {
+      node.measureInWindow((x: number, y: number, w: number, h: number) => {
+        if (w && h) nav.navigate('Search', { _frame: { x, y, w, h } });
+        else nav.navigate('Search');
+      });
+    } else nav.navigate('Search');
+  };
   const insets = useSafeAreaInsets();
   const { gender, setGender, curveProgress, showConfirm, tabBarOffset } = useApp();
   const [refreshing, setRefreshing] = useState(false);
@@ -237,6 +250,16 @@ export default function HomeScreen() {
     });
     return () => task.cancel();
   }, [homeArmed, gender]));
+
+  // Returning to Home (e.g. popping back from Search / a category) always
+  // re-reveals the floating tab bar, and locks the scroll-driven toggle for a
+  // beat so a settling scroll event can't hide it again (the flicker).
+  useFocusEffect(useCallback(() => {
+    tabScrollLock.value = true;
+    tabBarOffset.value = withTiming(0, { duration: 200 });
+    const t = setTimeout(() => { tabScrollLock.value = false; }, 700);
+    return () => clearTimeout(t);
+  }, []));
 
   // Refetch the whole home catalog when HER/HIM flips or the user pulls to
   // refresh. Each slice lands independently into the per-gender cache so one
@@ -323,14 +346,21 @@ export default function HomeScreen() {
     opacity: floatSearch.value,
     transform: [{ translateY: interpolate(floatSearch.value, [0, 1], [-24, 0]) }],
   }));
+  // While TRUE, scroll events don't touch the tab bar. Set for a short window
+  // right after Home regains focus (returning from Search / a pushed screen)
+  // so a settling scroll event can't fire a spurious hide → the "shows, hides,
+  // shows" flicker. lastScrollY still tracks so dy is fresh when the lock lifts.
+  const tabScrollLock = useSharedValue(false);
   const onHomeScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
       const y = e.contentOffset.y;
       // Hide the floating tab bar on scroll-down, reveal on scroll-up / at top.
       const dy = y - lastScrollY.value;
-      if (y <= 4) tabBarOffset.value = withTiming(0, { duration: 200 });
-      else if (dy > 8) tabBarOffset.value = withTiming(1, { duration: 220 });
-      else if (dy < -8) tabBarOffset.value = withTiming(0, { duration: 200 });
+      if (!tabScrollLock.value) {
+        if (y <= 4) tabBarOffset.value = withTiming(0, { duration: 200 });
+        else if (dy > 8) tabBarOffset.value = withTiming(1, { duration: 220 });
+        else if (dy < -8) tabBarOffset.value = withTiming(0, { duration: 200 });
+      }
       lastScrollY.value = y;
 
       const nowPinned = y >= catSectionY.value - 1;
@@ -615,7 +645,7 @@ export default function HomeScreen() {
               </View>
 
               {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
-              <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
+              <AnimatedPressable ref={heroSearchRef} onPress={() => openSearch(heroSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
                 <RealIcon name="search" size={22} color="#FFFFFF" />
                 <Text style={[T.body, { flex: 1, color: '#fff' }]}>Search 60-min drops...</Text>
                 <RealIcon name="mic" size={16} color="#fff" />
@@ -682,7 +712,7 @@ export default function HomeScreen() {
         ║  1 tall hero tile + 2 stacked tiles beside it ║
         ╚══════════════════════════════════════════════╝
         */}
-        <SectionHead title="STEALS" action="ALL" onAction={() => nav.navigate('Categories')} hideCaret hideBottomDivider />
+        <SectionHead title="STEALS" action="ALL" onAction={() => nav.navigate('Steals')} hideCaret hideBottomDivider />
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
           {(() => {
             const steals = gender === 'her' ? HER_STEALS : HIM_STEALS;
@@ -696,7 +726,7 @@ export default function HomeScreen() {
                   width={STEAL_COL_W}
                   height={STEAL_BIG_H}
                   curveSmStyle={curveSmStyle}
-                  onPress={() => nav.navigate('Categories', { id: steals[0].id, label: steals[0].label })}
+                  onPress={() => nav.navigate('Steals')}
                 />
                 <View style={{ gap: STEAL_GAP }}>
                   {steals.slice(1, 3).map((s) => (
@@ -708,7 +738,7 @@ export default function HomeScreen() {
                       width={STEAL_COL_W}
                       height={STEAL_SMALL_H}
                       curveSmStyle={curveSmStyle}
-                      onPress={() => nav.navigate('Categories', { id: s.id, label: s.label })}
+                      onPress={() => nav.navigate('Steals')}
                     />
                   ))}
                 </View>
@@ -742,7 +772,7 @@ export default function HomeScreen() {
                 <CachedImage source={OCC_HEAD_BG} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
 
                 {/* Centered heading. */}
-                <Pressable onPress={() => nav.navigate('OccasionShopping')} style={{ alignItems: 'center', paddingTop: SP.l }}>
+                <Pressable onPress={() => nav.navigate('ShopByOccasion')} style={{ alignItems: 'center', paddingTop: SP.l }}>
                   <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
                     Shop by Occasion
                   </Text>
@@ -761,7 +791,7 @@ export default function HomeScreen() {
                         label={c.label}
                         img={c.img}
                         curveSmStyle={curveSmStyle}
-                        onPress={() => nav.navigate('Categories', { id: c.id, label: c.label })}
+                        onPress={() => nav.navigate('ShopByOccasion', { occasion: c.label.toLowerCase() })}
                       />
                     ))}
                   </ScrollView>
@@ -776,7 +806,7 @@ export default function HomeScreen() {
         ║  FLASH FIT OF THE DAY — bundle grid (fit)     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <FlashFitBundle onOpen={(label) => nav.navigate('Category', { id: label.toLowerCase(), label })} />
+        <FlashFitBundle onOpen={() => nav.navigate('FlashFit')} />
 
         {/* ═══════════ SHOP BY VIBE — commented out for now (redesign request).
             Kept intact below so it can be restored later; not deleted.
@@ -822,7 +852,7 @@ export default function HomeScreen() {
             {/* cutout models on top — transparent bg lets the wordmark show through */}
             <CachedImage source={VR_TRY_ON} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
             {/* plain "Explore" text link, pinned to the bottom (no box/bg) */}
-            <Pressable onPress={() => nav.navigate('Categories')} style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+            <Pressable onPress={() => nav.navigate('TryOnPicker')} style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
               <Text style={[T.button, { color: C.ink }]}>View</Text>
               <Feather name="arrow-right" size={16} color={C.ink} />
             </Pressable>
@@ -875,19 +905,11 @@ export default function HomeScreen() {
                   <Text style={[T.micro]}>{`${list.length} results · ${exploreFilter} · ${exploreSort}`}</Text>
                 </View>
 
-                {/* 2-col grid — image fills the card frame */}
+                {/* 2-col grid — use the shared ProductCard so every tile opens
+                    the product with the same smooth zoom morph as elsewhere. */}
                 <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
                   {visible.map((p, i) => (
-                    <Pressable key={p.id + '-' + i} onPress={() => nav.navigate('ProductDetail', { product: p })} style={{ width: CARD.w, marginBottom: SP.s }}>
-                      <View style={[{ width: CARD.w, height: CARD.imgH, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-                        <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                      </View>
-                      <Text style={[T.productName, { marginTop: 6 }]} numberOfLines={1}>{p.name}</Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                        <Text style={T.price}>₹{p.price}</Text>
-                        {p.original > p.price && <Text style={T.mrp}>₹{p.original}</Text>}
-                      </View>
-                    </Pressable>
+                    <ProductCard key={p.id + '-' + i} p={p} style={{ width: CARD.w, marginBottom: SP.s }} />
                   ))}
                 </View>
 
@@ -933,7 +955,7 @@ export default function HomeScreen() {
           pointerEvents={floatSearchOn ? 'auto' : 'none'}
           style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: insets.top + 6, paddingBottom: 10, paddingHorizontal: SP.l, backgroundColor: C.bg, zIndex: 50, elevation: 50 }, floatSearchStyle]}
         >
-          <AnimatedPressable onPress={() => nav.navigate('Search')} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white }, curveStyle]}>
+          <AnimatedPressable ref={floatSearchRef} onPress={() => openSearch(floatSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white }, curveStyle]}>
             <RealIcon name="search" size={20} color={C.ink} />
             <Text style={[T.body, { flex: 1, color: C.dim }]}>Search 60-min drops...</Text>
             <RealIcon name="mic" size={16} color={C.ink} />
@@ -1095,10 +1117,10 @@ function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
       const strongYank = e.velocityX < -900 && tx.value <= -LIMIT * 0.28;
       const willFlip = tx.value <= -LIMIT * 0.55 || strongYank;
       if (willFlip) runOnJS(buzz)(); // instant haptic acknowledgement
-      // FAST springy snap-back — stiffer spring so the whole bounce (overshoot
-      // + wobble) is over in ~0.4s; the gender flip fires only in the spring's
-      // completion callback, i.e. strictly AFTER the animation has finished.
-      tx.value = withSpring(0, { damping: 12, stiffness: 460, mass: 0.6 }, (finished) => {
+      // Smooth springy snap-back — softer spring so the return to normal reads
+      // as a relaxed glide (~0.8s) rather than a hard snap; the gender flip fires
+      // only in the spring's completion callback, i.e. strictly AFTER it settles.
+      tx.value = withSpring(0, { damping: 17, stiffness: 200, mass: 0.9 }, (finished) => {
         if (willFlip && finished) runOnJS(onFlip)();
       });
     });
@@ -1140,8 +1162,8 @@ const ZOOM_TINTS = ['#E8A79A', '#A9BFE6', '#BDE3C3', '#E6D3A9', '#D9B8E6', '#A9D
 function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'him'; setGender: (g: 'her' | 'him') => void }) {
   const cats = gender === 'her' ? HER_EXPLORE : HIM_EXPLORE;
   const go = (label: string) => nav.navigate('Categories', { label });
-  // Tap → hero-morph: the measured tile frame rides along so the dome takes
-  // off from the exact card the user touched.
+  // Tap → hero-morph: measure the tapped tile's on-screen frame and hand it to
+  // CategoryZoom so the dome/circle takes off from exactly that card.
   const goZoom = (c: { label: string; img: any }, i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
     nav.navigate('CategoryZoom', { label: c.label, img: c.img, tint: ZOOM_TINTS[i % ZOOM_TINTS.length], _frame: frame });
   const EX_CW = (W - SP.l * 2 - EX_GAP * 2) / 3; // 3 columns
@@ -1197,8 +1219,11 @@ function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'hi
 function BannerSlide({ item, onPress }: { item: any; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={{ width: W }}>
-      {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design) */}
-      <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: C.white }}>
+      {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design).
+          Dark backing (was white) so any un-painted frame — e.g. when the Search
+          overlay lifts on close — blends with the banner's dark scrim instead of
+          flashing bright white. */}
+      <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: '#0e0e0e' }}>
         <CachedImage source={item.campaign} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
       </View>
     </Pressable>
@@ -1317,7 +1342,7 @@ function StoryCard({ s, i, scrollX, nav }: { s: StoryPoster; i: number; scrollX:
   return (
     <Animated.View style={[{ width: STORY_CARD_W }, aStyle]}>
       <Pressable
-        onPress={() => nav.navigate('Categories')}
+        onPress={() => nav.navigate('TopStories')}
         style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
       >
         <Text style={[T.caption, { textAlign: 'center', paddingVertical: 12 }]}>
@@ -1358,12 +1383,14 @@ function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
 
   return (
     <View style={{ marginTop: SP.xl }}>
-      <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
-        Top Stories of the Week
-      </Text>
-      <Text style={[T.body, { color: C.dim, textAlign: 'center', marginTop: 3 }]}>
-        In the spotlight
-      </Text>
+      <Pressable onPress={() => nav.navigate('TopStories')}>
+        <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
+          Top Stories of the Week
+        </Text>
+        <Text style={[T.body, { color: C.dim, textAlign: 'center', marginTop: 3 }]}>
+          In the spotlight
+        </Text>
+      </Pressable>
 
       <Animated.ScrollView
         ref={listRef}
@@ -2137,14 +2164,14 @@ function FlashFitBundle({ onOpen }: { onOpen?: (label: string) => void }) {
   return (
     <View style={{ marginTop: SP.xl, backgroundColor: C.white }}>
       {/* header */}
-      <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
+      <Pressable onPress={() => onOpen?.('Flash Fit')} style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
         <Text style={[T.h2, { color: C.ink, textTransform: 'uppercase' }]} numberOfLines={1} adjustsFontSizeToFit>Flash Fit of the Day</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
           <Text style={[T.caption, { color: C.dim }]}>Fresh looks served hot!</Text>
           <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Under ₹999</Text>
           <Feather name="chevron-right" size={14} color={C.ink} />
         </View>
-      </View>
+      </Pressable>
       {/* bento grid — tall tiles on the diagonal */}
       <View style={{ flexDirection: 'row', gap: SP.s, padding: SP.l }}>
         <View style={{ flex: 1, gap: SP.s }}>

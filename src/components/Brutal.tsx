@@ -468,15 +468,19 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
   children?: ReactNode;
 }) {
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      {/* scrim fades in place — only the SHEET slides, so no moving overlay */}
-      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        {/* scrim — quick fade, tap anywhere to close */}
+        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 180 }} style={StyleSheet.absoluteFillObject}>
+          <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} />
+        </MotiView>
+        {/* sheet — slides UP from the bottom (shutter), never fades */}
         <MotiView
-          from={{ translateY: 300 }}
+          from={{ translateY: 520 }}
           animate={{ translateY: 0 }}
-          transition={{ type: 'timing', duration: 220 }}
+          transition={{ type: 'timing', duration: 300 }}
         >
-          {/* sheet — stop taps from falling through to the scrim */}
+          {/* stop taps from falling through to the scrim */}
           <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: 28 }, BORDER(1)]}>
             {/* header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
@@ -500,7 +504,7 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
             })}
           </Pressable>
         </MotiView>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

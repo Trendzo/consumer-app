@@ -4,6 +4,7 @@
 // is optional and also drives the app's her/him UI morph.
 import React, { useState } from 'react';
 import { View, Text, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { C, T, SP, rf, BORDER } from '../theme/brutal';
 import { BrutalButton, BrutalInput, BrutalStatusBar } from '../components/Brutal';
 import { useApp } from '../state/AppState';
@@ -57,9 +58,15 @@ export function CompleteProfileScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
+      {/* Back — only when opened from Profile ("Basics"), not the forced first-login step */}
+      {navigation.canGoBack() && (
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ position: 'absolute', top: 52, left: SP.s, zIndex: 10, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Feather name="arrow-left" size={22} color={C.ink} />
+        </Pressable>
+      )}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={{ paddingTop: 64, paddingHorizontal: SP.l, paddingBottom: 40 }}
+          contentContainerStyle={{ paddingTop: 100, paddingHorizontal: SP.l, paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={[T.caption, { color: C.dim }]}>One last step</Text>
