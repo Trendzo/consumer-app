@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, Image, Dimensions, FlatList, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, StackActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -126,7 +126,16 @@ export default function CategoryScreen() {
             </View>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
+            {/* ONE bag only — pop to the real Tabs first, then switch to the
+                Bag tab (direct navigate from over a transparentModal makes iOS
+                present a second Tabs as a sheet). */}
+            <BrutalIconBtn
+              icon="shopping-bag"
+              onPress={() => {
+                nav.dispatch(StackActions.popToTop());
+                setTimeout(() => nav.navigate('Tabs', { screen: 'CartTab' }), 0);
+              }}
+            />
           </View>
         </View>
 

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import Animated, { useDerivedValue, useAnimatedStyle, withTiming, interpolateColor, Easing } from 'react-native-reanimated';
 import { C, T, SP, BORDER } from '../theme/brutal';
-import { BrutalStatusBar, CachedImage, OptionSheet, BrutalButton } from '../components/Brutal';
+import { BrutalStatusBar, CachedImage, BrutalButton } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 import { placeOrder as placeOrderApi, newIdempotencyKey } from '../services/orders';
@@ -17,6 +17,15 @@ const PAYMENTS = [
   { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: '₹1,240 balance' },
 ];
 const REWARD_BALANCE = 240; // MyTrendz reward points (₹1 = 1 pt)
+
+// Delivery methods — mirrors the Bag's buckets so a per-bucket checkout shows
+// the same label/fee here. Try & Buy stays an express-only add-on.
+type BagMethod = 'express' | 'standard' | 'pickup';
+const DELIVERY_META: Record<BagMethod, { label: string; sub: string; icon: string; fee: number }> = {
+  express:  { label: 'Express · 60 min',    sub: 'From your nearest store',        icon: 'zap',     fee: 99 },
+  standard: { label: 'Standard · 2-3 days', sub: 'Tracked shipping · door-to-door', icon: 'package', fee: 49 },
+  pickup:   { label: 'Instore pickup',      sub: 'Ready at your nearest store',     icon: 'map-pin', fee: 0 },
+};
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -57,8 +66,13 @@ function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
 
 export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
-  const { cart, cartTotal, placeOrder, showToast, token, user, requireAuth } = useApp();
-  const items = cart;
+  const route = useRoute<any>();
+  const { cart, placeOrder, showToast, token, user, requireAuth } = useApp();
+  // Launched from a Bag bucket → only that bucket's items + its delivery
+  // method. Launched from Buy Now (no param) → whole bag, express.
+  const preMethod = route.params?.preMethod as BagMethod | undefined;
+  const delivery: BagMethod = preMethod ?? 'express';
+  const items = preMethod ? cart.filter((it: any) => ((it.method || 'express') as BagMethod) === preMethod) : cart;
 
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addrId, setAddrId] = useState<string | null>(null);
@@ -66,18 +80,33 @@ export default function ReviewOrderScreen() {
   const [coupon, setCoupon] = useState(false);
   const [useReward, setUseReward] = useState(false);
   const [tryBuy, setTryBuy] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
+  // Payment is picked INLINE on the page (was a bottom-sheet modal).
   const [payId, setPayId] = useState('upi');
   const [pricing, setPricing] = useState<CartPricing | null>(null);
   const [placing, setPlacing] = useState(false);
 
-  // Load saved addresses; preselect the default.
-  useEffect(() => {
+  // Load saved addresses on EVERY focus (not just mount) — an address added on
+  // the SavedAddresses screen appears here immediately on return. Preselect the
+  // default when nothing valid is selected yet.
+  useFocusEffect(React.useCallback(() => {
     listAddresses().then((list) => {
       setAddresses(list);
-      setAddrId((cur) => cur ?? (list.find((a) => a.isDefault)?.id ?? list[0]?.id ?? null));
+      setAddrId((cur) => (cur && list.some((a) => a.id === cur))
+        ? cur
+        : (list.find((a) => a.isDefault)?.id ?? list[0]?.id ?? null));
     }).catch(() => {});
-  }, []);
+  }, []));
+
+  // An address tapped on the SavedAddresses screen ("Deliver here") arrives as
+  // a route param — apply it and clear the param.
+  useEffect(() => {
+    const picked = route.params?.pickedAddressId;
+    if (picked) {
+      setAddrId(picked);
+      setAddrOpen(false);
+      nav.setParams({ pickedAddressId: undefined });
+    }
+  }, [route.params?.pickedAddressId]);
 
   // Real server totals for the cart (guest-ok); falls back to local math.
   const allPriceable = items.length > 0 && items.every((it) => !!it.variantId);
@@ -94,10 +123,11 @@ export default function ReviewOrderScreen() {
 
   const agg = pricing?.aggregate;
   const mrpSavings = items.reduce((s, it) => s + Math.max(0, it.original - it.price) * it.qty, 0);
-  const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : (cartTotal || items.reduce((s, it) => s + it.price * it.qty, 0));
+  // Items-based (NOT cartTotal) so a filtered bucket prices only its own lines.
+  const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : items.reduce((s, it) => s + it.price * it.qty, 0);
   const couponOff = coupon ? 50 : 0;
   const rewardOff = useReward ? Math.min(REWARD_BALANCE, Math.max(0, subtotal - couponOff)) : 0;
-  const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : 99;
+  const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : DELIVERY_META[delivery].fee;
   const taxAmt = agg ? toRupees(agg.taxPaise) : 0;
   const tryBuyFee = tryBuy ? 99 : 0;
   const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
@@ -107,10 +137,11 @@ export default function ReviewOrderScreen() {
   // record the real order id for the success/tracking screens. Needs login + address.
   const placeIt = async () => {
     if (placing) return;
-    if (!token) { setPayOpen(false); requireAuth(() => placeIt()); return; }
-    if (!addr) { setPayOpen(false); showToast('Add an address', 'Add a delivery address', 'map-pin'); nav.navigate('SavedAddresses'); return; }
-    if (!allPriceable || items.length === 0) { setPayOpen(false); showToast('Cart issue', "Some items can't be checked out", 'x'); return; }
-    const method: 'express' | 'try_and_buy' = tryBuy ? 'try_and_buy' : 'express';
+    if (!token) { requireAuth(() => placeIt()); return; }
+    if (!addr) { showToast('Add an address', 'Add a delivery address', 'map-pin'); nav.navigate('SavedAddresses', { pickReturn: true }); return; }
+    if (!allPriceable || items.length === 0) { showToast('Cart issue', "Some items can't be checked out", 'x'); return; }
+    const method: 'express' | 'standard' | 'pickup' | 'try_and_buy' =
+      tryBuy && delivery === 'express' ? 'try_and_buy' : delivery;
     if (method === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
     setPlacing(true);
     try {
@@ -129,8 +160,7 @@ export default function ReviewOrderScreen() {
         firstOrderId = firstOrderId || res.orderId;
       }
       const count = items.reduce((s, it) => s + it.qty, 0);
-      setPayOpen(false);
-      placeOrder({ method: tryBuy ? 'tryandbuy' : 'express', id: firstOrderId, total, items: count });
+      placeOrder({ method: tryBuy && delivery === 'express' ? 'tryandbuy' : delivery, id: firstOrderId, total, items: count });
       setTimeout(() => nav.navigate('OrderSuccess'), 200);
     } catch (e: any) {
       showToast('Order failed', e?.message || 'Please try again', 'x');
@@ -199,33 +229,43 @@ export default function ReviewOrderScreen() {
                     </Pressable>
                   );
                 })}
-                <Pressable onPress={() => { setAddrOpen(false); nav.navigate('SavedAddresses'); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                <Pressable onPress={() => { setAddrOpen(false); nav.navigate('SavedAddresses', { pickReturn: true }); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                   <Feather name="plus" size={16} color={C.ink} />
                   <Text style={[T.bodyB]}>{addresses.length ? 'Add another address' : 'Add a delivery address'}</Text>
                 </Pressable>
               </MotiView>
             )}
 
-            {/* DELIVERY — Express by default; Try & Buy is an optional add-on */}
-            <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Delivery</Text>
+            {/* DELIVERY — the bucket's method (from the Bag), shown inline.
+                Try & Buy stays an express-only add-on. */}
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: SP.xl, marginBottom: 8 }}>
+              <Text style={[T.h3, { textTransform: 'uppercase' }]}>Delivery</Text>
+              {preMethod && (
+                <Pressable onPress={() => nav.goBack()} hitSlop={8}>
+                  <Text style={[T.caption, { color: C.ink, textDecorationLine: 'underline' }]}>Change in bag</Text>
+                </Pressable>
+              )}
+            </View>
             <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
               <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }}>
-                <Feather name="zap" size={16} color={C.ink} />
+                <Feather name={DELIVERY_META[delivery].icon as any} size={16} color={C.ink} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB]}>Express · 60 min</Text>
-                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>From your nearest store</Text>
+                <Text style={[T.bodyB]}>{DELIVERY_META[delivery].label}</Text>
+                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{DELIVERY_META[delivery].sub}</Text>
               </View>
-              <Text style={[T.price]}>₹99</Text>
+              <Text style={[T.price]}>{DELIVERY_META[delivery].fee === 0 ? 'Free' : `₹${DELIVERY_META[delivery].fee}`}</Text>
             </View>
-            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
-              <Feather name="home" size={16} color={C.ink} />
-              <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB]}>Try & Buy</Text>
-                <Text style={[T.caption, { marginTop: 1 }]}>Try at home first · keep what you love · +₹99</Text>
+            {delivery === 'express' && (
+              <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
+                <Feather name="home" size={16} color={C.ink} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[T.bodyB]}>Try & Buy</Text>
+                  <Text style={[T.caption, { marginTop: 1 }]}>Try at home first · keep what you love · +₹99</Text>
+                </View>
+                <Toggle on={tryBuy} onPress={() => { animateNext(); setTryBuy((v) => !v); }} />
               </View>
-              <Toggle on={tryBuy} onPress={() => { animateNext(); setTryBuy((v) => !v); }} />
-            </View>
+            )}
 
             {/* ITEMS — read-only, no qty controls */}
             <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>{`Your items · ${items.length}`}</Text>
@@ -270,6 +310,24 @@ export default function ReviewOrderScreen() {
               <Toggle on={useReward} onPress={() => { animateNext(); setUseReward((v) => !v); }} />
             </View>
 
+            {/* PAYMENT — inline selectable rows (was a bottom-sheet modal) */}
+            <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Payment method</Text>
+            <View style={{ gap: SP.s }}>
+              {PAYMENTS.map((p) => {
+                const sel = p.id === payId;
+                return (
+                  <Pressable key={p.id} onPress={() => { animateNext(); setPayId(p.id); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
+                    <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{p.label}</Text>
+                      <Text style={[T.caption, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{p.sub}</Text>
+                    </View>
+                    <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {/* PRICE DETAILS */}
             <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Price details</Text>
             <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
@@ -292,45 +350,22 @@ export default function ReviewOrderScreen() {
             )}
           </ScrollView>
 
-          {/* STICKY CONFIRM & PAY */}
+          {/* STICKY PAY BAR — pays directly from the page (no modal step) */}
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }}>
             <View>
               <Text style={[T.h2]}>₹{total}</Text>
               {totalSavings > 0 && <Text style={[T.micro]}>saved ₹{totalSavings}</Text>}
             </View>
-            <BrutalButton label="Confirm & pay" iconRight="arrow-right" onPress={() => setPayOpen(true)} style={{ flex: 1 }} />
+            <BrutalButton
+              label={placing ? 'Placing…' : pay.id === 'cod' ? 'Place order' : `Pay via ${pay.label.split(' ')[0]}`}
+              iconRight="arrow-right"
+              disabled={placing}
+              onPress={placeIt}
+              style={{ flex: 1 }}
+            />
           </View>
         </>
       )}
-
-      {/* PAYMENT SHEET — change COD / card / UPI here, then pay */}
-      <OptionSheet visible={payOpen} title="Payment method" onClose={() => setPayOpen(false)}>
-        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
-          <View style={{ gap: SP.s }}>
-            {PAYMENTS.map((p) => {
-              const sel = p.id === payId;
-              return (
-                <Pressable key={p.id} onPress={() => setPayId(p.id)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
-                  <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{p.label}</Text>
-                    <Text style={[T.caption, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{p.sub}</Text>
-                  </View>
-                  <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <BrutalButton
-            label={pay.id === 'cod' ? `Place order · ₹${total}` : `Pay ₹${total}`}
-            iconRight="arrow-right"
-            block
-            onPress={placeIt}
-            style={{ marginTop: SP.l }}
-          />
-        </View>
-      </OptionSheet>
     </View>
   );
 }

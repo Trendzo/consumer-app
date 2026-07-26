@@ -189,6 +189,11 @@ export function AuthSheet() {
           onStartShouldSetResponder={() => true}
           style={[{ backgroundColor: '#fff', paddingBottom: insets.bottom + SP.l }, BORDER(1)]}
         >
+          {/* Solid fill below the sheet — while the keyboard lifts it (and
+              during the slide-in) the area underneath stays white, so the
+              login sheet always reads as filled from the bottom, never
+              transparent. */}
+          <View pointerEvents="none" style={{ position: 'absolute', top: '100%', left: -1, right: -1, height: 600, backgroundColor: '#fff' }} />
           {/* Header */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: SP.l }}>
             <Text style={T.h3}>

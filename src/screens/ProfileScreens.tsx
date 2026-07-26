@@ -1,9 +1,9 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, BrutalInput, Chip, OptionSheet } from '../components/Brutal';
 import { useApp } from '../state/AppState';
@@ -116,12 +116,27 @@ const EMPTY_ADDR_FORM = { label: '', line1: '', line2: '', city: '', pincode: ''
 
 export function SavedAddressesScreen() {
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  // When opened from checkout (ReviewOrder passes pickReturn), tapping an
+  // address selects it for the order and returns.
+  const pickReturn = !!route.params?.pickReturn;
   const { showToast, showConfirm } = useApp();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_ADDR_FORM);
   const [saving, setSaving] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+
+  const pickForOrder = (a: Address) => {
+    // merge:true returns to the EXISTING ReviewOrder instance with the param.
+    nav.navigate({ name: 'ReviewOrder', params: { pickedAddressId: a.id }, merge: true } as any);
+  };
+  const openForm = () => {
+    setFormOpen(true);
+    // The form renders at the bottom — bring it into view above the keyboard.
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -149,7 +164,14 @@ export function SavedAddressesScreen() {
       city: form.city.trim(), pincode: form.pincode.trim(), stateCode: form.stateCode.trim().toUpperCase(),
       lat: DEFAULT_COORDS.lat, lng: DEFAULT_COORDS.lng,
     })
-      .then(() => { setFormOpen(false); setForm(EMPTY_ADDR_FORM); showToast('Address added', 'Saved to your account', 'check'); load(); })
+      .then((created) => {
+        setFormOpen(false); setForm(EMPTY_ADDR_FORM);
+        showToast('Address added', 'Saved to your account', 'check');
+        // Came from checkout? The fresh address is what they want — select it
+        // for the order and return straight to the review page.
+        if (pickReturn && created?.id) { pickForOrder(created); return; }
+        load();
+      })
       .catch((e: any) => showToast('Could not save', e?.message || 'Check details / sign in', 'x'))
       .finally(() => setSaving(false));
   };
@@ -157,74 +179,96 @@ export function SavedAddressesScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Addresses" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
-        <Hero
-          code={`ADDRESSES · ${addresses.length} SAVED`}
-          title={'Your\naddresses.'}
-          intro="Deliver to home, office, or anywhere else. One tap to switch."
-          chips={[{ label: 'DELIVERY' }]}
-        />
+      {/* KeyboardAvoidingView + persistent-taps scroll: the add form is INLINE
+          on the page now (was an OptionSheet modal), so fields can never hide
+          behind the keyboard — the page shrinks/scrolls to keep them visible. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 120 }}>
+          <Hero
+            code={`ADDRESSES · ${addresses.length} SAVED`}
+            title={'Your\naddresses.'}
+            intro={pickReturn ? 'Tap an address to deliver there.' : 'Deliver to home, office, or anywhere else. One tap to switch.'}
+            chips={[{ label: pickReturn ? 'PICK FOR THIS ORDER' : 'DELIVERY' }]}
+          />
 
-        <SectionHead title="Saved" right={`${addresses.length} entries`} />
-        <View style={{ paddingHorizontal: SP.l }}>
-          {loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>Loading…</Text>}
-          {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
-          {addresses.map((a, i) => {
-            const lbl = (a.label || '').toLowerCase();
-            const icon = lbl.includes('home') ? 'home' : (lbl.includes('office') || lbl.includes('work')) ? 'briefcase' : 'map-pin';
-            return (
-              <FadeInUp key={a.id} delay={i * 60}>
-                <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: SP.m }}>
-                    <IconTile icon={icon} />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={T.bodyB}>{a.label || 'Address'}</Text>
-                        {a.isDefault && (
-                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
-                            <Text style={[T.micro, { color: C.white }]}>Default</Text>
-                          </View>
-                        )}
+          <SectionHead title="Saved" right={`${addresses.length} entries`} />
+          <View style={{ paddingHorizontal: SP.l }}>
+            {loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>Loading…</Text>}
+            {!loading && addresses.length === 0 && <Text style={[T.body, { color: C.dim }]}>No saved addresses yet. Add one below. (Sign in required.)</Text>}
+            {addresses.map((a, i) => {
+              const lbl = (a.label || '').toLowerCase();
+              const icon = lbl.includes('home') ? 'home' : (lbl.includes('office') || lbl.includes('work')) ? 'briefcase' : 'map-pin';
+              return (
+                <FadeInUp key={a.id} delay={i * 60}>
+                  <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
+                    {/* Whole card is tappable: from checkout it SELECTS the
+                        address for the order; otherwise it sets the default. */}
+                    <Pressable onPress={() => (pickReturn ? pickForOrder(a) : onSetDefault(a))} style={{ flexDirection: 'row', alignItems: 'flex-start', padding: SP.m }}>
+                      <IconTile icon={icon} />
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={T.bodyB}>{a.label || 'Address'}</Text>
+                          {a.isDefault && (
+                            <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
+                              <Text style={[T.micro, { color: C.white }]}>Default</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{formatAddress(a)}</Text>
+                        <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{a.stateCode} · {a.pincode}</Text>
                       </View>
-                      <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{formatAddress(a)}</Text>
-                      <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{a.stateCode} · {a.pincode}</Text>
-                    </View>
-                    <Pressable onPress={() => onDelete(a)} hitSlop={8} style={{ padding: 4 }}>
-                      <Feather name="trash-2" size={15} color={C.dim} />
+                      <Pressable onPress={() => onDelete(a)} hitSlop={8} style={{ padding: 4 }}>
+                        <Feather name="trash-2" size={15} color={C.dim} />
+                      </Pressable>
                     </Pressable>
+                    {pickReturn ? (
+                      <Pressable onPress={() => pickForOrder(a)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: 1, borderColor: C.hairline, backgroundColor: '#F4F4F4' }}>
+                        <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Deliver here</Text>
+                        <Feather name="arrow-right" size={14} color={C.ink} />
+                      </Pressable>
+                    ) : !a.isDefault && (
+                      <Pressable onPress={() => onSetDefault(a)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: 1, borderColor: C.hairline }}>
+                        <Text style={[T.caption, { color: C.ink }]}>Set as default</Text>
+                        <Feather name="chevron-right" size={14} color={C.ink} />
+                      </Pressable>
+                    )}
                   </View>
-                  {!a.isDefault && (
-                    <Pressable onPress={() => onSetDefault(a)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: 1, borderColor: C.hairline }}>
-                      <Text style={[T.caption, { color: C.ink }]}>Set as default</Text>
-                      <Feather name="chevron-right" size={14} color={C.ink} />
-                    </Pressable>
-                  )}
-                </View>
-              </FadeInUp>
-            );
-          })}
-          <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={() => setFormOpen(true)} style={{ marginTop: SP.l }} />
-        </View>
-      </ScrollView>
+                </FadeInUp>
+              );
+            })}
 
-      <OptionSheet visible={formOpen} title="New address" onClose={() => setFormOpen(false)}>
-        <View style={{ padding: SP.l, paddingBottom: 40 }}>
-          <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
-          <BrutalInput label="Address line 1" value={form.line1} onChangeText={(v: string) => setForm(f => ({ ...f, line1: v }))} placeholder="Flat, building, street" />
-          <BrutalInput label="Address line 2" value={form.line2} onChangeText={(v: string) => setForm(f => ({ ...f, line2: v }))} placeholder="Area, landmark (optional)" />
-          <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
-          <View style={{ flexDirection: 'row', gap: SP.m }}>
-            <View style={{ flex: 1 }}>
-              <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
-            </View>
-            <View style={{ width: 110 }}>
-              <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
-            </View>
+            {/* ── ADD ADDRESS — inline card (no modal), keyboard-safe ── */}
+            {formOpen ? (
+              <View style={[{ marginTop: SP.l, backgroundColor: C.white }, BORDER(1)]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
+                  <Text style={[T.h3, { textTransform: 'uppercase' }]}>New address</Text>
+                  <Pressable onPress={() => setFormOpen(false)} hitSlop={10}>
+                    <Feather name="x" size={16} color={C.ink} />
+                  </Pressable>
+                </View>
+                <View style={{ padding: SP.m }}>
+                  <BrutalInput label="Label (Home / Office)" value={form.label} onChangeText={(v: string) => setForm(f => ({ ...f, label: v }))} placeholder="Home" />
+                  <BrutalInput label="Address line 1" value={form.line1} onChangeText={(v: string) => setForm(f => ({ ...f, line1: v }))} placeholder="Flat, building, street" />
+                  <BrutalInput label="Address line 2" value={form.line2} onChangeText={(v: string) => setForm(f => ({ ...f, line2: v }))} placeholder="Area, landmark (optional)" />
+                  <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
+                  <View style={{ flexDirection: 'row', gap: SP.m }}>
+                    <View style={{ flex: 1 }}>
+                      <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
+                    </View>
+                    <View style={{ width: 110 }}>
+                      <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
+                    </View>
+                  </View>
+                  <Text style={[T.micro, { marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
+                  <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
+                </View>
+              </View>
+            ) : (
+              <BrutalButton label="Add new address" icon="plus" variant="outline" block onPress={openForm} style={{ marginTop: SP.l }} />
+            )}
           </View>
-          <Text style={[T.micro, { marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
-          <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
-        </View>
-      </OptionSheet>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </PageShell>
   );
 }
@@ -467,7 +511,9 @@ export function GiftCardScreen() {
   return (
     <PageShell>
       <ScreenHeader title="Gift Card" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
+      {/* Keyboard-aware — the recipient/note fields sit low on the page */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 120 }}>
         <Hero
           code={'GIFT_CARD · DIGITAL'}
           title={'Give the\ngift of fit.'}
@@ -514,6 +560,7 @@ export function GiftCardScreen() {
           <BrutalButton label={`Buy gift card — ₹${amount || '0'}`} icon="gift" block onPress={() => showToast('Gift Card', 'Purchase coming soon', 'gift')} style={{ marginTop: SP.l }} />
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </PageShell>
   );
 }

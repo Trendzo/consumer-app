@@ -4,7 +4,7 @@
 // Basics form save is preserved; Size/Style summarise and deep-link to the
 // step-by-step flows.
 import React, { useRef, useState } from 'react';
-import { View, Text, ScrollView, TextInput, Pressable } from 'react-native';
+import { View, Text, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, T, SP, BORDER } from '../theme/brutal';
@@ -119,7 +119,10 @@ export default function EditProfileScreen() {
         })}
       </View>
 
-      <ScrollView ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={{ paddingBottom: 80 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      {/* Keyboard-aware: fields never hide behind the keyboard — the page
+          shrinks and stays scrollable while typing. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView ref={scrollRef} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {/* ═══ BASICS — clean rows (Myntra-style), avatar on top ═══ */}
         <View onLayout={onSectionLayout(0)}>
@@ -213,6 +216,7 @@ export default function EditProfileScreen() {
           </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

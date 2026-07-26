@@ -3,10 +3,10 @@ import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimens
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER } from '../theme/brutal';
-import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, OptionSheet } from '../components/Brutal';
+import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
@@ -72,7 +72,13 @@ export default function ProductDetailScreen() {
   };
   const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
+  // Pending Add/Buy action while the user is sent to pick a size inline
+  // (was a bottom-sheet modal; now the page scrolls to the size row instead).
   const [sizeSheet, setSizeSheet] = useState<null | 'add' | 'buy'>(null);
+  const [needSize, setNeedSize] = useState(false);
+  // Size-row position = INFO section's y in the scroll + the row's y inside it.
+  const infoYRef = useRef(0);
+  const sizeLocalYRef = useRef(0);
   // Heavy below-the-fold content (carousels, grid) renders only AFTER the open transition,
   // so it never competes with the animation on the JS thread → no dropped frames.
   // Two-stage reveal so the deferred content doesn't all mount in one janky frame:
@@ -228,11 +234,20 @@ export default function ProductDetailScreen() {
       ?? detail.variants.find((v) => v.size === sz))?.id;
   };
 
+  // Open THE bag (the CartTab) from a pushed/modal screen. Navigating straight
+  // to 'Tabs' from a transparentModal makes iOS present a SECOND Tabs as a
+  // sheet (the "modal bag with menu" bug) — so pop back to the real Tabs
+  // first, then just switch its tab.
+  const goBag = () => {
+    nav.dispatch(StackActions.popToTop());
+    setTimeout(() => nav.navigate('Tabs', { screen: 'CartTab' }), 0);
+  };
+
   const doAdd = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
     showToast('Added to bag', `${product.name} · Size ${sz}`, 'shopping-bag', {
       label: 'View bag',
-      onPress: () => nav.navigate('Tabs', { screen: 'CartTab' }),
+      onPress: goBag,
     });
     // Slide down to the "buy more, save more" upsell on the SAME page
     setTimeout(() => scrollRef.current?.scrollTo?.({ y: Math.max(0, upsellY - 8), animated: true }), 140);
@@ -244,16 +259,23 @@ export default function ProductDetailScreen() {
     addToCart(product, sz, undefined, variantFor(sz));
     requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder'), 60));
   };
-  // Require a size first — otherwise pop the "select a size" sheet from the bottom
-  const handleAdd = () => { if (!size) { setSizeSheet('add'); return; } doAdd(size); };
-  const handleBuy = () => { if (!size) { setSizeSheet('buy'); return; } doBuy(size); };
+  // Require a size first — NO modal: scroll the page to the size row, flag it,
+  // and remember the pending action so tapping a size continues it in-place.
+  const askSize = (action: 'add' | 'buy') => {
+    setSizeSheet(action);
+    setNeedSize(true);
+    scrollRef.current?.scrollTo?.({ y: Math.max(0, infoYRef.current + sizeLocalYRef.current - 90), animated: true });
+    showToast('Pick a size', 'Choose a size to continue', 'maximize-2');
+  };
+  const handleAdd = () => { if (!size) { askSize('add'); return; } doAdd(size); };
+  const handleBuy = () => { if (!size) { askSize('buy'); return; } doBuy(size); };
   const pickSize = (sz: string) => {
     const action = sizeSheet;
     setSize(sz);
     setSizeSheet(null);
+    setNeedSize(false);
     // Continue the pending action straight away — picking the size IS the
-    // confirmation, so don't make the user tap Buy now / Add again. A short
-    // delay lets the size sheet dismiss before we navigate / open the auth sheet.
+    // confirmation, so don't make the user tap Buy now / Add again.
     if (action === 'add') setTimeout(() => doAdd(sz), 80);
     else if (action === 'buy') setTimeout(() => doBuy(sz), 80);
   };
@@ -275,7 +297,8 @@ export default function ProductDetailScreen() {
           <Feather name="search" size={15} color={C.dim} />
           <Text style={[T.body, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
         </Pressable>
-        <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
+        {/* ONE bag only — pop to the real Tabs, then switch to the Bag tab */}
+        <BrutalIconBtn icon="shopping-bag" onPress={goBag} />
       </Animated.View>
       <Animated.View style={[{ height: 1, backgroundColor: C.ink, zIndex: 30, elevation: 30 }, contentStyle]} />
 
@@ -327,7 +350,7 @@ export default function ProductDetailScreen() {
         </Animated.View>
 
         {/* INFO */}
-        <Animated.View style={[{ padding: SP.l }, contentStyle]}>
+        <Animated.View onLayout={(e) => { infoYRef.current = e.nativeEvent.layout.y; }} style={[{ padding: SP.l }, contentStyle]}>
           {/* Brand + name on one line — rating aligned with this line on the right */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flex: 1 }}>
@@ -371,16 +394,26 @@ export default function ProductDetailScreen() {
             ))}
           </View>
 
-          {/* SIZE */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}>
-            <Text style={T.caption}>{'Size'}</Text>
+          {/* SIZE — inline picker; when Add/Buy is tapped without a size the
+              page scrolls here and the label flips to a highlighted prompt.
+              Picking a size then CONTINUES the pending action (see pickSize). */}
+          <View
+            onLayout={(e) => { sizeLocalYRef.current = e.nativeEvent.layout.y; }}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}
+          >
+            <View>
+              {needSize && <View style={{ position: 'absolute', left: -3, right: -5, bottom: 0, height: 9, backgroundColor: '#F2E63C' }} />}
+              <Text style={[T.caption, needSize && { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>
+                {needSize ? 'PICK A SIZE TO CONTINUE' : 'Size'}
+              </Text>
+            </View>
             <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })}>
               <Text style={[T.caption]}>{'[ Size guide ]'}</Text>
             </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
             {sizes.map(sz => (
-              <Pressable key={sz} onPress={() => setSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}>
+              <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1)]}>
                 <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
               </Pressable>
             ))}
@@ -583,22 +616,8 @@ export default function ProductDetailScreen() {
         </Animated.View>
       )}
 
-      {/* ═══ SELECT-A-SIZE SHEET — shared OptionSheet (custom body) ═══ */}
-      <OptionSheet visible={!!sizeSheet} title="Pick your size" onClose={() => setSizeSheet(null)}>
-        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
-          <Text style={[T.caption, { color: C.dim }]}>Choose a size to continue</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
-            {sizes.map((sz) => (
-              <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 56, paddingHorizontal: 10, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={[T.h3]}>{sz}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })} style={{ marginTop: SP.m, alignSelf: 'flex-start' }}>
-            <Text style={[T.caption, { color: C.dim, textDecorationLine: 'underline' }]}>Size guide</Text>
-          </Pressable>
-        </View>
-      </OptionSheet>
+      {/* Size selection is fully inline now — no bottom-sheet modal. Add/Buy
+          without a size scrolls to the size row and continues from there. */}
     </View>
   );
 }

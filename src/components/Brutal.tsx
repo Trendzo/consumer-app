@@ -1,6 +1,6 @@
 // Reusable brutalism primitives
 import React, { ReactNode, useRef, useEffect, useSyncExternalStore } from 'react';
-import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform } from 'react-native';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform, KeyboardAvoidingView } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
@@ -469,7 +469,10 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
 }) {
   return (
     <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+      {/* Keyboard-aware: when a sheet contains an input (comments, board name,
+          coupon…), the whole sheet rides ABOVE the keyboard instead of the
+          fields hiding behind it. */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
         {/* scrim — quick fade, tap anywhere to close */}
         <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 180 }} style={StyleSheet.absoluteFillObject}>
           <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} />
@@ -482,6 +485,9 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
         >
           {/* stop taps from falling through to the scrim */}
           <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: 28 }, BORDER(1)]}>
+            {/* solid fill below the sheet — when the keyboard lifts it, the gap
+                underneath stays sheet-white, never a transparent hole */}
+            <View pointerEvents="none" style={{ position: 'absolute', top: '100%', left: -1, right: -1, height: 600, backgroundColor: C.bg }} />
             {/* header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
               <Text style={[T.h3, { textTransform: 'uppercase' }]}>{title}</Text>
@@ -504,7 +510,7 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
             })}
           </Pressable>
         </MotiView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

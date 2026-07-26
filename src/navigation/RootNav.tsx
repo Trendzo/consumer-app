@@ -24,7 +24,6 @@ import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
 import CategoryBrowseScreen from '../screens/CategoryBrowseScreen';
 import CategoryZoomScreen from '../screens/CategoryZoomScreen';
-import CheckoutScreen from '../screens/CheckoutScreen';
 import ReviewOrderScreen from '../screens/ReviewOrderScreen';
 import TryOnPickerScreen from '../screens/TryOnPickerScreen';
 import AboutScreen from '../screens/AboutScreen';
@@ -353,8 +352,12 @@ function MainApp() {
             <Stack.Screen name="Search" component={SearchScreen} options={{ presentation: 'transparentModal', animation: 'none', contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
             <Stack.Screen name="Categories" component={CategoryBrowseScreen} />
-        <Stack.Screen name="Cart" component={CartScreen} />
-        <Stack.Screen name="Checkout" component={CheckoutScreen} />
+        {/* NOTE: no stack-level "Cart" route — the Bag exists ONCE, as the
+            CartTab. Every bag icon navigates to Tabs → CartTab so there's a
+            single bag page, never a second pushed copy. */}
+        {/* Single-page checkout (address + delivery + payment + pay on ONE page,
+            Myntra-style). The old 4-step Checkout wizard is retired — every
+            buy path (Buy Now and Bag buckets) lands here. */}
         <Stack.Screen name="ReviewOrder" component={ReviewOrderScreen} />
         <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />

@@ -200,19 +200,11 @@ const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
 
 export default function HomeScreen() {
   const nav = useNavigation<any>();
-  // Search opens as an in-place morph: measure the tapped bar and hand its
-  // on-screen frame to the Search screen so it can grow from exactly there.
+  // Search opens as its own page sliding down from the top — no more
+  // measure-the-bar morph (removed from both the hero and floating bars).
   const heroSearchRef = useRef<any>(null);
   const floatSearchRef = useRef<any>(null);
-  const openSearch = (r: React.RefObject<any>) => {
-    const node = r.current;
-    if (node?.measureInWindow) {
-      node.measureInWindow((x: number, y: number, w: number, h: number) => {
-        if (w && h) nav.navigate('Search', { _frame: { x, y, w, h } });
-        else nav.navigate('Search');
-      });
-    } else nav.navigate('Search');
-  };
+  const openSearch = (_r?: React.RefObject<any>) => nav.navigate('Search');
   const insets = useSafeAreaInsets();
   const { gender, setGender, curveProgress, showConfirm, tabBarOffset } = useApp();
   const [refreshing, setRefreshing] = useState(false);
