@@ -94,6 +94,9 @@ export function ZoomProvider({ navRef, children }: { navRef: any; children: Reac
             <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: C.white, opacity: bgOp }} />
             <Animated.View
               pointerEvents="none"
+              // Android: rasterize the flying image once and move the texture
+              // on the GPU — matches the buttery iOS close-fly frame-for-frame.
+              renderToHardwareTextureAndroid
               style={{
                 position: 'absolute',
                 left: TARGET.x,

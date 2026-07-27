@@ -11,6 +11,7 @@
 // same `Product`/`Category`/`Brand`/`Bundle`/`Occasion` shapes they always have.
 
 import { request } from './api';
+import { sizedImage, IMG } from './images';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
 
 export type Gender = 'her' | 'him' | 'unisex';
@@ -126,7 +127,8 @@ export function toProduct(p: ApiProduct): Product {
     original,
     rating: p.ratingAvg ?? 0,
     colors: productColors(p, v),
-    img: v?.imageUrls?.[0] ?? p.galleryUrls?.[0] ?? '',
+    // Card-sized rendition — the raw Cloudinary originals are ~1.5 MB each.
+    img: sizedImage(v?.imageUrls?.[0] ?? p.galleryUrls?.[0], IMG.card),
     category: p.category?.label ?? '',
     tag: discount > 0 ? `${discount}% OFF` : p.occasion?.[0]?.toUpperCase(),
   };
@@ -138,7 +140,7 @@ export function toCategory(c: ApiCategory): Category {
     label: c.label,
     icon: c.iconName ?? 'grid-outline',
     tint: c.tintColor ?? '#eeeeee',
-    img: c.imageUrl ?? '',
+    img: sizedImage(c.imageUrl, IMG.card),
   };
 }
 
@@ -147,7 +149,7 @@ export function toBrand(b: ApiBrand): Brand {
     id: b.id,
     name: b.name.toUpperCase(),
     tint: b.tintColor ?? '#111111',
-    logo: b.logoUrl ?? '',
+    logo: sizedImage(b.logoUrl, IMG.thumb),
     domain: b.domain ?? '',
   };
 }
@@ -161,14 +163,14 @@ export function toBundle(c: ApiCollection): Bundle {
     price: rupees(c.pricePaise),
     pieces: c.listingCount,
     colors,
-    img: c.heroImageUrl ?? '',
+    img: sizedImage(c.heroImageUrl, IMG.card),
   };
 }
 
 export function toOccasion(c: ApiCollection): Occasion {
   const a = c.accentColors ?? [];
   const colors: [string, string] = [a[0] ?? '#fff5e1', a[1] ?? '#ffe0b2'];
-  return { id: c.id, label: c.name, colors, img: c.heroImageUrl ?? '' };
+  return { id: c.id, label: c.name, colors, img: sizedImage(c.heroImageUrl, IMG.card) };
 }
 
 // ── Fetchers (already mapped to app types) ────────────────────────────────────
@@ -236,6 +238,8 @@ export type Review = { id: string; author: string; rating: number; body: string;
 export async function getProductDetail(id: string): Promise<ProductDetailData> {
   const p = await request<ApiProduct>(`/catalog/products/${encodeURIComponent(id)}`, { auth: false });
   const base = toProduct(p);
+  // The DETAIL gallery renders near full-width — request hero-sized renditions
+  // there (cards elsewhere use the smaller IMG.card rendition via toProduct).
   const variants: ProductVariant[] = p.variants.map((v) => ({
     id: v.id,
     size: v.attributes?.size ?? v.label ?? 'One Size',
@@ -245,16 +249,20 @@ export async function getProductDetail(id: string): Promise<ProductDetailData> {
     original: v.compareAtPricePaise ? rupees(v.compareAtPricePaise) : rupees(v.pricePaise),
     discountPct: v.discountPct ?? 0,
     available: v.available,
-    img: v.imageUrls?.[0] ?? p.galleryUrls?.[0] ?? '',
+    img: sizedImage(v.imageUrls?.[0] ?? p.galleryUrls?.[0], IMG.hero),
   }));
   const sizes = Array.from(new Set(variants.map((v) => v.size).filter(Boolean)));
   const swatches = p.groups
     .filter((g) => g.colorHex || !g.isDefault)
     .map((g) => ({ groupId: g.id, name: g.name, hex: g.colorHex }));
-  // Merge gallery + variant images, keeping the card image first so the zoom-in stays seamless.
-  const merged = [base.img, ...(p.galleryUrls ?? []), ...variants.map((v) => v.img)]
+  // Merge gallery + variant images from the RAW urls (dedup), then map every
+  // entry to the hero rendition. The card image's raw url stays first so the
+  // zoom-in transition lands on the same picture.
+  const rawCard = pickVariant(p)?.imageUrls?.[0] ?? p.galleryUrls?.[0] ?? '';
+  const merged = [rawCard, ...(p.galleryUrls ?? []), ...p.variants.map((v) => v.imageUrls?.[0] ?? '')]
     .filter(Boolean)
-    .filter((u, i, a) => a.indexOf(u) === i);
+    .filter((u, i, a) => a.indexOf(u) === i)
+    .map((u) => sizedImage(u, IMG.hero));
   return {
     ...base,
     listingId: p.id,

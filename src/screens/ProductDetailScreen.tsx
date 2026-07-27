@@ -1,14 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, Modal, TextInput, InteractionManager } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, ASCII, rf } from '../theme/brutal';
-import { AsciiDivider, BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
+import { C, T, SP, BORDER } from '../theme/brutal';
+import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
 import {
@@ -42,7 +41,7 @@ export default function ProductDetailScreen() {
   const route = useRoute<any>();
   const product = route.params?.product || PRODUCTS[0];
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, night, theme, showToast, showConfirm, gender, token } = useApp();
+  const { addToCart, showToast, showConfirm, gender, requireAuth } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
   // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
   // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
@@ -50,39 +49,6 @@ export default function ProductDetailScreen() {
   const [detail, setDetail] = useState<ProductDetailData | null>(null);
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [similar, setSimilar] = useState<Product[] | null>(null);
-  useEffect(() => {
-    if (!isBackendListingId(listingId)) return;
-    let cancelled = false;
-    getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
-    listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
-    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [listingId, gender]);
-
-  // Write-a-review composer (real backend listings only).
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [revRating, setRevRating] = useState(5);
-  const [revBody, setRevBody] = useState('');
-  const [revSubmitting, setRevSubmitting] = useState(false);
-  const openReview = () => {
-    if (!isBackendListingId(listingId)) { showToast('Not available', 'Reviews open once this item is live', 'star'); return; }
-    if (!token) { showToast('Sign in to review', 'Log in to write a review', 'lock'); return; }
-    setRevRating(5); setRevBody(''); setReviewOpen(true);
-  };
-  const submitReview = () => {
-    if (revSubmitting) return;
-    setRevSubmitting(true);
-    addReview(listingId, { rating: revRating, ...(revBody.trim() ? { body: revBody.trim() } : {}) })
-      .then(() => {
-        setReviewOpen(false);
-        showToast('Review posted', 'Thanks for the feedback!', 'star');
-        return listReviews(listingId).then(setReviews).catch(() => {});
-      })
-      .catch((e: any) => showToast('Could not post review', e?.message || 'Try again', 'x'))
-      .finally(() => setRevSubmitting(false));
-  };
-  const { openZoom } = useZoom();
-  const zoomRefs = useRef<{ [k: string]: any }>({});
   const closeStarted = useRef(false);
   // Close mirrors open: fade content, then fly the image/backdrop back to the measured card frame.
   const goBack = () => {
@@ -104,9 +70,15 @@ export default function ProductDetailScreen() {
       });
     } else nav.goBack();
   };
-  const s = React.useMemo(() => makeS(), [night]);
+  const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
+  // Pending Add/Buy action while the user is sent to pick a size inline
+  // (was a bottom-sheet modal; now the page scrolls to the size row instead).
   const [sizeSheet, setSizeSheet] = useState<null | 'add' | 'buy'>(null);
+  const [needSize, setNeedSize] = useState(false);
+  // Size-row position = INFO section's y in the scroll + the row's y inside it.
+  const infoYRef = useRef(0);
+  const sizeLocalYRef = useRef(0);
   // Heavy below-the-fold content (carousels, grid) renders only AFTER the open transition,
   // so it never competes with the animation on the JS thread → no dropped frames.
   // Two-stage reveal so the deferred content doesn't all mount in one janky frame:
@@ -118,6 +90,18 @@ export default function ProductDetailScreen() {
   // so nothing competes with the animation. Scroll stays locked until it's done.
   const [ready, setReady] = useState(!isZoom);
   const [gridReady, setGridReady] = useState(!isZoom);
+  // NOTE: gated on gridReady — these responses used to land MID-ZOOM and
+  // re-render the whole page during the fly, which is exactly the jank the
+  // deferred-mount logic tries to avoid. Now they fire only after the open
+  // transition (and its two-stage reveal) has fully settled.
+  useEffect(() => {
+    if (!gridReady || !isBackendListingId(listingId)) return;
+    let cancelled = false;
+    getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
+    listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
+    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [listingId, gender, gridReady]);
   const SLOT = { x: 0, y: 105, w: width, h: width * 1.2 }; // where the gallery image lands
   const imgAnim = useSharedValue(isZoom ? 0 : 1);         // 0 = at card, 1 = at gallery slot
   const backdropFade = useSharedValue(isZoom ? 0 : 1);     // home → white as the image expands
@@ -150,16 +134,23 @@ export default function ProductDetailScreen() {
     const id = setTimeout(startFly, 180); // fallback if onLayout is delayed
     return () => clearTimeout(id);
   }, []);
+  // TRANSFORM-ONLY fly (translate + scale around the centre) — the old version
+  // animated left/top/width/height, which forces a full layout pass EVERY
+  // frame; iOS absorbed it, Android showed it as jitter. The overlay is now
+  // laid out ONCE at the gallery slot and flown purely on the GPU — identical
+  // motion on both platforms, zero per-frame layout.
   const overlayStyle = useAnimatedStyle(() => {
     if (!cardFrame) return { opacity: 0 };
     const cx = cardFrame.x + cardFrame.w / 2, cy = cardFrame.y + cardFrame.h / 2;
     const scx = SLOT.x + SLOT.w / 2, scy = SLOT.y + SLOT.h / 2;
     return {
       opacity: overlayOpacity.value,
-      left: interpolate(imgAnim.value, [0, 1], [cx - cardFrame.w / 2, scx - SLOT.w / 2]),
-      top: interpolate(imgAnim.value, [0, 1], [cy - cardFrame.h / 2, scy - SLOT.h / 2]),
-      width: interpolate(imgAnim.value, [0, 1], [cardFrame.w, SLOT.w]),
-      height: interpolate(imgAnim.value, [0, 1], [cardFrame.h, SLOT.h]),
+      transform: [
+        { translateX: interpolate(imgAnim.value, [0, 1], [cx - scx, 0]) },
+        { translateY: interpolate(imgAnim.value, [0, 1], [cy - scy, 0]) },
+        { scaleX: interpolate(imgAnim.value, [0, 1], [cardFrame.w / SLOT.w, 1]) },
+        { scaleY: interpolate(imgAnim.value, [0, 1], [cardFrame.h / SLOT.h, 1]) },
+      ],
     };
   });
   const contentStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
@@ -227,10 +218,19 @@ export default function ProductDetailScreen() {
     if (detail && detail.sizes.length === 1) setSize(detail.sizes[0]);
   }, [detail]);
   const reviewsCount = detail?.ratingCount ?? product.reviews ?? 128;
-  const reviewList = reviews && reviews.length
+  // Memoized so the item objects keep a stable identity across re-renders —
+  // this is what lets React.memo on MiniCard actually skip work.
+  const reviewList = React.useMemo(() => (reviews && reviews.length
     ? reviews.map((r) => ({ id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body, date: fmtReviewDate(r.createdAt) }))
-    : REVIEWS;
-  const similarList = (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id);
+    : REVIEWS), [reviews]);
+  const similarList = React.useMemo(
+    () => (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id),
+    [similar, product.id]);
+  // Stable handler for the upsell "+ ADD" buttons (keeps MiniCard memo intact).
+  const handleUpsellAdd = React.useCallback((p: Product) => {
+    addToCart(p, 'M');
+    showToast('Added to bag', p.name, 'shopping-bag');
+  }, [addToCart, showToast]);
 
   // Resolve the selected size (+ colour) to a real backend variant id so the cart can be
   // priced/checked-out server-side. Undefined for mock products (falls back to local math).
@@ -241,48 +241,71 @@ export default function ProductDetailScreen() {
       ?? detail.variants.find((v) => v.size === sz))?.id;
   };
 
+  // Open THE bag (the CartTab) from a pushed/modal screen. Navigating straight
+  // to 'Tabs' from a transparentModal makes iOS present a SECOND Tabs as a
+  // sheet (the "modal bag with menu" bug) — so pop back to the real Tabs
+  // first, then just switch its tab.
+  const goBag = () => {
+    nav.dispatch(StackActions.popToTop());
+    setTimeout(() => nav.navigate('Tabs', { screen: 'CartTab' }), 0);
+  };
+
   const doAdd = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
     showToast('Added to bag', `${product.name} · Size ${sz}`, 'shopping-bag', {
       label: 'View bag',
-      onPress: () => nav.navigate('Tabs', { screen: 'CartTab' }),
+      onPress: goBag,
     });
     // Slide down to the "buy more, save more" upsell on the SAME page
     setTimeout(() => scrollRef.current?.scrollTo?.({ y: Math.max(0, upsellY - 8), animated: true }), 140);
   };
-  // Buy now → straight to the single-page Review Order (no multi-step checkout)
+  // Buy now → straight to the single-page Review Order (no multi-step checkout).
+  // Guests get the bottom-sheet login first; the item is already in the bag
+  // either way, so sign-in just resumes straight into Review Order.
   const doBuy = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
-    setTimeout(() => nav.navigate('ReviewOrder'), 60);
+    requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder'), 60));
   };
-  // Require a size first — otherwise pop the "select a size" sheet from the bottom
-  const handleAdd = () => { if (!size) { setSizeSheet('add'); return; } doAdd(size); };
-  const handleBuy = () => { if (!size) { setSizeSheet('buy'); return; } doBuy(size); };
+  // Require a size first — NO modal: scroll the page to the size row, flag it,
+  // and remember the pending action so tapping a size continues it in-place.
+  const askSize = (action: 'add' | 'buy') => {
+    setSizeSheet(action);
+    setNeedSize(true);
+    scrollRef.current?.scrollTo?.({ y: Math.max(0, infoYRef.current + sizeLocalYRef.current - 90), animated: true });
+    showToast('Pick a size', 'Choose a size to continue', 'maximize-2');
+  };
+  const handleAdd = () => { if (!size) { askSize('add'); return; } doAdd(size); };
+  const handleBuy = () => { if (!size) { askSize('buy'); return; } doBuy(size); };
   const pickSize = (sz: string) => {
     const action = sizeSheet;
     setSize(sz);
     setSizeSheet(null);
-    setTimeout(() => { if (action === 'add') doAdd(sz); else if (action === 'buy') doBuy(sz); }, 260);
+    setNeedSize(false);
+    // Continue the pending action straight away — picking the size IS the
+    // confirmation, so don't make the user tap Buy now / Add again.
+    if (action === 'add') setTimeout(() => doAdd(sz), 80);
+    else if (action === 'buy') setTimeout(() => doBuy(sz), 80);
   };
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: isZoom ? 'transparent' : (night ? '#000000' : '#FFFFFF') }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
+    <View style={{ flex: 1, backgroundColor: isZoom ? 'transparent' : '#FFFFFF' }}>
+      <StatusBar barStyle="dark-content" />
 
       {/* White backdrop — the home shows through, then this fades in as the image expands */}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: night ? '#000000' : '#FFFFFF' }, backdropStyle]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }, backdropStyle]} />
 
       <View style={{ flex: 1 }}>
 
       {/* HEADER — back + search + cart. High zIndex + bg so the CTA bar passes UNDER it
           (instead of over the search) when it scrolls up and away. */}
-      <Animated.View style={[{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: night ? '#000000' : '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
+      <Animated.View style={[{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
         <BrutalIconBtn icon="arrow-left" onPress={goBack} />
         <Pressable onPress={() => nav.navigate('Search')} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SP.m, paddingVertical: 9 }, BORDER(1)]}>
           <Feather name="search" size={15} color={C.dim} />
-          <Text style={[T.mono, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
+          <Text style={[T.body, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
         </Pressable>
-        <BrutalIconBtn icon="shopping-bag" onPress={() => nav.navigate('Cart')} />
+        {/* ONE bag only — pop to the real Tabs, then switch to the Bag tab */}
+        <BrutalIconBtn icon="shopping-bag" onPress={goBag} />
       </Animated.View>
       <Animated.View style={[{ height: 1, backgroundColor: C.ink, zIndex: 30, elevation: 30 }, contentStyle]} />
 
@@ -294,12 +317,15 @@ export default function ProductDetailScreen() {
         overScrollMode="never"
         scrollEnabled={ready}
         scrollEventThrottle={16}
+        // Android: detach offscreen grid/upsell views so the long page doesn't
+        // keep ~30 image views alive in the render tree while scrolling.
+        removeClippedSubviews={Platform.OS === 'android'}
         stickyHeaderIndices={[3]}
         onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
         onScroll={scrollHandler}
       >
         {/* IMAGE GALLERY - hidden during the fly, revealed instantly at handoff */}
-        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.hairline, borderBottomWidth: 1, borderColor: C.ink }, galleryStyle]}>
+        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.hairline, borderBottomWidth: 1, borderColor: C.hairline }, galleryStyle]}>
           <ScrollView
             ref={galleryRef}
             horizontal
@@ -331,42 +357,42 @@ export default function ProductDetailScreen() {
         </Animated.View>
 
         {/* INFO */}
-        <Animated.View style={[{ padding: SP.l }, contentStyle]}>
+        <Animated.View onLayout={(e) => { infoYRef.current = e.nativeEvent.layout.y; }} style={[{ padding: SP.l }, contentStyle]}>
           {/* Brand + name on one line — rating aligned with this line on the right */}
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: C.ink, letterSpacing: -0.3 }} numberOfLines={1}>{brandName}</Text>
-              <Text style={{ fontFamily: 'Inter_400Regular', fontSize: 13, color: C.dim, flex: 1 }} numberOfLines={1}>{product.name}</Text>
+              <Text style={[T.productTitle]} numberOfLines={1}>{brandName}</Text>
+              <Text style={[T.body, { color: C.dim, flex: 1 }]} numberOfLines={1}>{product.name}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, ...BORDER(1) }}>
               <Feather name="star" size={13} color={C.ink} />
-              <Text style={[T.monoB, { fontSize: 11 }]}>{product.rating}</Text>
+              <Text style={[T.caption, { color: C.ink }]}>{product.rating}</Text>
             </View>
           </View>
 
           {/* Price (smaller) */}
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink }}>₹{product.price}</Text>
-            <Text style={[T.body, { color: C.dim, textDecorationLine: 'line-through', fontSize: 12 }]}>₹{product.original}</Text>
-            <Text style={[T.monoB, { fontSize: 11 }]}>{`-${discount}%`}</Text>
+            <Text style={[T.price]}>₹{product.price}</Text>
+            <Text style={[T.mrp]}>₹{product.original}</Text>
+            <Text style={[T.discount]}>{`-${discount}%`}</Text>
           </View>
 
           {/* COUPON OFFER — get it for less with a code */}
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}>
             <Feather name="tag" size={16} color={C.ink} />
             <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB, { fontSize: 13 }]}>Get it for ₹{couponPrice}</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 1 }]}>Extra 10% off · applied at checkout</Text>
+              <Text style={[T.bodyB]}>Get it for ₹{couponPrice}</Text>
+              <Text style={[T.micro, { marginTop: 1 }]}>Extra 10% off · applied at checkout</Text>
             </View>
             <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
-              <Text style={[T.monoB, { color: C.white, fontSize: 10 }]}>TRENDZO10</Text>
+              <Text style={[T.monoB, { color: C.white }]}>TRENDZO10</Text>
             </View>
           </View>
 
           <View style={{ height: 1, backgroundColor: C.ink, marginTop: SP.l }} />
 
           {/* COLOR */}
-          <Text style={[T.label, { marginTop: SP.l }]}>{'COLOR'}</Text>
+          <Text style={[T.caption, { marginTop: SP.l }]}>{'Color'}</Text>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
             {colors.map((c, i) => (
               <Pressable key={i} onPress={() => setColorIdx(i)} style={[{ width: 36, height: 36, backgroundColor: c, padding: 3 }, i === colorIdx ? BORDER(2) : BORDER(1)]}>
@@ -375,17 +401,27 @@ export default function ProductDetailScreen() {
             ))}
           </View>
 
-          {/* SIZE */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}>
-            <Text style={T.label}>{'SIZE'}</Text>
+          {/* SIZE — inline picker; when Add/Buy is tapped without a size the
+              page scrolls here and the label flips to a highlighted prompt.
+              Picking a size then CONTINUES the pending action (see pickSize). */}
+          <View
+            onLayout={(e) => { sizeLocalYRef.current = e.nativeEvent.layout.y; }}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}
+          >
+            <View>
+              {needSize && <View style={{ position: 'absolute', left: -3, right: -5, bottom: 0, height: 9, backgroundColor: '#F2E63C' }} />}
+              <Text style={[T.caption, needSize && { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>
+                {needSize ? 'PICK A SIZE TO CONTINUE' : 'Size'}
+              </Text>
+            </View>
             <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })}>
-              <Text style={[T.monoB, { fontSize: 10 }]}>{'[ SIZE GUIDE ]'}</Text>
+              <Text style={[T.caption]}>{'[ Size guide ]'}</Text>
             </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
             {sizes.map(sz => (
-              <Pressable key={sz} onPress={() => setSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: size === sz ? C.white : C.ink, letterSpacing: 0.5 }}>{sz}</Text>
+              <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1)]}>
+                <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
               </Pressable>
             ))}
           </View>
@@ -394,16 +430,16 @@ export default function ProductDetailScreen() {
           <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12 }, BORDER(1)]}>
             <Feather name="zap" size={18} color={C.ink} />
             <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB, { fontSize: 12 }]}>60-MIN DELIVERY</Text>
-              <Text style={[T.mono, { color: C.dim, fontSize: 10 }]}>FROM NEAREST STORE · 2.4 KM AWAY</Text>
+              <Text style={[T.bodyB]}>60-min delivery</Text>
+              <Text style={[T.micro]}>From nearest store · 2.4 km away</Text>
             </View>
-            <Text style={[T.monoB, { fontSize: 11 }]}>FREE</Text>
+            <Text style={[T.caption, { color: C.ink }]}>Free</Text>
           </View>
 
           {/* Below-the-fold — mounts only after the open, off-screen, so no visible layout shift */}
           {ready && (<>
           {/* KEY HIGHLIGHTS */}
-          <Text style={[T.label, { marginTop: SP.l }]}>{'KEY HIGHLIGHTS'}</Text>
+          <Text style={[T.caption, { marginTop: SP.l }]}>{'Key Highlights'}</Text>
           <View style={[{ marginTop: 8 }, BORDER(1)]}>
             {[
               { k: 'Material', v: '100% Pure Wool' },
@@ -413,8 +449,8 @@ export default function ProductDetailScreen() {
               { k: 'Returns', v: '7-day easy returns' },
             ].map((h, i, arr) => (
               <View key={h.k} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 11, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderColor: C.hairline }}>
-                <Text style={[T.mono, { color: C.dim, fontSize: 11 }]}>{h.k}</Text>
-                <Text style={[T.bodyB, { fontSize: 12 }]}>{h.v}</Text>
+                <Text style={[T.caption]}>{h.k}</Text>
+                <Text style={[T.bodyB]}>{h.v}</Text>
               </View>
             ))}
           </View>
@@ -422,7 +458,7 @@ export default function ProductDetailScreen() {
           {/* Real parked CTA. The fixed overlay fades away as this reaches the bottom. */}
           <Animated.View
             onLayout={(e) => setCtaY(e.nativeEvent.layout.y)}
-            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.ink, paddingHorizontal: SP.m, paddingTop: SP.m, paddingBottom: 28, marginTop: SP.xl }, inlineCtaStyle]}
+            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.m, paddingTop: SP.m, paddingBottom: 28, marginTop: SP.xl }, inlineCtaStyle]}
           >
             <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
             <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -432,17 +468,17 @@ export default function ProductDetailScreen() {
           <View style={{ flexDirection: 'row', marginTop: SP.xl }}>
             {(['details', 'reviews', 'care'] as const).map(t => (
               <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: tab === t ? C.white : C.ink, letterSpacing: 0.5 }}>{t.toUpperCase()}</Text>
+                <Text style={[T.caption, { color: tab === t ? C.white : C.ink }]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
               </Pressable>
             ))}
           </View>
 
           <MotiView key={tab} from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }} style={{ marginTop: SP.l }}>
             {tab === 'details' && (
-              <Text style={[T.body, { color: C.inkSoft, lineHeight: 20 }]}>
+              <Text style={[T.body, { color: C.inkSoft }]}>
                 Premium fabric construction. Cut for an oversized, tailored fit. Featured in our Spring/Summer 26 lookbook. Designed in studio, sewn locally, delivered in 60 minutes.
-                {'\n\n'}MATERIAL: 100% pure wool · LINING: Cupro
-                {'\n'}MADE IN: India · CARE: Dry clean only
+                {'\n\n'}Material: 100% pure wool · Lining: Cupro
+                {'\n'}Made in: India · Care: Dry clean only
               </Text>
             )}
             {tab === 'reviews' && (
@@ -450,29 +486,27 @@ export default function ProductDetailScreen() {
                 {[1, 2, 3].map(i => (
                   <View key={i} style={{ marginBottom: SP.m }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={[T.monoB, { fontSize: 11 }]}>@user_0{i}</Text>
-                      <Text style={[T.mono, { color: C.dim }]}>★ {5 - i * 0.1}</Text>
+                      <Text style={[T.caption, { color: C.ink }]}>@user_0{i}</Text>
+                      <Text style={[T.caption]}>★ {5 - i * 0.1}</Text>
                     </View>
                     <Text style={[T.body, { marginTop: 4 }]}>"Fits perfect, exactly as shown. Delivery was crazy fast — 47 minutes."</Text>
-                    <AsciiDivider faint style={{ marginTop: 8 }} />
                   </View>
                 ))}
               </View>
             )}
             {tab === 'care' && (
-              <Text style={[T.body, { color: C.inkSoft, lineHeight: 20 }]}>
-                · DRY CLEAN ONLY{'\n'}
-                · DO NOT BLEACH{'\n'}
-                · COOL IRON IF NEEDED{'\n'}
-                · STORE ON HANGER{'\n'}
-                · KEEP AWAY FROM DIRECT SUNLIGHT
+              <Text style={[T.body, { color: C.inkSoft }]}>
+                · Dry clean only{'\n'}
+                · Do not bleach{'\n'}
+                · Cool iron if needed{'\n'}
+                · Store on hanger{'\n'}
+                · Keep away from direct sunlight
               </Text>
             )}
           </MotiView>
 
           {/* SIMILAR */}
-          <Text style={[T.h2, { marginTop: SP.xl }]}>{`▌ YOU MAY ALSO LIKE`}</Text>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
+          <Text style={[T.h2, { marginTop: SP.xl }]}>{`You may also like`}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
             {similarList.slice(0, 5).map(p => (
               <ProductCard key={p.id} p={p} onPress={() => nav.push('ProductDetail', { product: p })} />
@@ -481,25 +515,23 @@ export default function ProductDetailScreen() {
 
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
-            <Text style={T.h2}>{`▌ RATINGS & REVIEWS`}</Text>
-            <Pressable onPress={openReview} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Feather name="edit-3" size={12} color={C.ink} />
-              <Text style={[T.monoB, { fontSize: 10 }]}>WRITE REVIEW</Text>
+            <Text style={T.h2}>{`Ratings & Reviews`}</Text>
+            <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
+              <Text style={[T.caption]}>View all ──▶</Text>
             </Pressable>
           </View>
-          <AsciiDivider faint style={{ marginTop: 4 }} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
             {reviewList.map(r => (
               <View key={r.id} style={[{ width: 260, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.monoB, { fontSize: 11 }]}>{r.user}</Text>
+                  <Text style={[T.caption, { color: C.ink }]}>{r.user}</Text>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                     <Feather name="star" size={11} color={C.ink} />
-                    <Text style={[T.monoB, { fontSize: 11 }]}>{r.rating}.0</Text>
+                    <Text style={[T.caption, { color: C.ink }]}>{r.rating}.0</Text>
                   </View>
                 </View>
                 <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: 19 }]} numberOfLines={4}>{`"${r.text}"`}</Text>
-                <Text style={[T.mono, { color: C.dim, fontSize: 9, marginTop: 10 }]}>{r.date}</Text>
+                <Text style={[T.micro, { marginTop: 10 }]}>{r.date}</Text>
               </View>
             ))}
           </ScrollView>
@@ -512,43 +544,24 @@ export default function ProductDetailScreen() {
           <View style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
             <Feather name="gift" size={18} color={C.white} />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.white }}>Buy items & get ₹50 off</Text>
-              <Text style={[T.mono, { color: C.white, fontSize: 9, marginTop: 2, opacity: 0.8 }]}>Add one more to unlock TRENDZO50 at checkout</Text>
+              <Text style={[T.h3, { color: C.white }]}>Buy items & get ₹50 off</Text>
+              <Text style={[T.micro, { color: C.white, marginTop: 2, opacity: 0.8 }]}>Add one more to unlock TRENDZO50 at checkout</Text>
             </View>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
             {ready && similarList.slice(0, 6).map(p => (
-              <View key={p.id} style={{ width: 150 }}>
-                <Pressable onPress={() => openZoom(zoomRefs.current['sim' + p.id], p.img, p)}>
-                  <View ref={(el) => { zoomRefs.current['sim' + p.id] = el; }} collapsable={false} style={[{ height: 170, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                    <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                  </View>
-                  <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]} numberOfLines={1}>{p.brand}</Text>
-                  <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink }} numberOfLines={1}>{p.name}</Text>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-                </Pressable>
-                <Pressable onPress={() => { addToCart(p, 'M'); showToast('Added to bag', p.name, 'shopping-bag'); }} style={[{ marginTop: 6, paddingVertical: 8, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.ink, letterSpacing: 0.5 }}>+ ADD</Text>
-                </Pressable>
-              </View>
+              <ProductCard key={p.id} p={p} onAdd={handleUpsellAdd} />
             ))}
           </ScrollView>
         </View>
 
         {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it. */}
-        <View style={{ backgroundColor: night ? '#000000' : '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.ink }}>
-          <Text style={T.h2}>{`▌ MORE TO LOVE`}</Text>
+        <View style={{ backgroundColor: '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
+          <Text style={T.h2}>{`More to Love`}</Text>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
           {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
-            <Pressable key={p.id + '-' + i} onPress={() => openZoom(zoomRefs.current['grid' + p.id + '-' + i], p.img, p)} style={{ width: (width - SP.l * 2 - SP.s) / 2, marginBottom: SP.m }}>
-              <View ref={(el) => { zoomRefs.current['grid' + p.id + '-' + i] = el; }} collapsable={false} style={[{ height: 200, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-              </View>
-              <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]} numberOfLines={1}>{p.brand}</Text>
-              <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
-            </Pressable>
+            <ProductCard key={p.id + '-' + i} p={p} style={{ marginBottom: SP.m }} />
           ))}
         </View>
 
@@ -559,7 +572,7 @@ export default function ProductDetailScreen() {
       <Animated.View
         pointerEvents={fixedCtaInteractive ? 'auto' : 'none'}
         onLayout={(e) => setBarH(e.nativeEvent.layout.height)}
-        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.ink, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }, fixedCtaStyle]}
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }, fixedCtaStyle]}
       >
         <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
         <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -578,12 +591,12 @@ export default function ProductDetailScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {/* Pill label that pokes out from the circle */}
               <View style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 0.5 }}>TRY ON</Text>
+                <Text style={[T.caption, { color: C.white }]}>Try On</Text>
               </View>
               {/* The circular FAB */}
               <View style={{
                 width: 60, height: 60, borderRadius: 30,
-                backgroundColor: C.ink, borderWidth: 2, borderColor: C.ink,
+                backgroundColor: C.ink, borderWidth: 2, borderColor: C.hairline,
                 alignItems: 'center', justifyContent: 'center',
                 shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6,
                 elevation: 8,
@@ -605,73 +618,19 @@ export default function ProductDetailScreen() {
       {/* Flying image: card -> gallery slot. The actual frame animates so contain-fit matches
           the product card exactly at close; no post-close resize snap. */}
       {isZoom && cardFrame && (
-        <Animated.View onLayout={startFly} pointerEvents="none" style={[{ position: 'absolute', backgroundColor: C.hairline, overflow: 'hidden', zIndex: 50 }, overlayStyle]}>
+        <Animated.View
+          onLayout={startFly}
+          pointerEvents="none"
+          // Rasterize once on Android and fly the texture — no re-draws mid-flight.
+          renderToHardwareTextureAndroid
+          style={[{ position: 'absolute', left: SLOT.x, top: SLOT.y, width: SLOT.w, height: SLOT.h, backgroundColor: C.hairline, overflow: 'hidden', zIndex: 50 }, overlayStyle]}
+        >
           <CachedImage transition={0} source={{ uri: product.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
         </Animated.View>
       )}
 
-      {/* ═══ SELECT-A-SIZE SHEET — pops from the bottom when no size is chosen ═══ */}
-      <Modal transparent visible={!!sizeSheet} animationType="none" onRequestClose={() => setSizeSheet(null)}>
-        <Pressable onPress={() => setSizeSheet(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MV
-            from={{ translateY: 400 }}
-            animate={{ translateY: 0 }}
-            exit={{ translateY: 400 }}
-            transition={{ type: 'timing', duration: 300 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: night ? '#0a0a0a' : '#FFFFFF', paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 36, borderTopWidth: 2, borderColor: C.ink }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{'SELECT_A_SIZE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -1, marginTop: 2 }}>Pick your size</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 4 }]}>Choose a size to continue</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.l }}>
-              {sizes.map((sz) => (
-                <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 56, paddingHorizontal: 10, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink, letterSpacing: 0.5 }}>{sz}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })} style={{ marginTop: SP.m, alignSelf: 'flex-start' }}>
-              <Text style={[T.monoB, { fontSize: 10, textDecorationLine: 'underline' }]}>{'[ SIZE GUIDE ]'}</Text>
-            </Pressable>
-          </MV>
-        </Pressable>
-      </Modal>
-
-      {/* WRITE A REVIEW — rating + optional note → POST /consumer/community/reviews */}
-      <Modal transparent visible={reviewOpen} animationType="none" onRequestClose={() => setReviewOpen(false)}>
-        <Pressable onPress={() => setReviewOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}>
-          <MotiView
-            from={{ translateY: 500 }} animate={{ translateY: 0 }} transition={{ type: 'timing', duration: 300 }}
-            onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: C.bg, paddingTop: SP.m, paddingHorizontal: SP.l, paddingBottom: 32, borderTopWidth: 2, borderColor: C.ink }}
-          >
-            <View style={{ alignSelf: 'center', width: 44, height: 4, backgroundColor: C.ink, marginBottom: SP.m }} />
-            <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>YOUR REVIEW</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(22), color: C.ink, letterSpacing: -0.5, marginTop: 2 }} numberOfLines={1}>{product.name}</Text>
-
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: SP.l }}>
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Pressable key={s} onPress={() => setRevRating(s)} hitSlop={6}>
-                  <Feather name="star" size={34} color={s <= revRating ? C.ink : C.hairline} />
-                </Pressable>
-              ))}
-            </View>
-
-            <TextInput
-              value={revBody}
-              onChangeText={setRevBody}
-              placeholder="Share what you liked (optional)…"
-              placeholderTextColor={C.dim}
-              multiline
-              style={[{ marginTop: SP.l, paddingHorizontal: SP.m, paddingVertical: 12, fontFamily: 'Inter_400Regular', fontSize: 14, color: C.ink, backgroundColor: C.white, minHeight: 96, textAlignVertical: 'top' }, BORDER(1)]}
-            />
-
-            <BrutalButton label={revSubmitting ? 'Posting…' : 'Post review'} icon="send" block disabled={revSubmitting} onPress={submitReview} style={{ marginTop: SP.l }} />
-          </MotiView>
-        </Pressable>
-      </Modal>
+      {/* Size selection is fully inline now — no bottom-sheet modal. Add/Buy
+          without a size scrolls to the size row and continues from there. */}
     </View>
   );
 }

@@ -1,13 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Dimensions } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { BrutalStatusBar, CachedImage } from '../components/Brutal';
+import { C, T, SP, BORDER } from '../theme/brutal';
+import { BrutalStatusBar, CachedImage, CARD } from '../components/Brutal';
 import { PRODUCTS } from '../data/mockData';
 
-const { width: W } = Dimensions.get('window');
-const CATS = ['ALL', 'TOPS', 'DRESSES', 'OUTERWEAR', 'BOTTOMS'];
+const CATS = ['All', 'Tops', 'Dresses', 'Outerwear', 'Bottoms'];
 
 // Pick what to try on FIRST — search / explore products, tap one to try it on.
 export default function TryOnPickerScreen() {
@@ -15,7 +14,7 @@ export default function TryOnPickerScreen() {
   const route = useRoute<any>();
   const mode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const [q, setQ] = useState('');
-  const [cat, setCat] = useState('ALL');
+  const [cat, setCat] = useState('All');
 
   const results = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -23,8 +22,6 @@ export default function TryOnPickerScreen() {
     if (t) list = list.filter((p) => (p.name + ' ' + p.brand).toLowerCase().includes(t));
     return list;
   }, [q, cat]);
-
-  const cardW = (W - SP.l * 2 - SP.s) / 2;
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -35,15 +32,15 @@ export default function TryOnPickerScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
           <Pressable onPress={() => nav.goBack()} hitSlop={10}><Feather name="arrow-left" size={22} color={C.ink} /></Pressable>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(20), color: C.ink, letterSpacing: -0.5 }}>WHAT TO TRY ON?</Text>
-            <Text style={[T.mono, { color: C.dim, fontSize: 10, marginTop: 2 }]}>{mode === 'ar' ? 'AR · LIVE CAMERA' : 'PHOTO · UPLOAD'} · pick an item below</Text>
+            <Text style={[T.h1, { textTransform: 'uppercase' }]}>What to try on?</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>{mode === 'ar' ? 'AR · Live camera' : 'Photo · Upload'} · pick an item below</Text>
           </View>
         </View>
 
         {/* SEARCH */}
         <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SP.m, paddingVertical: 10, marginTop: SP.m }, BORDER(1)]}>
           <Feather name="search" size={16} color={C.dim} />
-          <TextInput value={q} onChangeText={setQ} placeholder="Search products to try on..." placeholderTextColor={C.dim} style={{ flex: 1, fontFamily: 'SpaceMono_400Regular', fontSize: 12, color: C.ink, padding: 0 }} />
+          <TextInput value={q} onChangeText={setQ} placeholder="Search products to try on..." placeholderTextColor={C.dim} style={[T.body, { flex: 1, padding: 0 }]} />
           {q.length > 0 && <Pressable onPress={() => setQ('')} hitSlop={8}><Feather name="x" size={16} color={C.dim} /></Pressable>}
         </View>
 
@@ -51,16 +48,16 @@ export default function TryOnPickerScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, marginTop: SP.m }}>
           {CATS.map((c) => (
             <Pressable key={c} onPress={() => setCat(c)} style={[{ paddingHorizontal: 14, paddingVertical: 7, backgroundColor: cat === c ? C.ink : C.white }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: cat === c ? C.white : C.ink, letterSpacing: 0.5 }}>{c}</Text>
+              <Text style={[T.caption, { color: cat === c ? C.white : C.ink }]}>{c}</Text>
             </Pressable>
           ))}
         </ScrollView>
       </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+      <View style={{ height: 1, backgroundColor: C.hairline }} />
 
       {/* GRID — tap a product to try it on */}
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 40 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={[T.label, { marginBottom: SP.m }]}>{`${results.length} ITEMS`}</Text>
+        <Text style={[T.caption, { marginBottom: SP.m }]}>{`${results.length} items`}</Text>
         {results.length === 0 ? (
           <View style={{ alignItems: 'center', paddingVertical: SP.huge }}>
             <Feather name="search" size={36} color={C.dim} />
@@ -69,17 +66,18 @@ export default function TryOnPickerScreen() {
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {results.map((p) => (
-              <Pressable key={p.id} onPress={() => nav.navigate('TryOn', { mode, product: p })} style={{ width: cardW, marginBottom: SP.m }}>
-                <View style={[{ height: 200, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
+              <Pressable key={p.id} onPress={() => nav.navigate('TryOn', { mode, product: p })} style={{ width: CARD.w, marginBottom: SP.m }}>
+                <View style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                  {/* CTA overlay — black is allowed for call-to-action */}
                   <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, backgroundColor: C.ink }}>
                     <Feather name="camera" size={12} color={C.white} />
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 10, color: C.white, letterSpacing: 0.5 }}>TRY THIS ON</Text>
+                    <Text style={[T.caption, { color: C.white }]}>Try this on</Text>
                   </View>
                 </View>
-                <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]} numberOfLines={1}>{p.brand}</Text>
-                <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 12, color: C.ink, marginTop: 1 }} numberOfLines={1}>{p.name}</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: 13, color: C.ink, marginTop: 2 }}>₹{p.price}</Text>
+                <Text style={[T.micro, { fontFamily: 'Helvetica Neue', fontWeight: '600', color: C.ink, marginTop: 6 }]} numberOfLines={1}>{(p.brand ?? '').toUpperCase()}</Text>
+                <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{p.name}</Text>
+                <Text style={[T.price, { marginTop: 3 }]}>₹{p.price}</Text>
               </Pressable>
             ))}
           </View>

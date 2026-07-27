@@ -1,17 +1,12 @@
 // Lightweight global state — auth, cart, favorites, onboarding flag.
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useSharedValue, withSpring, SharedValue } from 'react-native-reanimated';
-import { Image as ExpoImage } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const GENDER_KEY = '@closetx/gender';
-import {
-  Product, PRODUCTS, CATEGORIES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, REELS,
-  HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
-  HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
-  HERO_IMG, HERO_IMG_2, COUPON_IMG,
-} from '../data/mockData';
-import { setNight as applyNight, setGenderCurve, subscribeTheme, LIGHT, DARK, Palette } from '../theme/brutal';
+import { Product } from '../data/mockData';
+import { setGenderCurve, subscribeTheme } from '../theme/brutal';
+import { toastBus, confirmBus, authBus, ConfirmData } from './uiBus';
 import { setAuthToken } from '../services/api';
 import type { Session, Consumer } from '../services/auth';
 import { getServerCart, putServerCart } from '../services/cart';
@@ -62,21 +57,20 @@ type AppCtx = {
   // last order
   lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
   placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => void;
-  // night mode
-  night: boolean;
-  toggleNight: () => void;
-  // Reactive palette — use this in root backgrounds / critical styles for
-  // guaranteed re-render on theme toggle (the legacy `C` object in brutal.ts
-  // works for inline-styled children but can miss re-renders in deep trees).
-  theme: Palette;
   // Brutalist toast — message shown at bottom of screen (matches UI, not system Alert).
-  toast: { title: string; msg?: string; icon?: string; action?: { label: string; onPress: () => void } } | null;
+  // Toast/confirm STATE lives in uiBus (read only by BrutalToast/BrutalConfirm)
+  // so showing one doesn't re-render every context consumer in the app.
   showToast: (title: string, msg?: string, icon?: string, action?: { label: string; onPress: () => void }) => void;
   hideToast: () => void;
   // Brutalist confirm modal — for destructive / consequential actions
-  confirm: { title: string; msg?: string; confirmLabel?: string; cancelLabel?: string; onConfirm?: () => void; danger?: boolean; icon?: string } | null;
-  showConfirm: (opts: { title: string; msg?: string; confirmLabel?: string; cancelLabel?: string; onConfirm?: () => void; danger?: boolean; icon?: string }) => void;
+  showConfirm: (opts: NonNullable<ConfirmData>) => void;
   hideConfirm: () => void;
+  // Bottom-sheet phone-OTP login — used to gate "buy" actions (checkout,
+  // place order) for guests instead of a dedicated login page. Already
+  // signed in → runs onSuccess immediately and returns true; otherwise opens
+  // the sheet (onSuccess fires once sign-in succeeds) and returns false.
+  requireAuth: (onSuccess?: () => void) => boolean;
+  hideAuthSheet: () => void;
   // gender switch — drives the curve-vs-sharp UI transformation
   gender: 'her' | 'him';
   setGender: (g: 'her' | 'him') => void;
@@ -87,6 +81,9 @@ type AppCtx = {
   // 0 = HIM (sharp brutalist), 1 = HER (soft rounded). Drag in GenderSwitch
   // updates this in real time so the whole UI morphs with the gesture.
   curveProgress: SharedValue<number>;
+  // Bottom tab-bar visibility, driven by scroll direction. 0 = fully shown,
+  // 1 = hidden (slid off the bottom). Screens push to it via useTabBarScroll.
+  tabBarOffset: SharedValue<number>;
 };
 
 const Ctx = createContext<AppCtx | null>(null);
@@ -107,7 +104,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [wallet, setWallet] = useState<{ balancePaise: number } | null>(null);
   const [loyalty, setLoyalty] = useState<{ balancePoints: number } | null>(null);
   const [lastOrder, setLastOrder] = useState<AppCtx['lastOrder']>(null);
-  const [night, setNight] = useState(false);
   // Nonce bumps on every palette mutation so every component that reads
   // from AppState is forced to re-render and re-pull C values.
   const [, setThemeNonce] = useState(0);
@@ -116,29 +112,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
-  // Warm the disk cache for every product/category PNG on app start so the
-  // product cards render instantly on first scroll.
-  useEffect(() => {
-    const urls = [
-      HERO_IMG, HERO_IMG_2, COUPON_IMG, HER_HERO, HIM_HERO,
-      ...PRODUCTS.map(p => p.img),
-      ...HER_PRODUCTS.map(p => p.img),
-      ...HIM_PRODUCTS.map(p => p.img),
-      ...CATEGORIES.map(c => c.img),
-      ...HER_CATEGORIES.map(c => c.img),
-      ...HIM_CATEGORIES.map(c => c.img),
-      ...BRANDS.map(b => b.logo),
-      ...OCCASIONS.map(o => o.img),
-      ...BUNDLES.map(b => b.img),
-      ...HER_BUNDLES.map(b => b.img),
-      ...HIM_BUNDLES.map(b => b.img),
-      ...HER_OCCASIONS.map(o => o.img),
-      ...HIM_OCCASIONS.map(o => o.img),
-      ...COMMUNITY.map(c => c.img),
-      ...REELS.map(r => r.img),
-    ].filter(Boolean);
-    ExpoImage.prefetch(urls, 'memory-disk').catch(() => { /* ignore */ });
-  }, []);
+  // NOTE: the old ~150-URL catalog prefetch that lived here fired during
+  // splash/onboarding/login and starved those screens of CPU/bandwidth.
+  // It moved to services/prefetch.ts and now runs after Home first gains
+  // focus (see HomeScreen).
   // Hydrate the persisted session (token + consumer) once on cold start so the
   // user stays signed in across launches. setAuthToken makes the token visible
   // to the fetch client (services/api.ts) for Bearer auth.
@@ -166,24 +143,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const [gender, setGenderRaw] = useState<'her' | 'him'>('him');
-  const [toast, setToast] = useState<AppCtx['toast']>(null);
+  // Toast/confirm write to the uiBus — NOT provider state — so firing one
+  // re-renders only the toast/confirm hosts, not every useApp() consumer.
   const toastTimer = React.useRef<any>(null);
   const showToast = useCallback<AppCtx['showToast']>((title, msg, icon, action) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ title, msg, icon, action });
+    toastBus.set({ title, msg, icon, action });
     // Actionable toasts linger longer so the user has time to hit the button
-    toastTimer.current = setTimeout(() => setToast(null), action ? 3600 : 2200);
+    toastTimer.current = setTimeout(() => toastBus.set(null), action ? 3600 : 2200);
   }, []);
   const hideToast = useCallback(() => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast(null);
+    toastBus.set(null);
   }, []);
-  const [confirm, setConfirm] = useState<AppCtx['confirm']>(null);
-  const showConfirm = useCallback((opts: { title: string; msg?: string; confirmLabel?: string; cancelLabel?: string; onConfirm?: () => void; danger?: boolean; icon?: string }) => {
-    setConfirm(opts);
+  const showConfirm = useCallback((opts: NonNullable<ConfirmData>) => {
+    confirmBus.set(opts);
   }, []);
-  const hideConfirm = useCallback(() => setConfirm(null), []);
+  const hideConfirm = useCallback(() => confirmBus.set(null), []);
+  const hideAuthSheet = useCallback(() => authBus.set(null), []);
+  const requireAuth = useCallback((onSuccess?: () => void) => {
+    if (token) { onSuccess?.(); return true; }
+    authBus.set({ onSuccess });
+    return false;
+  }, [token]);
   const curveProgress = useSharedValue(0);
+  const tabBarOffset = useSharedValue(0);
   // When the GenderSwitch drag settles (or hydration restores a saved value),
   // the caller updates curveProgress itself and flips this flag so the effect
   // below skips re-animating — otherwise two animations race to the same
@@ -196,7 +180,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     curveProgress.value = withSpring(gender === 'her' ? 1 : 0, {
-      damping: 22, stiffness: 180, mass: 0.7, overshootClamping: false,
+      damping: 26, stiffness: 500, mass: 0.5, overshootClamping: false,
     });
   }, [gender]);
 
@@ -234,13 +218,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setGenderRaw(prev => {
       if (prev !== g) skipNextCurveSpring.current = true;
       return g;
-    });
-  }, []);
-  const toggleNight = useCallback(() => {
-    setNight(n => {
-      const next = !n;
-      applyNight(next);
-      return next;
     });
   }, []);
 
@@ -400,8 +377,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cartTotal = useMemo(() => cart.reduce((s, it) => s + it.price * it.qty, 0), [cart]);
   const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
 
+  // Memoized so the provider re-rendering (e.g. the themeNonce bump) without a
+  // REAL data change hands consumers the identical value and nothing cascades.
+  // Everything not listed in deps is a stable useCallback/ref/SharedValue.
+  const value = useMemo<AppCtx>(() => ({
+    user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer,
+    authHydrated, onboarded, setOnboarded,
+    cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount,
+    favorites, toggleFavorite, isFavorite,
+    lastOrder, placeOrder,
+    gender, setGender, setGenderFromDrag, curveProgress, tabBarOffset,
+    showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,
+  }), [
+    user, token, authHydrated, onboarded,
+    cart, cartTotal, cartCount,
+    favorites, isFavorite,
+    lastOrder, placeOrder,
+    gender,
+    // stable references, listed for lint-completeness:
+    signIn, signOut, updateUser, signInWithSession, applyConsumer, setOnboarded,
+    addToCart, removeFromCart, updateQty, updateMethod, clearCart, toggleFavorite,
+    setGender, setGenderFromDrag, curveProgress,
+    showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,
+  ]);
+
   return (
-    <Ctx.Provider value={{ user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer, authHydrated, wallet, loyalty, refreshWallet, refreshLoyalty, onboarded, setOnboarded, cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount, favorites, toggleFavorite, isFavorite, lastOrder, placeOrder, night, toggleNight, gender, setGender, setGenderFromDrag, curveProgress, theme: night ? DARK : LIGHT, toast, showToast, hideToast, confirm, showConfirm, hideConfirm }}>
+    <Ctx.Provider value={value}>
       {children}
     </Ctx.Provider>
   );

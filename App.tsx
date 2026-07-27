@@ -3,15 +3,8 @@ import React from 'react';
 import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import {
-  useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_900Black,
-} from '@expo-google-fonts/inter';
-import { SpaceMono_400Regular, SpaceMono_700Bold } from '@expo-google-fonts/space-mono';
+import { useFonts } from 'expo-font';
+import { RobotoMono_400Regular, RobotoMono_500Medium, RobotoMono_600SemiBold, RobotoMono_700Bold } from '@expo-google-fonts/roboto-mono';
 
 import { AppProvider } from './src/state/AppState';
 import RootNav from './src/navigation/RootNav';
@@ -50,27 +43,34 @@ class ErrorBoundary extends React.Component<
 }
 
 export default function App() {
+  // Typography — the original brutalist stack: Helvetica Neue Black for the
+  // black/heading weight, Roboto Mono (typewriter) for everything else. The
+  // family keys below are the SAME strings the whole codebase references
+  // (e.g. `Inter_700Bold`), re-aliased here so we don't touch call sites.
+  // (No real Inter — only these two fonts are used.)
   const [loaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_900Black,
-    SpaceMono_400Regular,
-    SpaceMono_700Bold,
+    // Headings → Helvetica Neue Black (bundled)
+    Inter_900Black: require('./assets/fonts/HelveticaNeueBlack.ttf'),
+    // Everything else → Roboto Mono weights
+    Inter_700Bold: RobotoMono_700Bold,
+    Inter_600SemiBold: RobotoMono_600SemiBold,
+    Inter_500Medium: RobotoMono_500Medium,
+    Inter_400Regular: RobotoMono_400Regular,
+    SpaceMono_400Regular: RobotoMono_400Regular,
+    SpaceMono_700Bold: RobotoMono_700Bold,
   });
 
   if (!loaded) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#000" />
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#fff" />
       </View>
     );
   }
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider>
           <AppProvider>
             <RootNav />

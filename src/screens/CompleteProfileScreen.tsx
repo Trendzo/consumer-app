@@ -4,17 +4,18 @@
 // is optional and also drives the app's her/him UI morph.
 import React, { useState } from 'react';
 import { View, Text, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { C, T, SP, rf, BORDER } from '../theme/brutal';
-import { BrutalButton, BrutalInput, AsciiDivider, BrutalStatusBar } from '../components/Brutal';
+import { BrutalButton, BrutalInput, BrutalStatusBar } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { updateMe } from '../services/auth';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Gender = 'her' | 'him' | 'unisex';
 const GENDERS: { key: Gender; label: string }[] = [
-  { key: 'her', label: 'HER' },
-  { key: 'him', label: 'HIM' },
-  { key: 'unisex', label: 'BOTH' },
+  { key: 'her', label: 'Her' },
+  { key: 'him', label: 'Him' },
+  { key: 'unisex', label: 'Both' },
 ];
 
 export function CompleteProfileScreen({ navigation }: any) {
@@ -57,22 +58,27 @@ export function CompleteProfileScreen({ navigation }: any) {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
+      {/* Back — only when opened from Profile ("Basics"), not the forced first-login step */}
+      {navigation.canGoBack() && (
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={{ position: 'absolute', top: 52, left: SP.s, zIndex: 10, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Feather name="arrow-left" size={22} color={C.ink} />
+        </Pressable>
+      )}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={{ paddingTop: 64, paddingHorizontal: SP.l, paddingBottom: 40 }}
+          contentContainerStyle={{ paddingTop: 100, paddingHorizontal: SP.l, paddingBottom: 40 }}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: 10, color: C.ink, letterSpacing: 2 }}>ONE LAST STEP</Text>
-          <AsciiDivider style={{ marginTop: 8 }} />
+          <Text style={[T.caption, { color: C.dim }]}>One last step</Text>
 
-          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(44), color: C.ink, letterSpacing: -2, lineHeight: rf(46), marginTop: 24 }}>ALMOST{'\n'}THERE.</Text>
-          <Text style={[T.body, { color: C.dim, marginTop: 10 }]}>We need your name and email to place orders.</Text>
+          <Text style={[T.h1, { marginTop: 12, textTransform: 'uppercase' }]}>Almost there</Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>We need your name and email to place orders.</Text>
 
           <View style={{ marginTop: 32 }}>
             <BrutalInput label="Full name" value={name} onChangeText={setName} icon="user" placeholder="Your name" autoCapitalize="words" error={errors.name} />
             <BrutalInput label="Email" value={email} onChangeText={setEmail} icon="mail" keyboardType="email-address" autoCapitalize="none" placeholder="you@trendzo.app" error={errors.email} />
 
-            <Text style={[T.label, { marginBottom: 8 }]}>SHOPPING FOR</Text>
+            <Text style={[T.caption, { color: C.ink, marginBottom: 8 }]}>Shopping for</Text>
             <View style={{ flexDirection: 'row', gap: 8, marginBottom: SP.l }}>
               {GENDERS.map(g => {
                 const active = pref === g.key;
@@ -82,7 +88,7 @@ export function CompleteProfileScreen({ navigation }: any) {
                     onPress={() => setPref(g.key)}
                     style={[{ flex: 1, paddingVertical: 14, alignItems: 'center', backgroundColor: active ? C.ink : C.white }, BORDER(1)]}
                   >
-                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, letterSpacing: 1, color: active ? C.white : C.ink }}>{g.label}</Text>
+                    <Text style={[T.caption, { color: active ? C.white : C.ink }]}>{g.label}</Text>
                   </Pressable>
                 );
               })}

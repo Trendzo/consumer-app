@@ -1,18 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Platform, LayoutChangeEvent, DeviceEventEmitter, BackHandler, ToastAndroid } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-  withSequence,
-} from 'react-native-reanimated';
+import { View, Text, Pressable, StyleSheet, Platform, DeviceEventEmitter, BackHandler, ToastAndroid } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import { PixelIcon, PixelIconName } from '../components/PixelIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER } from '../theme/brutal';
 import { BrutalToast, BrutalConfirm } from '../components/Brutal';
@@ -20,9 +13,8 @@ import { useApp } from '../state/AppState';
 
 import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
-import { LoginScreen, SignupScreen, EmailLoginScreen } from '../screens/AuthScreens';
-import PhoneAuthScreen from '../screens/PhoneAuthScreen';
 import CompleteProfileScreen from '../screens/CompleteProfileScreen';
+import { AuthSheet } from '../components/AuthSheet';
 import HomeScreen from '../screens/HomeScreen';
 import ReelsScreen from '../screens/ReelsScreen';
 import CartScreen from '../screens/CartScreen';
@@ -30,7 +22,8 @@ import ProfileScreen from '../screens/ProfileScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 import SearchScreen from '../screens/SearchScreen';
 import CategoryScreen from '../screens/CategoryScreen';
-import CheckoutScreen from '../screens/CheckoutScreen';
+import CategoryBrowseScreen from '../screens/CategoryBrowseScreen';
+import CategoryZoomScreen from '../screens/CategoryZoomScreen';
 import ReviewOrderScreen from '../screens/ReviewOrderScreen';
 import TryOnPickerScreen from '../screens/TryOnPickerScreen';
 import AboutScreen from '../screens/AboutScreen';
@@ -47,88 +40,59 @@ import {
 import {
   ImageSearchScreen, CouponWalletScreen, CommunityFeedScreen, MoodBoardScreen,
   LuckyDrawScreen, InviteFriendsScreen, AppChallengesScreen, NewArrivalsScreen,
-  DiscoverBrandsScreen, ForHerScreen, ForHimScreen, OccasionShoppingScreen,
+  DiscoverBrandsScreen, OccasionShoppingScreen,
 } from '../screens/FeatureScreens';
+import {
+  StealsScreen, TopStoriesScreen, ShopByOccasionScreen, FlashFitScreen,
+  ForHerEditScreen, ForHimEditScreen,
+} from '../screens/HomeSectionScreens';
+import { PushWinScreen } from '../screens/PushWinScreen';
+import { SpinWinPopup } from '../components/SpinWinPopup';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// ─── BOTTOM TAB BAR — Liquid Glass, edge-to-edge ────────────
+// ─── BOTTOM TAB BAR — floating pixel-art pill ───────────────
+// A white floating bar above the home indicator — sharp corners + hairline
+// border, matching the app-wide light design language. Active items go ink,
+// inactive dim. Four pixel-art tabs (Home · Reel · Category · Bag).
+const TAB_ACTIVE = '#111111';
+const TAB_INACTIVE = '#666666';
+
 function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
-  const items: { name: string; label: string; icon: any }[] = [
-    { name: 'HomeTab', label: 'HOME', icon: 'home' },
-    { name: 'ReelsTab', label: 'REELS', icon: 'play' },
-    { name: 'CartTab', label: 'BAG', icon: 'shopping-bag' },
-    { name: 'ProfileTab', label: 'ME', icon: 'user' },
+  const items: { name: string; label: string; icon: PixelIconName }[] = [
+    { name: 'HomeTab', label: 'Home', icon: 'home' },
+    { name: 'ReelsTab', label: 'Reel', icon: 'reel' },
+    { name: 'CategoryTab', label: 'Category', icon: 'category' },
+    { name: 'CartTab', label: 'Bag', icon: 'bag' },
   ];
-  const { cartCount, night, curveProgress } = useApp();
+  const { cartCount, tabBarOffset } = useApp();
+  const activeTint = TAB_ACTIVE;
   const insets = useSafeAreaInsets();
-  const tabStyles = React.useMemo(() => makeTabStyles(), [night]);
+  const tabStyles = tabStylesStatic;
 
-  // ── Venom blob: slides between tabs with stretch/squish, big square pill
-  const PILL_W = 72;
-  const PILL_H = 64;
-  const [innerW, setInnerW] = useState(0);
-  const H_PAD = 6;
-  const itemW = innerW > 0 ? (innerW - H_PAD * 2) / items.length : 0;
-
-  const tx = useSharedValue(0);
-  const sx = useSharedValue(1);
-  const sy = useSharedValue(1);
-
+  // Switching tabs should always reveal the bar, even if it was hidden by a
+  // scroll on the previous tab.
   useEffect(() => {
-    if (!itemW) return;
-    const target = H_PAD + itemW * state.index + (itemW - PILL_W) / 2;
-    sx.value = withSequence(
-      withTiming(1.85, { duration: 160 }),
-      withSpring(1, { damping: 11, stiffness: 170, mass: 0.9 }),
-    );
-    sy.value = withSequence(
-      withTiming(0.75, { duration: 160 }),
-      withSpring(1, { damping: 9, stiffness: 200, mass: 0.8 }),
-    );
-    tx.value = withSpring(target, { damping: 15, stiffness: 130, mass: 1 });
-  }, [state.index, itemW]);
+    tabBarOffset.value = 0;
+  }, [state.index]);
 
-  const blobStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: tx.value },
-      { scaleX: sx.value },
-      { scaleY: sy.value },
-    ],
-    borderRadius: curveProgress.value * (PILL_H / 2),
-  }));
-  const blobInnerStyle = useAnimatedStyle(() => ({
-    borderRadius: curveProgress.value * (PILL_H / 2),
+  // Slide the whole bar off the bottom when tabBarOffset → 1 (scrolling down).
+  const HIDE_DISTANCE = 78 + (insets.bottom > 0 ? insets.bottom : 10);
+  const hideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: tabBarOffset.value * HIDE_DISTANCE }],
+    opacity: 1 - tabBarOffset.value * 0.15,
   }));
 
   return (
-    <View style={tabStyles.wrap} pointerEvents="box-none">
-      {/* Solid tab surface — the live BlurView was re-compositing on every
-          scroll/drag frame and tanking perf. A solid fill matches the rest of
-          the brutalist UI and costs nothing to render. */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: night ? '#000000' : '#FFFFFF' }]} />
-
-      <View
-        style={[tabStyles.inner, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}
-        onLayout={(e: LayoutChangeEvent) => setInnerW(e.nativeEvent.layout.width)}
-      >
-        {/* ── Venom blob indicator (big square, slides + stretches) ── */}
-        {innerW > 0 && (
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              tabStyles.blob,
-              { width: PILL_W, height: PILL_H, top: tabStyles.inner.paddingTop - 8 },
-              blobStyle,
-            ]}
-          >
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: C.ink }, blobInnerStyle]} />
-          </Animated.View>
-        )}
-
+    <Animated.View
+      style={[tabStyles.wrap, { paddingBottom: insets.bottom > 0 ? insets.bottom - 4 : 10 }, hideStyle]}
+      pointerEvents="box-none"
+    >
+      <View style={tabStyles.pill}>
         {items.map((it, i) => {
           const active = state.index === i;
+          const tint = active ? activeTint : TAB_INACTIVE;
           return (
             <Pressable
               key={it.name}
@@ -144,118 +108,81 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               style={tabStyles.btn}
             >
               <View style={tabStyles.iconWrap}>
-                <Feather name={it.icon} size={22} color={active ? C.white : C.ink} />
+                <PixelIcon name={it.icon} size={22} color={tint} />
+                {it.name === 'CartTab' && cartCount > 0 && (
+                  <View style={tabStyles.badge}>
+                    <Text style={tabStyles.badgeTxt}>{cartCount}</Text>
+                  </View>
+                )}
               </View>
-              <Text style={[tabStyles.lbl, active && tabStyles.lblActive, active && { color: C.white }]}>{it.label}</Text>
-              {it.name === 'CartTab' && cartCount > 0 && (
-                <View style={tabStyles.badge}>
-                  <Text style={tabStyles.badgeTxt}>{cartCount}</Text>
-                </View>
-              )}
+              <Text
+                numberOfLines={1}
+                style={[T.caption, tabStyles.lbl, { color: tint }, active && tabStyles.lblActive]}
+              >
+                {it.label}
+              </Text>
             </Pressable>
           );
         })}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
-const makeTabStyles = () => StyleSheet.create({
+const tabStylesStatic = StyleSheet.create({
   wrap: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    overflow: 'hidden',
-    // soft drop shadow under the glass
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
   },
-  topRule: {
-    height: 1,
-    backgroundColor: C.ink,
-  },
-  highlight: {
-    position: 'absolute',
-    top: 1,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-  },
-  inner: {
+  // Sharp, flat bar — square corners, hairline border, no shadow (matches the
+  // app-wide light design language; was a rounded drop-shadow pill).
+  pill: {
     flexDirection: 'row',
-    paddingTop: 8,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: '#e6e6e6',
+    paddingVertical: 6,
     paddingHorizontal: 6,
-  },
-  blob: {
-    position: 'absolute',
-    left: 0,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
   },
   btn: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
-    paddingVertical: 4,
-    marginTop: -6,
-    gap: 3,
+    gap: 4,
+    paddingVertical: 2,
   },
   iconWrap: {
-    width: 36,
-    height: 32,
+    width: 24,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  iconWrapActive: {
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.6)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  iconHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   lbl: {
-    fontFamily: 'SpaceMono_700Bold',
-    fontSize: 9,
-    letterSpacing: 0.5,
-    color: C.ink,
+    textAlign: 'center',
   },
   lblActive: {
-    color: C.ink,
-    fontFamily: 'Inter_900Black',
+    fontFamily: 'Helvetica Neue', fontWeight: '600',
   },
   badge: {
     position: 'absolute',
-    top: 0,
-    right: '24%',
+    top: -6,
+    right: -10,
     minWidth: 16,
     height: 16,
-    backgroundColor: C.ink,
+    borderRadius: 0,
+    backgroundColor: '#111111',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: C.white,
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
   },
-  badgeTxt: { color: C.white, fontFamily: 'Inter_900Black', fontSize: 9 },
+  badgeTxt: { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 9 },
 });
 
 const navigationRef = createNavigationContainerRef<any>();
@@ -268,9 +195,12 @@ function MainTabs() {
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} />
-      <Tab.Screen name="ReelsTab" component={ReelsScreen} />
+      {/* freezeOnBlur: suspend Reels' JS render tree while another tab is
+          shown — its players are already paused on blur; this stops re-renders
+          from reaching the offscreen feed too. Scoped to Reels only. */}
+      <Tab.Screen name="ReelsTab" component={ReelsScreen} options={{ freezeOnBlur: true }} />
+      <Tab.Screen name="CategoryTab" component={CategoryBrowseScreen} />
       <Tab.Screen name="CartTab" component={CartScreen} />
-      <Tab.Screen name="ProfileTab" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -283,28 +213,47 @@ export default function RootNav() {
   // splashDone: the splash animation has finished. We still wait on
   // authHydrated before routing so a persisted session isn't missed.
   const [splashDone, setSplashDone] = useState(false);
-  // pendingLogin: once we land on 'main' as a guest, auto-present the Login
-  // screen over the tabs (so "Start Browsing" / back returns to the tabs).
-  const [pendingLogin, setPendingLogin] = useState(false);
-  const { onboarded, setOnboarded, token, authHydrated, night } = useApp();
+  const { onboarded, setOnboarded, token, authHydrated } = useApp();
   const lastBackRef = React.useRef(0);
 
   // Decide where a new launch goes once the splash is done AND the persisted
-  // session/onboarding flags have been read from disk:
-  //   • logged in            → straight to the app (skip onboarding + login)
-  //   • onboarded, guest      → login (onboarding only shows once)
-  //   • brand new             → onboarding → login
+  // session/onboarding flags have been read from disk. There's no forced
+  // login page any more — guests (onboarded or not) land straight in the app
+  // and only get prompted to sign in when they try to buy (see requireAuth
+  // in AppState, surfaced via AuthSheet).
+  //   • logged in OR already onboarded → straight to the app
+  //   • brand new                       → onboarding → app
+  // Route as soon as the persisted session is read — WITHOUT waiting for the
+  // splash animation. The destination (home/onboarding) mounts and settles
+  // UNDERNEATH the splash overlay, so when the particles disperse the app is
+  // already loaded — no loading/entry animations after the splash.
   useEffect(() => {
-    if (phase !== 'splash' || !splashDone || !authHydrated) return;
-    if (token) {
-      setPhase('main');
-    } else if (onboarded) {
-      setPendingLogin(true);
-      setPhase('main');
-    } else {
-      setPhase('onboarding');
-    }
-  }, [phase, splashDone, authHydrated, token, onboarded]);
+    if (phase !== 'splash' || !authHydrated) return;
+    setPhase(token || onboarded ? 'main' : 'onboarding');
+  }, [phase, authHydrated, token, onboarded]);
+
+  // Mount the app during the splash's CALM window — after the pixel intro
+  // finishes (~1.3s) but before the particle burst (2.05s). Mounting at t=0
+  // made Home's heavy first render fight the intro animation (jitter); in the
+  // hold window nothing but the thin loader bar is moving, so the mount cost
+  // is invisible and Home is still fully settled before the burst reveals it.
+  const [appMountReady, setAppMountReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAppMountReady(true), 1450);
+    return () => clearTimeout(t);
+  }, []);
+
+  // SPIN & WIN welcome popup — fires once per app launch, right after the
+  // splash particles clear AND the main app is on screen (if the user goes
+  // through onboarding first, it waits and fires when they land in the app).
+  const [spinPopup, setSpinPopup] = useState(false);
+  const spinShownRef = React.useRef(false);
+  useEffect(() => {
+    if (!splashDone || phase !== 'main' || spinShownRef.current) return;
+    spinShownRef.current = true;
+    const t = setTimeout(() => setSpinPopup(true), 700);
+    return () => clearTimeout(t);
+  }, [splashDone, phase]);
 
   // Android hardware back: route → Home tab → "press again to exit"
   useEffect(() => {
@@ -344,58 +293,71 @@ export default function RootNav() {
 
   const NightOverlay = () => null;
 
-  if (phase === 'splash') {
-    return (
-      <View style={{ flex: 1 }}>
-        <SplashScreen onDone={() => setSplashDone(true)} />
-        <NightOverlay />
-      </View>
-    );
-  }
-  if (phase === 'onboarding') {
-    return (
-      <View style={{ flex: 1 }}>
-        <OnboardingScreen onDone={() => { setOnboarded(true); setPendingLogin(true); setPhase('main'); }} />
-        <NightOverlay />
-      </View>
-    );
-  }
+  // Single stable tree: the destination renders below, the splash sits on top
+  // as an overlay until its particle burst finishes, then unmounts — the
+  // particles spread OPEN over the already-mounted home (its bg fades out).
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      {phase === 'onboarding' && appMountReady && (
+        <OnboardingScreen onDone={() => { setOnboarded(true); setPhase('main'); }} />
+      )}
+      {phase === 'main' && appMountReady && <MainApp />}
+      {!splashDone && (
+        <View style={StyleSheet.absoluteFill}>
+          <SplashScreen onDone={() => setSplashDone(true)} />
+        </View>
+      )}
+      {/* Welcome-gift wheel — only ever visible after the splash is gone */}
+      <SpinWinPopup
+        visible={spinPopup}
+        onClose={() => setSpinPopup(false)}
+        onShop={() => {
+          setSpinPopup(false);
+          if (navigationRef.current?.isReady()) navigationRef.current.navigate('Steals');
+        }}
+      />
+    </View>
+  );
+}
 
+function MainApp() {
+  const NightOverlay = () => null;
+  const { tabBarOffset } = useApp();
   return (
     <ZoomProvider navRef={navigationRef}>
-    <View style={{ flex: 1, backgroundColor: night ? '#000' : '#fff' }} key={night ? 'dark' : 'light'}>
+    <View style={{ flex: 1, backgroundColor: '#fff' }}>
     <NavigationContainer
       ref={navigationRef}
-      onReady={() => {
-        // Guest launch: present Login over the tabs. Reset the flag so it only
-        // fires once (the user can dismiss it to browse as a guest).
-        if (pendingLogin && navigationRef.isReady()) {
-          navigationRef.navigate('Login');
-          setPendingLogin(false);
-        }
+      onStateChange={(state) => {
+        // Whenever the root stack returns to the tab screens (a modal like
+        // Search / ProductDetail / CategoryZoom was dismissed), re-reveal the
+        // floating tab bar. Those are transparentModals that don't reliably
+        // re-fire focus on the tab underneath, so a scroll-hidden bar would
+        // otherwise stay stuck off-screen. Fires on nav changes only, never on
+        // scroll, so it doesn't fight the scroll-to-hide behaviour.
+        const top = state?.routes?.[state.index ?? 0]?.name;
+        if (top === 'Tabs') tabBarOffset.value = withTiming(0, { duration: 200 });
       }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
-        <Stack.Screen name="Login" component={LoginScreen} options={{ animation: 'none', presentation: 'fullScreenModal' }} />
-        <Stack.Screen
-          name="Signup"
-          component={SignupScreen}
-          options={{
-            presentation: 'formSheet',
-            sheetAllowedDetents: [0.85],
-            sheetCornerRadius: 0,
-            sheetGrabberVisible: false,
-          }}
-        />
-        <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-        <Stack.Screen name="PhoneAuth" component={PhoneAuthScreen} options={{ animation: 'slide_from_bottom' }} />
+        {/* Profile moved out of the bottom tabs — still reachable as a pushed
+            screen (opened from the Home header). */}
+        <Stack.Screen name="Profile" component={ProfileScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} options={{ gestureEnabled: false }} />
         <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
-            <Stack.Screen name="Search" component={SearchScreen} options={{ animation: 'fade_from_bottom' }} />
+        {/* Category hero-morph — transparent so Home stays visible under the flight */}
+        <Stack.Screen name="CategoryZoom" component={CategoryZoomScreen} options={{ presentation: 'transparentModal', animation: 'none', gestureEnabled: false, contentStyle: { backgroundColor: 'transparent' } }} />
+            {/* transparent so the search bar can morph in place over Home */}
+            <Stack.Screen name="Search" component={SearchScreen} options={{ presentation: 'transparentModal', animation: 'none', contentStyle: { backgroundColor: 'transparent' } }} />
             <Stack.Screen name="Category" component={CategoryScreen} />
-        <Stack.Screen name="Cart" component={CartScreen} />
-        <Stack.Screen name="Checkout" component={CheckoutScreen} />
+            <Stack.Screen name="Categories" component={CategoryBrowseScreen} />
+        {/* NOTE: no stack-level "Cart" route — the Bag exists ONCE, as the
+            CartTab. Every bag icon navigates to Tabs → CartTab so there's a
+            single bag page, never a second pushed copy. */}
+        {/* Single-page checkout (address + delivery + payment + pay on ONE page,
+            Myntra-style). The old 4-step Checkout wizard is retired — every
+            buy path (Buy Now and Bag buckets) lands here. */}
         <Stack.Screen name="ReviewOrder" component={ReviewOrderScreen} />
         <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} options={{ animation: 'fade' }} />
         <Stack.Screen name="OrderTracking" component={OrderTrackingScreen} />
@@ -436,14 +398,23 @@ export default function RootNav() {
         <Stack.Screen name="AppChallenges" component={AppChallengesScreen} />
         <Stack.Screen name="NewArrivals" component={NewArrivalsScreen} />
         <Stack.Screen name="DiscoverBrands" component={DiscoverBrandsScreen} />
-        <Stack.Screen name="ForHer" component={ForHerScreen} />
-        <Stack.Screen name="ForHim" component={ForHimScreen} />
+        {/* Gender campaign edits — redesigned pages the hero banner opens */}
+        <Stack.Screen name="ForHer" component={ForHerEditScreen} />
+        <Stack.Screen name="ForHim" component={ForHimEditScreen} />
         <Stack.Screen name="OccasionShopping" component={OccasionShoppingScreen} />
+        {/* Dedicated pages for the Home sections (redesigned, modern UI) */}
+        <Stack.Screen name="Steals" component={StealsScreen} />
+        <Stack.Screen name="TopStories" component={TopStoriesScreen} />
+        <Stack.Screen name="ShopByOccasion" component={ShopByOccasionScreen} />
+        <Stack.Screen name="FlashFit" component={FlashFitScreen} />
+        {/* Push & Win arcade — slides up like a game sheet */}
+        <Stack.Screen name="PushWin" component={PushWinScreen} options={{ animation: 'slide_from_bottom' }} />
       </Stack.Navigator>
     </NavigationContainer>
     <NightOverlay />
     <BrutalToast />
     <BrutalConfirm />
+    <AuthSheet />
     </View>
     </ZoomProvider>
   );

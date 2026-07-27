@@ -1,44 +1,67 @@
+// SEARCH — a full page that slides DOWN from the top when opened (and slides
+// back up on close). The old in-place "expand the tapped bar" morph is gone:
+// tapping any search bar just opens this page. Opened as a transparent modal
+// (animation: none) so this screen drives its own top-to-bottom entrance.
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, StatusBar, StyleSheet, Image, Keyboard } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, StatusBar, StyleSheet, Keyboard, Dimensions } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { AsciiDivider, Chip, CachedImage } from '../components/Brutal';
+import { C, T, SP, BORDER } from '../theme/brutal';
+import { Chip, CachedImage, ProductCard } from '../components/Brutal';
 import { useZoom } from '../navigation/ZoomTransition';
 import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
 import { listProducts } from '../services/catalog';
 import { useApp } from '../state/AppState';
 
+const { height: H } = Dimensions.get('window');
 const RECENT = ['oversized blazer', 'cropped cargo', 'silk dress', 'sneakers'];
 const TRENDING = ['Y2K', 'wide leg', 'cargo', 'mesh', 'utility', 'denim', 'satin', 'preppy'];
-
-// Result card — taps zoom the IMAGE from its grid spot into the product page
-function ResultCard({ p }: { p: any }) {
-  const { openZoom } = useZoom();
-  const imgRef = useRef<View>(null);
-  return (
-    <Pressable onPress={() => openZoom(imgRef, p.img, p)}>
-      <View ref={imgRef} collapsable={false} style={[{ height: 200, overflow: 'hidden' }, BORDER(1)]}>
-        <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-      </View>
-      <Text style={[T.monoB, { fontSize: 9, marginTop: 6 }]}>{p.brand}</Text>
-      <Text style={[T.body]} numberOfLines={1}>{p.name}</Text>
-      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 14, color: C.ink }}>₹{p.price}</Text>
-    </Pressable>
-  );
-}
+const OPEN_MS = 340;
+const CLOSE_MS = 280;
+const BAR_H = 46;
 
 export default function SearchScreen() {
   const nav = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+
   const [q, setQ] = useState('');
-  const { night, theme, gender } = useApp();
+  const { gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<{ [k: string]: any }>({});
+  const inputRef = useRef<TextInput>(null);
+  const closing = useRef(false);
 
-  // Backend search (name ILIKE, gender-scoped), debounced 300ms. Falls back to a
-  // local mock filter if the request fails.
+  // ── slide-down entrance: 0 = parked above the screen, 1 = in place ──
+  const p = useSharedValue(0);
+  const focusInput = () => inputRef.current?.focus();
+  useEffect(() => {
+    p.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) }, (fin) => {
+      if (fin) runOnJS(focusInput)();
+    });
+  }, []);
+  const goClose = () => {
+    if (closing.current) return;
+    closing.current = true;
+    Keyboard.dismiss();
+    p.value = withTiming(0, { duration: CLOSE_MS, easing: Easing.in(Easing.cubic) }, (fin) => {
+      if (fin) runOnJS(nav.goBack)();
+    });
+  };
+
+  // Whole sheet rides down from above; content fades in on the tail end.
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: interpolate(p.value, [0, 1], [-H, 0]) }],
+  }));
+  const contentStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(p.value, [0.55, 1], [0, 1], 'clamp'),
+    transform: [{ translateY: interpolate(p.value, [0.55, 1], [10, 0], 'clamp') }],
+  }));
+
+  // Backend search (name ILIKE, gender-scoped), debounced 300ms; mock fallback.
   const [results, setResults] = useState<Product[]>([]);
   const [searching, setSearching] = useState(false);
   useEffect(() => {
@@ -50,8 +73,8 @@ export default function SearchScreen() {
       listProducts({ search: term, gender, limit: 30 })
         .then((r) => { if (!cancelled) setResults(r); })
         .catch(() => {
-          if (!cancelled) setResults(PRODUCTS.filter(p =>
-            p.name.toLowerCase().includes(term.toLowerCase()) || p.brand.toLowerCase().includes(term.toLowerCase())));
+          if (!cancelled) setResults(PRODUCTS.filter(p2 =>
+            p2.name.toLowerCase().includes(term.toLowerCase()) || p2.brand.toLowerCase().includes(term.toLowerCase())));
         })
         .finally(() => { if (!cancelled) setSearching(false); });
     }, 300);
@@ -59,89 +82,90 @@ export default function SearchScreen() {
   }, [q, gender]);
 
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
-      {/* HEADER */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingTop: 56, paddingBottom: SP.m, gap: 10 }}>
-        <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10 }, BORDER(1)]}>
-          <Feather name="search" size={16} color={C.ink} />
-          <TextInput
-            value={q}
-            onChangeText={setQ}
-            autoFocus
-            placeholder="SEARCH FITS, BRANDS, VIBES..."
-            placeholderTextColor={C.dim}
-            style={{ flex: 1, fontFamily: 'SpaceMono_700Bold', fontSize: 11, color: C.ink, padding: 0, letterSpacing: 0.5 }}
-          />
-          {q.length > 0 && <Pressable onPress={() => setQ('')}><Feather name="x" size={14} color={C.ink} /></Pressable>}
-        </View>
-        <Pressable onPress={() => { Keyboard.dismiss(); nav.goBack(); }}>
-          <Text style={[T.monoB, { fontSize: 11 }]}>{'[CANCEL]'}</Text>
-        </Pressable>
-      </View>
-      <View style={{ height: 1, backgroundColor: C.ink }} />
+    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+      <StatusBar barStyle="dark-content" />
 
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
-        {q.length === 0 ? (
-          <>
-            <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-              <Text style={[T.label]}>{'RECENT'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
-              {RECENT.map(r => (
-                <Pressable key={r} onPress={() => setQ(r)} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 }}>
-                  <Feather name="clock" size={14} color={C.dim} />
-                  <Text style={[T.body, { flex: 1 }]}>{r}</Text>
-                  <Feather name="arrow-up-left" size={14} color={C.dim} />
-                </Pressable>
-              ))}
-            </View>
-
-            <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-              <Text style={[T.label]}>{'TRENDING'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                {TRENDING.map((t, i) => <Chip key={t} label={`#${t}`} onPress={() => setQ(t)} />)}
-              </View>
-            </View>
-
-            <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-              <Text style={[T.label]}>{'POPULAR DROPS'}</Text>
-              <AsciiDivider faint style={{ marginTop: 4 }} />
-              {PRODUCTS.slice(0, 4).map((p, i) => (
-                <MotiView key={p.id} from={{ opacity: 0, translateX: -10 }} animate={{ opacity: 1, translateX: 0 }} transition={{ delay: i * 60 }}>
-                  <Pressable onPress={() => openZoom(zoomRefs.current['pd' + p.id], p.img, p)} style={s.row}>
-                    <View ref={(el) => { zoomRefs.current['pd' + p.id] = el; }} collapsable={false} style={[{ width: 50, height: 50, overflow: 'hidden' }, BORDER(1)]}>
-                      <Image source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[T.bodyB]} numberOfLines={1}>{p.name}</Text>
-                      <Text style={[T.mono, { color: C.dim }]}>{p.brand} · ₹{p.price}</Text>
-                    </View>
-                    <Feather name="arrow-up-right" size={14} color={C.ink} />
-                  </Pressable>
-                </MotiView>
-              ))}
-            </View>
-          </>
-        ) : (
-          <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-            <Text style={[T.mono, { color: C.dim }]}>{searching ? `SEARCHING "${q.toUpperCase()}"…` : `${results.length} RESULTS FOR "${q.toUpperCase()}"`}</Text>
-            <AsciiDivider style={{ marginTop: 6 }} />
-            {!searching && results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.m, marginTop: SP.m }}>
-              {results.map((p, i) => (
-                <MotiView key={p.id} from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 50 }} style={{ width: '47.5%' }}>
-                  <ResultCard p={p} />
-                </MotiView>
-              ))}
-            </View>
+      {/* The whole search page is ONE white sheet sliding in from the top */}
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }, sheetStyle]}>
+        {/* ── Header: search bar + cancel, static inside the sheet ── */}
+        <View style={{ paddingTop: insets.top + 8, paddingHorizontal: SP.l, paddingBottom: SP.s, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: '#FFFFFF' }}>
+          <View style={[{ flex: 1, height: BAR_H, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, gap: 10 }, BORDER(1)]}>
+            <Feather name="search" size={16} color={C.ink} />
+            <TextInput
+              ref={inputRef}
+              value={q}
+              onChangeText={setQ}
+              placeholder="Search fits, brands, vibes..."
+              placeholderTextColor={C.dim}
+              style={[T.body, { flex: 1, padding: 0 }]}
+            />
+            {q.length > 0 && <Pressable onPress={() => setQ('')} hitSlop={8}><Feather name="x" size={14} color={C.ink} /></Pressable>}
           </View>
-        )}
-      </ScrollView>
+          <Pressable onPress={goClose} hitSlop={8}>
+            <Text style={[T.button, { color: C.ink }]}>Cancel</Text>
+          </Pressable>
+        </View>
+        <View style={{ height: 1, backgroundColor: C.hairline }} />
+
+        {/* ── Content ── */}
+        <Animated.View style={[{ flex: 1 }, contentStyle]}>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: SP.l, paddingBottom: 60 }}>
+            {q.length === 0 ? (
+              <>
+                <View style={{ paddingHorizontal: SP.l }}>
+                  <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.s }]}>Recent</Text>
+                  {RECENT.map(r => (
+                    <Pressable key={r} onPress={() => setQ(r)} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 10 }}>
+                      <Feather name="clock" size={14} color={C.dim} />
+                      <Text style={[T.body, { flex: 1 }]}>{r}</Text>
+                      <Feather name="arrow-up-left" size={14} color={C.dim} />
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+                  <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.m }]}>Trending</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {TRENDING.map((t) => <Chip key={t} label={`#${t}`} onPress={() => setQ(t)} />)}
+                  </View>
+                </View>
+
+                <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+                  <Text style={[T.h2, { textTransform: 'uppercase', marginBottom: SP.s }]}>Popular Drops</Text>
+                  {PRODUCTS.slice(0, 4).map((prod) => (
+                    <Pressable key={prod.id} onPress={() => openZoom(zoomRefs.current['pd' + prod.id], prod.img, prod)} style={s.row}>
+                      <View ref={(el) => { zoomRefs.current['pd' + prod.id] = el; }} collapsable={false} style={[{ width: 50, height: 50, overflow: 'hidden' }, BORDER(1)]}>
+                        <CachedImage source={{ uri: prod.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={[T.bodyB]} numberOfLines={1}>{prod.name}</Text>
+                        <Text style={[T.caption]}>{prod.brand} · ₹{prod.price}</Text>
+                      </View>
+                      <Feather name="arrow-up-right" size={14} color={C.ink} />
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            ) : (
+              <View style={{ paddingHorizontal: SP.l }}>
+                <Text style={[T.caption]}>{searching ? `Searching "${q}"…` : `${results.length} results for "${q}"`}</Text>
+                {!searching && results.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.l }]}>No results. Try a broader term.</Text>}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.m }}>
+                  {results.map((prod, i) => (
+                    <MotiView key={prod.id} from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 40 }}>
+                      <ProductCard p={prod} style={{ marginBottom: SP.s }} />
+                    </MotiView>
+                  ))}
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: SP.l },
 });

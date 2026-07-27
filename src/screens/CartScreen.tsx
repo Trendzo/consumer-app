@@ -1,33 +1,79 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, TextInput } from 'react-native';
+// BAG — redesigned in the app's editorial language: ink on white, hairline
+// borders, Inter Black headlines with the highlighter-yellow bar, a black
+// ticker strip, black method bars per delivery bucket, receipt-style summary
+// and slab CTAs sinking into yellow offset shadows. All the original cart
+// logic is preserved: per-method buckets, move-to, server pricing, coupon,
+// auth-gated checkout, tab-bar scroll behaviour.
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, StatusBar, TextInput, Animated, Easing, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, AsciiDivider, BrutalButton, BrutalBox, CachedImage, FadeInUp, ProductCard, SectionHead } from '../components/Brutal';
+import { CachedImage, FadeInUp, ProductCard } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
+import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { PRODUCTS } from '../data/mockData';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 
 const TAB_BAR_HEIGHT = 72;
+const YELLOW = '#F2E63C'; // the Home highlighter — the one accent
+const FREE_SHIP_AT = 999;
 
 const METHOD_META: Record<DeliveryMethod, { label: string; icon: string; time: string; fee: number; blurb: string }> = {
-  express:  { label: 'EXPRESS · 60 MIN',     icon: 'zap',     time: '60 MIN',     fee: 99, blurb: 'From your block · in under an hour' },
-  standard: { label: 'STANDARD · 2-3 DAYS',  icon: 'package', time: '2-3 DAYS',   fee: 49, blurb: 'Tracked shipping · door-to-door' },
-  pickup:   { label: 'INSTORE PICKUP',       icon: 'map-pin', time: 'IN STORE',   fee: 0,  blurb: 'Ready at your nearest store · free' },
+  express:  { label: 'Express · 60 min',     icon: 'zap',     time: '60 min',     fee: 99, blurb: 'From your block · in under an hour' },
+  standard: { label: 'Standard · 2-3 days',  icon: 'package', time: '2-3 days',   fee: 49, blurb: 'Tracked shipping · door-to-door' },
+  pickup:   { label: 'Instore pickup',       icon: 'map-pin', time: 'In store',   fee: 0,  blurb: 'Ready at your nearest store · free' },
 };
 const METHOD_ORDER: DeliveryMethod[] = ['express', 'standard', 'pickup'];
+
+// ── TICKER — the Home marquee strip, black with endlessly scrolling text ──
+function Ticker({ text }: { text: string }) {
+  const [segW, setSegW] = useState(0);
+  const x = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!segW) return;
+    x.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(x, { toValue: -segW, duration: segW * 20, easing: Easing.linear, useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [segW]);
+  const seg = <Text numberOfLines={1} style={[T.caption, { color: C.white }]}>{text}</Text>;
+  return (
+    <View style={{ height: 30, backgroundColor: C.ink, overflow: 'hidden', justifyContent: 'center' }}>
+      <Animated.View style={{ flexDirection: 'row', transform: [{ translateX: x }] }}>
+        <View onLayout={(e) => setSegW(e.nativeEvent.layout.width)}>{seg}</View>
+        {seg}
+      </Animated.View>
+    </View>
+  );
+}
+
+// ── SLAB — the brand CTA: black slab sinking into a yellow offset shadow ──
+function Slab({ label, onPress, small }: { label: string; onPress: () => void; small?: boolean }) {
+  return (
+    <View>
+      <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: YELLOW, borderWidth: 1, borderColor: C.ink }} />
+      <Pressable onPress={onPress} style={{ backgroundColor: C.ink, paddingVertical: small ? 12 : 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, borderWidth: 1, borderColor: C.ink }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(small ? 13 : 15), color: C.white, letterSpacing: 2 }}>{label}</Text>
+        <Feather name="arrow-right" size={small ? 14 : 16} color={C.white} />
+      </Pressable>
+    </View>
+  );
+}
 
 export default function CartScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, night, theme, showToast } = useApp();
-  const s = React.useMemo(() => makeS(), [night]);
+  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, showToast, requireAuth } = useApp();
+  const tabScroll = useTabBarScroll();
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
   const [applied, setApplied] = useState(0);
-  // Real server-computed totals when every line carries a backend variant id (guest-ok via
-  // /pricing/cart). Falls back to the local math below for mock items or on failure.
+  // Real server-computed totals when every line carries a backend variant id
+  // (guest-ok via /pricing/cart). Falls back to local math for mock items.
   const [pricing, setPricing] = useState<CartPricing | null>(null);
   const allPriceable = cart.length > 0 && cart.every(it => !!it.variantId);
   useEffect(() => {
@@ -54,202 +100,292 @@ export default function CartScreen() {
     const m: DeliveryMethod = (it as any).method || 'express';
     buckets[m].push(it);
   });
-
-  // Per-bucket subtotal + fee
-  const bucketSubtotal = (m: DeliveryMethod) =>
-    buckets[m].reduce((s, it) => s + it.price * it.qty, 0);
+  const bucketSubtotal = (m: DeliveryMethod) => buckets[m].reduce((s, it) => s + it.price * it.qty, 0);
   const bucketFee = (m: DeliveryMethod) => (buckets[m].length > 0 ? METHOD_META[m].fee : 0);
-
-  // Grand totals — fees sum only for non-empty buckets
   const allFees = METHOD_ORDER.reduce((s, m) => s + bucketFee(m), 0);
   const total = Math.max(0, cartTotal - applied) + allFees;
+  const activeBuckets = METHOD_ORDER.filter(m => buckets[m].length > 0);
 
-  const checkoutBucket = (_m: DeliveryMethod) => {
-    // Route to the single-page Review Order, which prices the whole cart server-side
-    // and places one real order per store (see ReviewOrderScreen).
-    nav.navigate('ReviewOrder');
+  const checkoutBucket = (m: DeliveryMethod) => {
+    // Single-page checkout (Myntra-style): address, delivery, payment and pay
+    // all live on ReviewOrder — no multi-step wizard. The bucket's method
+    // rides along so the page shows that bucket's items + delivery.
+    // Guests get the login sheet first — checkout only opens once signed in.
+    requireAuth(() => nav.navigate('ReviewOrder', { preMethod: m }));
   };
 
+  const shipProgress = Math.min(1, cartTotal / FREE_SHIP_AT);
+  const shipRemaining = Math.max(0, FREE_SHIP_AT - cartTotal);
+
   return (
-    <View key={night ? 'D' : 'L'} style={{ flex: 1, backgroundColor: night ? '#000000' : '#FFFFFF' }}>
-      <StatusBar barStyle={night ? 'light-content' : 'dark-content'} />
-      <ScreenHeader title="Bag" />
+    <View style={{ flex: 1, backgroundColor: C.bg }}>
+      <StatusBar barStyle="dark-content" />
+
+      {/* ── HEADER — editorial: kicker, highlighter headline, count chip ── */}
+      <View style={{ paddingTop: insets.top + 10, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.white }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          <View>
+            <Text style={[T.micro, { color: C.dim, letterSpacing: 3 }]}>TRENDZO · YOUR BAG</Text>
+            <View style={{ alignSelf: 'flex-start', marginTop: 6 }}>
+              <View style={{ position: 'absolute', left: -3, right: -6, bottom: 2, height: 11, backgroundColor: YELLOW }} />
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), lineHeight: rf(34), color: C.ink, letterSpacing: -1 }}>IN THE BAG.</Text>
+            </View>
+          </View>
+          {/* What's in the bag, at a glance — overlapping item thumbnails */}
+          <View style={{ alignItems: 'flex-end', marginBottom: 2 }}>
+            {cart.length > 0 && (
+              <View style={{ flexDirection: 'row' }}>
+                {cart.slice(0, 3).map((it, i) => (
+                  <View key={it.id + it.size} style={[{ width: 34, height: 42, backgroundColor: '#F4F4F4', overflow: 'hidden', marginLeft: i ? -10 : 0 }, BORDER(1)]}>
+                    <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                  </View>
+                ))}
+                {cart.length > 3 && (
+                  <View style={{ width: 34, height: 42, marginLeft: -10, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.ink }}>
+                    <Text style={[T.micro, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>+{cart.length - 3}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+            <Text style={[T.micro, { color: C.dim, marginTop: 5, letterSpacing: 1 }]}>{cartCount} ITEM{cartCount === 1 ? '' : 'S'}</Text>
+          </View>
+        </View>
+      </View>
+      <Ticker text={'60-min delivery  //  free returns  //  easy exchanges  //  secure checkout  //  '} />
 
       {cart.length === 0 ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
-          <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(56), color: C.ink, letterSpacing: -2 }}>{'[ ]'}</Text>
-          <Text style={[T.h2, { marginTop: 12 }]}>YOUR BAG IS EMPTY</Text>
-          <Text style={[T.body, { color: C.dim, marginTop: 6, textAlign: 'center' }]}>Add some fits and they'll appear here.</Text>
-          <BrutalButton label="Start shopping" iconRight="arrow-right" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: 18 }} />
-        </View>
-      ) : (
-        <>
-          <ScrollView contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
-            {/* Top meta */}
-            <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-              <Text style={[T.mono, { color: C.dim }]}>{`${cartCount} ITEMS · ${METHOD_ORDER.filter(m => buckets[m].length > 0).length} DELIVERY SPLIT${METHOD_ORDER.filter(m => buckets[m].length > 0).length > 1 ? 'S' : ''}`}</Text>
-              <AsciiDivider style={{ marginTop: 6 }} />
+        /* ── EMPTY STATE — ghost wordmark, bordered tile, slab CTA, starter rail ── */
+        <ScrollView {...tabScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
+          <View style={{ alignItems: 'center', paddingTop: SP.huge, paddingHorizontal: SP.l }}>
+            <Text numberOfLines={1} style={{ position: 'absolute', top: SP.xl, fontFamily: 'Inter_900Black', fontSize: rf(88), letterSpacing: -4, color: 'rgba(0,0,0,0.04)' }}>EMPTY</Text>
+            <View style={[{ width: 92, height: 92, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+              <Feather name="shopping-bag" size={38} color={C.ink} />
             </View>
+            <Text style={[T.h2, { marginTop: SP.l, textTransform: 'uppercase', textAlign: 'center' }]}>Nothing in here yet</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 8, textAlign: 'center', maxWidth: 260 }]}>Fits you add land here — and reach your door in 60 minutes.</Text>
+            <View style={{ alignSelf: 'stretch', marginTop: SP.xl }}>
+              <Slab label="START SHOPPING" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} />
+            </View>
+          </View>
+          <View style={{ marginTop: SP.huge }}>
+            <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m }}>
+              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Start with these</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
+              {PRODUCTS.slice(0, 6).map((p, i) => (
+                <FadeInUp key={p.id} delay={i * 30}>
+                  <ProductCard p={p} onPress={() => nav.navigate('ProductDetail', { product: p })} />
+                </FadeInUp>
+              ))}
+            </ScrollView>
+          </View>
+        </ScrollView>
+      ) : (
+        /* Keyboard-aware: typing a coupon never hides the field — the page
+           shrinks above the keyboard and stays scrollable. */
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView {...tabScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: SP.xl + checkoutBarOffset }}>
+          {/* ── FREE-DELIVERY METER — yellow fill, unlocks at ₹999 ── */}
+          <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Feather name="truck" size={15} color={C.ink} />
+              <Text style={[T.caption, { color: C.ink, flex: 1 }]}>
+                {shipRemaining > 0 ? <>₹{shipRemaining} away from <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700' }}>free standard delivery</Text></> : 'Free standard delivery unlocked'}
+              </Text>
+              {shipRemaining === 0 && <Feather name="check-circle" size={15} color={C.ink} />}
+            </View>
+            <View style={[{ height: 8, backgroundColor: '#F4F4F4', marginTop: 10, overflow: 'hidden' }, BORDER(1)]}>
+              <View style={{ width: `${shipProgress * 100}%`, height: '100%', backgroundColor: YELLOW, borderRightWidth: shipProgress < 1 ? 1 : 0, borderColor: C.ink }} />
+            </View>
+          </View>
 
-            {/* ═══ BUCKETED SECTIONS — one block per method ═══ */}
-            {METHOD_ORDER.map(m => {
-              const items = buckets[m];
-              if (items.length === 0) return null;
-              const meta = METHOD_META[m];
-              const sub = bucketSubtotal(m);
-              const fee = bucketFee(m);
-              const bucketLabel =
-                m === 'express' ? 'Checkout · 60 MIN' :
-                m === 'standard' ? 'Checkout · STANDARD' :
-                'Checkout · IN STORE';
-              return (
-                <View key={m} style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-                  {/* Bucket header — brutalist block showing the method info */}
-                  <BrutalBox solid maxRadius={14} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.s }}>
-                    <BrutalBox maxRadius={10} border={0} style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
-                      <Feather name={meta.icon as any} size={16} color={C.ink} />
-                    </BrutalBox>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontFamily: 'Inter_900Black', fontSize: 12, color: C.white, letterSpacing: 0.5 }}>{meta.label}</Text>
-                      {m === 'express' ? (
-                        <Text style={[T.monoB, { fontSize: 9, color: C.white, marginTop: 1 }]}>{`GET IT BY ~${40 + (items.length % 4) * 5} MIN`}</Text>
-                      ) : (
-                        <Text style={[T.mono, { fontSize: 9, color: C.white, opacity: 0.65, marginTop: 1 }]}>{`${items.length} ITEM${items.length > 1 ? 'S' : ''} · ${meta.blurb}`}</Text>
-                      )}
-                    </View>
-                    <BrutalBox maxRadius={10} border={0} style={{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }}>
-                      <Text style={[T.monoB, { color: C.ink, fontSize: 9 }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
-                    </BrutalBox>
-                  </BrutalBox>
+          {/* ── DELIVERY BUCKETS — black method bar + white item card each ── */}
+          {METHOD_ORDER.map(m => {
+            const items = buckets[m];
+            if (items.length === 0) return null;
+            const meta = METHOD_META[m];
+            const sub = bucketSubtotal(m);
+            const fee = bucketFee(m);
+            return (
+              <View key={m} style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
+                {/* Method bar — black strip, yellow fee chip */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.ink, paddingHorizontal: SP.m, paddingVertical: 10 }}>
+                  <Feather name={meta.icon as any} size={14} color={C.white} />
+                  <Text style={[T.caption, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1 }]}>{meta.label.toUpperCase()}</Text>
+                  <View style={{ flex: 1 }} />
+                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]}>
+                    {m === 'express' ? `~${40 + (items.length % 4) * 5} min` : meta.time}
+                  </Text>
+                  <View style={{ backgroundColor: YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
+                  </View>
+                </View>
 
-                  {/* Items in this bucket */}
-                  <BrutalBox maxRadius={14} style={{ marginTop: 6 }}>
-                    {items.map((it, i) => (
-                      <View key={it.id + it.size + m} style={{ borderTopWidth: i === 0 ? 0 : 1, borderColor: C.hairline }}>
-                        <View style={s.row}>
-                          <View style={[s.imgBox, BORDER(1)]}>
-                            <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                {/* Items card */}
+                <View style={[{ backgroundColor: C.white, borderTopWidth: 0 }, BORDER(1), { borderTopWidth: 0 }]}>
+                  {items.map((it, i) => (
+                    <View key={it.id + it.size + m} style={{ borderTopWidth: i === 0 ? 0 : 1, borderColor: C.hairline }}>
+                      <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.m }}>
+                        {/* image */}
+                        <View style={[{ width: 82, height: 102, overflow: 'hidden', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                          <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                        </View>
+                        {/* details */}
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                            <Text style={[T.micro, { color: C.dim, letterSpacing: 1, textTransform: 'uppercase', flex: 1 }]} numberOfLines={1}>{it.brand}</Text>
+                            <Pressable onPress={() => removeFromCart(it.id)} hitSlop={10}>
+                              <Feather name="x" size={14} color={C.dim} />
+                            </Pressable>
                           </View>
-                          <View style={{ flex: 1, marginLeft: SP.m }}>
-                            <Text style={[T.monoB, { fontSize: 9 }]}>{it.brand}</Text>
-                            <Text style={{ fontFamily: 'Inter_700Bold', fontSize: 13, color: C.ink, marginTop: 2 }} numberOfLines={2}>{it.name}</Text>
-                            <Text style={[T.mono, { color: C.dim, marginTop: 4 }]}>SIZE: {it.size}</Text>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                              <View style={[s.qtyWrap, BORDER(1)]}>
-                                <Pressable onPress={() => updateQty(it.id, it.qty - 1)} style={s.qtyBtn}><Feather name="minus" size={12} color={C.ink} /></Pressable>
-                                <Text style={[T.monoB, { paddingHorizontal: 14 }]}>{it.qty}</Text>
-                                <Pressable onPress={() => updateQty(it.id, it.qty + 1)} style={s.qtyBtn}><Feather name="plus" size={12} color={C.ink} /></Pressable>
-                              </View>
-                              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 16, color: C.ink }}>₹{it.price * it.qty}</Text>
+                          <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{it.name}</Text>
+                          <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                            <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                              <Text style={[T.micro, { color: C.ink }]}>SIZE {it.size}</Text>
                             </View>
                           </View>
-                          <Pressable onPress={() => removeFromCart(it.id)} style={[s.removeBtn, BORDER(1)]}>
-                            <Feather name="x" size={12} color={C.ink} />
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                            {/* qty stepper */}
+                            <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+                              <Pressable onPress={() => updateQty(it.id, it.qty - 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline }}>
+                                <Feather name="minus" size={13} color={C.ink} />
+                              </Pressable>
+                              <Text style={[T.bodyB, { paddingHorizontal: 14 }]}>{it.qty}</Text>
+                              <Pressable onPress={() => updateQty(it.id, it.qty + 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderColor: C.hairline }}>
+                                <Feather name="plus" size={13} color={C.ink} />
+                              </Pressable>
+                            </View>
+                            <Text style={[T.price]}>₹{it.price * it.qty}</Text>
+                          </View>
+                        </View>
+                      </View>
+                      {/* move-to chips */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingBottom: SP.s, gap: 6 }}>
+                        <Feather name="corner-down-right" size={11} color={C.dim} />
+                        <Text style={[T.micro, { color: C.dim }]}>Move to</Text>
+                        {METHOD_ORDER.filter(x => x !== m).map(x => (
+                          <Pressable key={x} onPress={() => updateMethod(it.id, x)} style={[{ paddingHorizontal: 9, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                            <Text style={[T.micro, { color: C.ink }]}>{METHOD_META[x].time}</Text>
                           </Pressable>
-                        </View>
-                        {/* Inline method switcher — move this item to another bucket */}
-                        <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, paddingBottom: 10, gap: 4 }}>
-                          <Text style={[T.mono, { color: C.dim, fontSize: 9, alignSelf: 'center', marginRight: 4 }]}>MOVE TO:</Text>
-                          {METHOD_ORDER.filter(x => x !== m).map(x => (
-                            <Pressable
-                              key={x}
-                              onPress={() => updateMethod(it.id, x)}
-                              style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}
-                            >
-                              <Text style={[T.monoB, { fontSize: 8, color: C.ink, letterSpacing: 0.5 }]}>{METHOD_META[x].time}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
+                        ))}
                       </View>
-                    ))}
-
-                    {/* Per-bucket checkout footer */}
-                    <View style={{ borderTopWidth: 1, borderColor: C.ink, flexDirection: 'row', alignItems: 'stretch' }}>
-                      <View style={{ flex: 1, paddingHorizontal: SP.m, paddingVertical: 10, justifyContent: 'center' }}>
-                        <Text style={[T.mono, { color: C.dim, fontSize: 9 }]}>SUBTOTAL · {items.length} ITEM{items.length > 1 ? 'S' : ''}</Text>
-                        <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.ink, marginTop: 2 }}>₹{sub + fee}</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => checkoutBucket(m)}
-                        style={{ paddingHorizontal: SP.l, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink, borderLeftWidth: 1, borderColor: C.ink, flexDirection: 'row', gap: 6 }}
-                      >
-                        <Text style={{ fontFamily: 'Inter_900Black', color: C.white, fontSize: 12, letterSpacing: 0.5 }}>{bucketLabel.toUpperCase()}</Text>
-                        <Feather name="arrow-right" size={14} color={C.white} />
-                      </Pressable>
                     </View>
-                  </BrutalBox>
-                </View>
-              );
-            })}
+                  ))}
 
-            {/* COUPON */}
-            <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
-              <Text style={[T.label, { marginBottom: 6 }]}>{'APPLY COUPON'}</Text>
-              <View style={[{ flexDirection: 'row', alignItems: 'stretch', height: 46, overflow: 'hidden' }, BORDER(1)]}>
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, backgroundColor: C.white }}>
-                  <Feather name="tag" size={14} color={C.ink} />
-                  <TextInput
-                    value={coupon}
-                    onChangeText={setCoupon}
-                    placeholder="TRY: NEWVIBE"
-                    placeholderTextColor={C.dim}
-                    autoCapitalize="characters"
-                    editable={!applied}
-                    style={{ flex: 1, marginLeft: 8, fontFamily: 'SpaceMono_700Bold', fontSize: 12, letterSpacing: 1, color: C.ink, padding: 0 }}
-                  />
-                  {coupon.length > 0 && !applied && (
-                    <Pressable onPress={() => setCoupon('')} hitSlop={10}>
-                      <Feather name="x" size={12} color={C.dim} />
-                    </Pressable>
-                  )}
+                  {/* bucket footer — subtotal + slab checkout */}
+                  <View style={{ borderTopWidth: 1, borderColor: C.hairline, padding: SP.m, paddingBottom: SP.m + 4 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: SP.m }}>
+                      <Text style={[T.micro, { color: C.dim }]}>SUBTOTAL · {items.length} ITEM{items.length > 1 ? 'S' : ''}{fee > 0 ? ` + ₹${fee} DELIVERY` : ''}</Text>
+                      <Text style={[T.h2]}>₹{sub + fee}</Text>
+                    </View>
+                    <Slab small label={m === 'express' ? 'CHECKOUT · 60 MIN' : m === 'standard' ? 'CHECKOUT · STANDARD' : 'CHECKOUT · IN STORE'} onPress={() => checkoutBucket(m)} />
+                  </View>
                 </View>
-                <Pressable
-                  onPress={applied ? undefined : apply}
-                  disabled={!!applied}
-                  style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? '#666' : C.ink, borderLeftWidth: 1, borderColor: C.ink }}
-                >
-                  <Text style={{ fontFamily: 'Inter_900Black', fontSize: 11, color: C.white, letterSpacing: 0.5 }}>
-                    {applied ? 'APPLIED' : 'APPLY'}
-                  </Text>
-                </Pressable>
               </View>
-              {applied > 0 && (
-                <Pressable onPress={() => { setApplied(0); setCoupon(''); }} style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <Text style={[T.mono, { color: C.dim, textDecorationLine: 'underline', fontSize: 10 }]}>× Remove coupon</Text>
-                </Pressable>
-              )}
-            </View>
+            );
+          })}
 
-            {/* GRAND SUMMARY */}
-            <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
-              <AsciiDivider faint />
+          {/* ── COUPON ── */}
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: SP.s }}>
+              <View style={{ alignSelf: 'flex-start' }}>
+                <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: YELLOW }} />
+                <Text style={[T.h3, { textTransform: 'uppercase' }]}>Coupon</Text>
+              </View>
+              <Pressable onPress={() => nav.navigate('CouponWallet')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>View wallet</Text>
+                <Feather name="chevron-right" size={13} color={C.ink} />
+              </Pressable>
+            </View>
+            <View style={[{ flexDirection: 'row', alignItems: 'stretch', height: 48, overflow: 'hidden' }, BORDER(1)]}>
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, backgroundColor: C.white }}>
+                <Feather name="tag" size={14} color={C.ink} />
+                <TextInput
+                  value={coupon}
+                  onChangeText={setCoupon}
+                  placeholder="TRY: NEWVIBE"
+                  placeholderTextColor={C.dim}
+                  autoCapitalize="characters"
+                  editable={!applied}
+                  style={[T.monoB, { flex: 1, marginLeft: 8, letterSpacing: 1, padding: 0 }]}
+                />
+                {coupon.length > 0 && !applied && (
+                  <Pressable onPress={() => setCoupon('')} hitSlop={10}>
+                    <Feather name="x" size={12} color={C.dim} />
+                  </Pressable>
+                )}
+              </View>
+              <Pressable
+                onPress={applied ? undefined : apply}
+                disabled={!!applied}
+                style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? C.faint : C.ink }}
+              >
+                <Text style={[T.button, { fontSize: rf(14) }]}>{applied ? 'Applied' : 'Apply'}</Text>
+              </Pressable>
+            </View>
+            {applied > 0 && (
+              <Pressable onPress={() => { setApplied(0); setCoupon(''); }} style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Feather name="x" size={11} color={C.dim} />
+                <Text style={[T.caption, { textDecorationLine: 'underline' }]}>Remove coupon</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* ── ORDER SUMMARY — receipt card with a ghost ₹ ── */}
+          <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+            <Text style={{ position: 'absolute', right: -8, bottom: -24, fontFamily: 'Inter_900Black', fontSize: rf(110), color: 'rgba(0,0,0,0.03)' }}>₹</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
+              <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1.5 }]}>ORDER SUMMARY</Text>
+              <Feather name="file-text" size={14} color={C.ink} />
+            </View>
+            <View style={{ padding: SP.m }}>
               {agg ? (
                 <>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{toRupees(agg.itemsSubtotalPaise)}</Text></View>
-                  {agg.discountPaise > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DISCOUNT</Text><Text style={[T.bodyB]}>−₹{toRupees(agg.discountPaise)}</Text></View>}
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>DELIVERY</Text><Text style={[T.bodyB]}>{agg.deliveryFeePaise === 0 ? 'FREE' : `₹${toRupees(agg.deliveryFeePaise)}`}</Text></View>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>TAX · GST</Text><Text style={[T.bodyB]}>₹{toRupees(agg.taxPaise)}</Text></View>
-                  <AsciiDivider />
-                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{toRupees(agg.grandTotalPaise)}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Subtotal</Text><Text style={[T.bodyB]}>₹{toRupees(agg.itemsSubtotalPaise)}</Text></View>
+                  {agg.discountPaise > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Discount</Text><Text style={[T.bodyB, { color: C.green }]}>−₹{toRupees(agg.discountPaise)}</Text></View>}
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Delivery</Text><Text style={[T.bodyB]}>{agg.deliveryFeePaise === 0 ? 'Free' : `₹${toRupees(agg.deliveryFeePaise)}`}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Tax · GST</Text><Text style={[T.bodyB]}>₹{toRupees(agg.taxPaise)}</Text></View>
+                  <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
+                  <View style={s.sumRow}>
+                    <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
+                    <View>
+                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: YELLOW }} />
+                      <Text style={[T.h1]}>₹{toRupees(agg.grandTotalPaise)}</Text>
+                    </View>
+                  </View>
                 </>
               ) : (
                 <>
-                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>SUBTOTAL</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
+                  <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Subtotal</Text><Text style={[T.bodyB]}>₹{cartTotal}</Text></View>
                   {METHOD_ORDER.map(m => buckets[m].length > 0 && bucketFee(m) > 0 ? (
                     <View key={m} style={s.sumRow}>
                       <Text style={[T.body, { color: C.dim }]}>{METHOD_META[m].label.split('·')[0].trim()} · {METHOD_META[m].time}</Text>
                       <Text style={[T.bodyB]}>₹{bucketFee(m)}</Text>
                     </View>
                   ) : null)}
-                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>COUPON</Text><Text style={[T.bodyB]}>−₹{applied}</Text></View>}
-                  <AsciiDivider />
-                  <View style={s.sumRow}><Text style={{ fontFamily: 'Inter_900Black', fontSize: 18 }}>TOTAL</Text><Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(24) }}>₹{total}</Text></View>
+                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Coupon · NEWVIBE</Text><Text style={[T.bodyB, { color: C.green }]}>−₹{applied}</Text></View>}
+                  <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
+                  <View style={s.sumRow}>
+                    <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
+                    <View>
+                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: YELLOW }} />
+                      <Text style={[T.h1]}>₹{total}</Text>
+                    </View>
+                  </View>
                 </>
               )}
+              <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>
+                {activeBuckets.length > 1 ? `Split across ${activeBuckets.length} deliveries — each checks out on its own.` : 'Inclusive of all taxes.'}
+              </Text>
             </View>
+          </View>
 
-            {/* YOU MIGHT ALSO LIKE */}
-            <SectionHead title="YOU MIGHT" emphasis="ALSO LIKE" />
+          {/* ── COMPLETE THE FIT — upsell rail ── */}
+          <View style={{ marginTop: SP.xl }}>
+            <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Complete the fit</Text>
+              <Text style={[T.micro, { color: C.dim }]}>Picked for your bag</Text>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
               {PRODUCTS.filter(p => !cart.find(c => c.id === p.id)).slice(0, 6).map((p, i) => (
                 <FadeInUp key={p.id} delay={i * 30}>
@@ -257,18 +393,14 @@ export default function CartScreen() {
                 </FadeInUp>
               ))}
             </ScrollView>
-          </ScrollView>
-        </>
+          </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       )}
     </View>
   );
 }
 
-const makeS = () => StyleSheet.create({
-  row: { flexDirection: 'row', padding: SP.l, alignItems: 'flex-start' },
-  imgBox: { width: 90, height: 110, overflow: 'hidden', backgroundColor: C.hairline },
-  qtyWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, overflow: 'hidden' },
-  qtyBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.ink },
-  removeBtn: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, marginLeft: 6 },
-  sumRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
+const s = StyleSheet.create({
+  sumRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 },
 });
