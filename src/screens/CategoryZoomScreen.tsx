@@ -222,8 +222,9 @@ export default function CategoryZoomScreen() {
         </Text>
       </Animated.View>
 
-      {/* 4 · the category PNG riding the dome */}
-      <Animated.View pointerEvents="none" style={[{ position: 'absolute', left: IMG_X, top: IMG_Y, width: IMG_W, height: IMG_H }, imgStyle]}>
+      {/* 4 · the category PNG riding the dome — rasterized on Android so the
+          cutout flies as a GPU texture (no per-frame redraws, iOS-smooth) */}
+      <Animated.View pointerEvents="none" renderToHardwareTextureAndroid style={[{ position: 'absolute', left: IMG_X, top: IMG_Y, width: IMG_W, height: IMG_H }, imgStyle]}>
         <CachedImage source={img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
       </Animated.View>
 

@@ -134,16 +134,23 @@ export default function ProductDetailScreen() {
     const id = setTimeout(startFly, 180); // fallback if onLayout is delayed
     return () => clearTimeout(id);
   }, []);
+  // TRANSFORM-ONLY fly (translate + scale around the centre) — the old version
+  // animated left/top/width/height, which forces a full layout pass EVERY
+  // frame; iOS absorbed it, Android showed it as jitter. The overlay is now
+  // laid out ONCE at the gallery slot and flown purely on the GPU — identical
+  // motion on both platforms, zero per-frame layout.
   const overlayStyle = useAnimatedStyle(() => {
     if (!cardFrame) return { opacity: 0 };
     const cx = cardFrame.x + cardFrame.w / 2, cy = cardFrame.y + cardFrame.h / 2;
     const scx = SLOT.x + SLOT.w / 2, scy = SLOT.y + SLOT.h / 2;
     return {
       opacity: overlayOpacity.value,
-      left: interpolate(imgAnim.value, [0, 1], [cx - cardFrame.w / 2, scx - SLOT.w / 2]),
-      top: interpolate(imgAnim.value, [0, 1], [cy - cardFrame.h / 2, scy - SLOT.h / 2]),
-      width: interpolate(imgAnim.value, [0, 1], [cardFrame.w, SLOT.w]),
-      height: interpolate(imgAnim.value, [0, 1], [cardFrame.h, SLOT.h]),
+      transform: [
+        { translateX: interpolate(imgAnim.value, [0, 1], [cx - scx, 0]) },
+        { translateY: interpolate(imgAnim.value, [0, 1], [cy - scy, 0]) },
+        { scaleX: interpolate(imgAnim.value, [0, 1], [cardFrame.w / SLOT.w, 1]) },
+        { scaleY: interpolate(imgAnim.value, [0, 1], [cardFrame.h / SLOT.h, 1]) },
+      ],
     };
   });
   const contentStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
@@ -611,7 +618,13 @@ export default function ProductDetailScreen() {
       {/* Flying image: card -> gallery slot. The actual frame animates so contain-fit matches
           the product card exactly at close; no post-close resize snap. */}
       {isZoom && cardFrame && (
-        <Animated.View onLayout={startFly} pointerEvents="none" style={[{ position: 'absolute', backgroundColor: C.hairline, overflow: 'hidden', zIndex: 50 }, overlayStyle]}>
+        <Animated.View
+          onLayout={startFly}
+          pointerEvents="none"
+          // Rasterize once on Android and fly the texture — no re-draws mid-flight.
+          renderToHardwareTextureAndroid
+          style={[{ position: 'absolute', left: SLOT.x, top: SLOT.y, width: SLOT.w, height: SLOT.h, backgroundColor: C.hairline, overflow: 'hidden', zIndex: 50 }, overlayStyle]}
+        >
           <CachedImage transition={0} source={{ uri: product.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
         </Animated.View>
       )}
