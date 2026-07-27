@@ -18,6 +18,7 @@ import Animated, {
   interpolate,
   Extrapolation,
   runOnJS,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,7 +39,7 @@ const CARD_W = width - CARD_MX * 2;
 const CARD_H = Math.round(height * 0.5);
 
 // ── Sub-components so hooks are never called inside .map() ──────────────────
-function SlideImage({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: Animated.SharedValue<number> }) {
+function SlideImage({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: SharedValue<number> }) {
   const bgStyle = useAnimatedStyle(() => {
     const p = Math.max(0, Math.min(1, (scrollX.value - (index - 1) * width) / width));
     const tx = (1 - p) * width;
@@ -56,7 +57,7 @@ function SlideImage({ slide, index, scrollX }: { slide: { img: any }; index: num
   );
 }
 
-function NavDot({ index, scrollX }: { index: number; scrollX: Animated.SharedValue<number> }) {
+function NavDot({ index, scrollX }: { index: number; scrollX: SharedValue<number> }) {
   const dotStyle = useAnimatedStyle(() => {
     const w = interpolate(
       scrollX.value,

@@ -8,15 +8,15 @@ import { C, T, SP, BORDER } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, BrutalButton } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
-import { placeGroupOrder as placeGroupOrderApi, verifyPayment, reportPaymentFailed, newIdempotencyKey } from '../services/orders';
-import { openRazorpayCheckout } from '../services/razorpay-checkout';
+import { placeOrder as placeOrderApi, newIdempotencyKey } from '../services/orders';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 const PAYMENTS = [
-  { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'Pay by any UPI app' },
-  { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: 'Visa · Mastercard · Rupay' },
+  { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
+  { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: '•••• 4242' },
   { id: 'cod', icon: 'dollar-sign', label: 'Cash on Delivery', sub: 'Pay when it arrives' },
-  { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: 'wallet' }, // sub replaced with live balance at render
+  { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: '₹1,240 balance' },
 ];
+const REWARD_BALANCE = 240; // MyTrendz reward points (₹1 = 1 pt)
 
 // Delivery methods — mirrors the Bag's buckets so a per-bucket checkout shows
 // the same label/fee here. Try & Buy stays an express-only add-on.
@@ -74,16 +74,11 @@ export default function ReviewOrderScreen() {
   const delivery: BagMethod = preMethod ?? 'express';
   const items = preMethod ? cart.filter((it: any) => ((it.method || 'express') as BagMethod) === preMethod) : cart;
 
-  const walletBalancePaise = wallet?.balancePaise ?? 0;
-  const pointsBalance = loyalty?.balancePoints ?? 0;
-
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [addrId, setAddrId] = useState<string | null>(null);
   const [addrOpen, setAddrOpen] = useState(false);
-  const [couponInput, setCouponInput] = useState('');
-  const [couponCode, setCouponCode] = useState<string | null>(null); // applied code
+  const [coupon, setCoupon] = useState(false);
   const [useReward, setUseReward] = useState(false);
-  const [useWallet, setUseWallet] = useState(false);
   const [tryBuy, setTryBuy] = useState(false);
   // Payment is picked INLINE on the page (was a bottom-sheet modal).
   const [payId, setPayId] = useState('upi');
@@ -113,34 +108,15 @@ export default function ReviewOrderScreen() {
     }
   }, [route.params?.pickedAddressId]);
 
-  // Real server totals for the cart (guest-ok); falls back to local math. Re-prices
-  // whenever the coupon / points / wallet inputs change — the backend applies them
-  // ONCE across the whole multi-store cart and is the single source of truth.
+  // Real server totals for the cart (guest-ok); falls back to local math.
   const allPriceable = items.length > 0 && items.every((it) => !!it.variantId);
   useEffect(() => {
     if (!allPriceable) { setPricing(null); return; }
     let cancelled = false;
-    priceCart(
-      items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
-      couponCode ?? undefined,
-      { pointsToRedeem: useReward ? pointsBalance : 0, applyWallet: useWallet },
-    )
+    priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })))
       .then((p) => { if (!cancelled) setPricing(p); }).catch(() => { if (!cancelled) setPricing(null); });
     return () => { cancelled = true; };
-  }, [items, allPriceable, couponCode, useReward, useWallet, pointsBalance]);
-
-  // Coupon feedback — the backend echoes unusable codes in rejectedCodes.
-  const couponRejected = couponCode ? (pricing?.rejectedCodes ?? []).find((r) => r.code.toUpperCase() === couponCode.toUpperCase()) : undefined;
-  const couponPaise = pricing?.aggregate?.couponPaise ?? 0;
-  const couponOk = !!couponCode && !couponRejected && couponPaise > 0;
-
-  // Auto-clear a coupon the server rejected so the user can retype.
-  useEffect(() => {
-    if (couponCode && couponRejected) {
-      showToast('Coupon not applied', couponRejected.reason || 'This code cannot be used on this cart', 'x');
-      setCouponCode(null);
-    }
-  }, [couponCode, couponRejected, showToast]);
+  }, [items, allPriceable]);
 
   const addr = addresses.find((a) => a.id === addrId) || null;
   const pay = PAYMENTS.find((p) => p.id === payId)!;
@@ -155,12 +131,10 @@ export default function ReviewOrderScreen() {
   const taxAmt = agg ? toRupees(agg.taxPaise) : 0;
   const tryBuyFee = tryBuy ? 99 : 0;
   const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
-  const payNow = agg ? toRupees(agg.amountDuePaise) : total; // after wallet partial tender
   const totalSavings = mrpSavings + (agg ? toRupees(agg.discountPaise) : couponOff + rewardOff);
 
-  // Real order placement: ONE group-checkout call — the server buckets the cart by
-  // store, places a child order per store under one order_group, all-or-nothing
-  // (a stock/price failure anywhere unwinds the rest — no half-placed carts).
+  // Real order placement: price the cart → one order per store (idempotency-keyed) →
+  // record the real order id for the success/tracking screens. Needs login + address.
   const placeIt = async () => {
     if (placing) return;
     if (!token) { requireAuth(() => placeIt()); return; }
@@ -171,42 +145,20 @@ export default function ReviewOrderScreen() {
     if (method === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
     setPlacing(true);
     try {
-      const res = await placeGroupOrderApi({
-        items: items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
-        deliveryMethod: method,
-        paymentMethod: payId as any,
-        addressId: addr.id,
-        ...(couponOk && couponCode ? { couponCode } : {}),
-        ...(useReward && pointsBalance > 0 ? { pointsToRedeem: pointsBalance } : {}),
-        ...(useWallet ? { applyWallet: true } : {}),
-        idempotencyKey: newIdempotencyKey(),
-      });
-
-      // Razorpay two-phase: the server returned a Checkout block — run the sheet,
-      // then hand the signed result back to settle (webhook is the safety net).
-      if (res.payment) {
-        try {
-          const pay = await openRazorpayCheckout({
-            payment: res.payment,
-            name: user?.name || undefined,
-            email: user?.email || undefined,
-            phone: user?.phone || undefined,
-          });
-          await verifyPayment({
-            razorpayOrderId: pay.razorpay_order_id,
-            razorpayPaymentId: pay.razorpay_payment_id,
-            razorpaySignature: pay.razorpay_signature,
-          });
-        } catch (payErr: any) {
-          // Dismissed / failed / module missing — mark the attempt failed so the
-          // retry flow owns it, and stop here (no success screen).
-          reportPaymentFailed(res.payment.gatewayOrderId, payErr?.message).catch(() => {});
-          showToast('Payment not completed', 'Your order is saved — retry from Orders', 'x');
-          return;
-        }
+      const priced = pricing ?? await priceCart(items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })));
+      const key = newIdempotencyKey();
+      let firstOrderId = '';
+      for (const store of priced.stores) {
+        const res = await placeOrderApi({
+          storeId: store.storeId,
+          items: store.lines.map((l) => ({ variantId: l.variantId, qty: l.qty })),
+          deliveryMethod: method,
+          paymentMethod: payId as any,
+          addressId: addr.id,
+          idempotencyKey: `${key}_${store.storeId}`,
+        });
+        firstOrderId = firstOrderId || res.orderId;
       }
-
-      const firstOrderId = res.orders[0]?.orderId ?? res.groupId;
       const count = items.reduce((s, it) => s + it.qty, 0);
       placeOrder({ method: tryBuy && delivery === 'express' ? 'tryandbuy' : delivery, id: firstOrderId, total, items: count });
       setTimeout(() => nav.navigate('OrderSuccess'), 200);

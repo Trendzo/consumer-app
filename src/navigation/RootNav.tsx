@@ -31,7 +31,7 @@ import EditProfileScreen from '../screens/EditProfileScreen';
 import { OrderSuccessScreen, OrderTrackingScreen, OrderHistoryScreen } from '../screens/OrderScreens';
 import { DailyRewardScreen, SpinWheelScreen, StyleQuizScreen, NotificationsScreen, TryOnScreen } from '../screens/GameScreens';
 import {
-  SavedAddressesScreen, PaymentMethodsScreen, LoyaltyRewardsScreen, GiftCardScreen, WalletScreen,
+  SavedAddressesScreen, PaymentMethodsScreen, LoyaltyRewardsScreen, GiftCardScreen,
   ReferralRewardsScreen, NotificationSettingsScreen, LanguageScreen, CustomerSupportScreen,
   StylePreferencesScreen, MeasurementScreen, FashionCalendarScreen,
   SustainabilityScreen, OrderReturnScreen, ReviewsScreen,
@@ -373,7 +373,6 @@ function MainApp() {
         {/* Profile sub-screens */}
         <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
         <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
-        <Stack.Screen name="Wallet" component={WalletScreen} />
         <Stack.Screen name="LoyaltyRewards" component={LoyaltyRewardsScreen} />
         <Stack.Screen name="GiftCard" component={GiftCardScreen} />
         <Stack.Screen name="ReferralRewards" component={ReferralRewardsScreen} />

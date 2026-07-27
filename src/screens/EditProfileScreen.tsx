@@ -10,7 +10,6 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, T, SP, BORDER } from '../theme/brutal';
 import { ScreenHeader, BrutalStatusBar, BrutalButton } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { updateMe } from '../services/auth';
 
 const TILE = '#F4F4F4';
 const TABS = ['Basics', 'Size Details', 'Style'] as const;
@@ -62,7 +61,8 @@ export default function EditProfileScreen() {
   const { user, updateUser, showToast, gender, setGender } = useApp();
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [saving, setSaving] = useState(false);
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [address, setAddress] = useState(user?.address || '');
 
   const scrollRef = useRef<ScrollView>(null);
   const sectionY = useRef<Record<number, number>>({});

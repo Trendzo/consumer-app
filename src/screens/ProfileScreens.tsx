@@ -8,15 +8,8 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, BrutalInput, Chip, OptionSheet } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import {
-  listAddresses, createAddress, updateAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
+  listAddresses, createAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
 } from '../services/addresses';
-import { getLoyalty, type LoyaltyTxn } from '../services/loyalty';
-import { getWallet, type WalletTxn } from '../services/wallet';
-import { redeemGiftCard, listGiftCards, type GiftCard } from '../services/giftCards';
-import { getReferral, redeemReferral, type Referral } from '../services/referrals';
-import { listOrders, getOrder, type OrderListRow, type OrderDetailItem } from '../services/orders';
-import { listReturns, createReturn, type ReturnRow, type ReasonCategory } from '../services/returns';
-import { listIssues, getIssue, createIssue, addIssueMessage, type IssueRow, type IssueDetail } from '../services/issues';
 
 // ═══════════════════════════════════════════════════════════
 // SHARED PRIMITIVES — unique hero per screen, shared shell
@@ -165,7 +158,7 @@ export function SavedAddressesScreen() {
   const onSave = () => {
     if (!canSave || saving) return;
     setSaving(true);
-    const payload = {
+    createAddress({
       label: form.label.trim() || null,
       line1: form.line1.trim(), line2: form.line2.trim() || null,
       city: form.city.trim(), pincode: form.pincode.trim(), stateCode: form.stateCode.trim().toUpperCase(),
@@ -291,14 +284,8 @@ const PAYMENTS = [
 
 export function PaymentMethodsScreen() {
   const nav = useNavigation<any>();
-  const { showToast, wallet } = useApp();
+  const { showToast } = useApp();
   const [selected, setSelected] = useState('1');
-  // Real wallet balance on the wallet row; tapping it opens the Wallet screen.
-  const methods = PAYMENTS.map((p) =>
-    p.type === 'WALLET'
-      ? { ...p, sub: `Balance: ₹${((wallet?.balancePaise ?? 0) / 100).toLocaleString('en-IN')}` }
-      : p,
-  );
   return (
     <PageShell>
       <ScreenHeader title="Payment" onBack={() => nav.goBack()} />
@@ -351,71 +338,6 @@ export function PaymentMethodsScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// WALLET — ledger-backed balance + transactions + gift-card redeem
-// ═══════════════════════════════════════════════════════════
-export function WalletScreen() {
-  const nav = useNavigation<any>();
-  const { wallet, refreshWallet, showToast } = useApp();
-  const [txns, setTxns] = useState<WalletTxn[]>([]);
-  const [code, setCode] = useState('');
-  const [redeeming, setRedeeming] = useState(false);
-  const balance = wallet?.balancePaise ?? 0;
-
-  const load = useCallback(() => {
-    refreshWallet();
-    getWallet({ limit: 30 }).then((w) => setTxns(w.transactions)).catch(() => {});
-  }, [refreshWallet]);
-  useEffect(() => { load(); }, [load]);
-
-  const redeem = () => {
-    const c = code.trim().toUpperCase();
-    if (!c || redeeming) return;
-    setRedeeming(true);
-    redeemGiftCard(c)
-      .then((r) => { showToast('Gift card redeemed', `₹${(r.creditedPaise / 100).toFixed(0)} added`, 'gift'); setCode(''); load(); })
-      .catch((e: any) => showToast('Could not redeem', e?.message || 'Check the code', 'x'))
-      .finally(() => setRedeeming(false));
-  };
-
-  return (
-    <PageShell>
-      <ScreenHeader title="Wallet" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 60 }}>
-        <FadeInUp>
-          <View style={[{ padding: SP.l, backgroundColor: C.ink }, BORDER(1)]}>
-            <Text style={[T.mono, { color: C.white, fontSize: 9, opacity: 0.6 }]}>{'TRENDZO WALLET · BALANCE'}</Text>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(56), color: C.white, letterSpacing: -2, marginTop: 6, lineHeight: rf(58) }}>₹{(balance / 100).toLocaleString('en-IN')}</Text>
-            <Text style={[T.mono, { color: C.white, opacity: 0.6, marginTop: 4, fontSize: 10 }]}>Used automatically at checkout</Text>
-          </View>
-        </FadeInUp>
-
-        <SectionLabel label="ADD FUNDS · REDEEM A GIFT CARD" />
-        <View style={{ marginTop: 8, flexDirection: 'row', gap: SP.s, alignItems: 'flex-end' }}>
-          <View style={{ flex: 1 }}>
-            <BrutalInput value={code} onChangeText={(v: string) => setCode(v.toUpperCase())} placeholder="GIFT CARD CODE" label="Code" icon="gift" autoCapitalize="characters" />
-          </View>
-          <BrutalButton label={redeeming ? '…' : 'Redeem'} icon="download" onPress={redeem} style={{ marginBottom: 2 }} />
-        </View>
-
-        <SectionLabel label="TRANSACTIONS" right={`${txns.length}`} />
-        {txns.length === 0 && <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No wallet activity yet.</Text>}
-        {txns.map((t) => (
-          <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: SP.s, paddingVertical: 8, borderBottomWidth: 1, borderColor: C.hairline }}>
-            <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB, { fontSize: 13 }]}>{t.note || t.kind.replace(/_/g, ' ')}</Text>
-              <Text style={[T.mono, { fontSize: 9, color: C.dim, marginTop: 1 }]}>{new Date(t.at).toLocaleDateString()}</Text>
-            </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: 15, color: t.amountPaise >= 0 ? C.ink : C.dim }}>
-              {t.amountPaise >= 0 ? '+' : '−'}₹{Math.abs(t.amountPaise / 100).toFixed(0)}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-    </PageShell>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
 // LOYALTY REWARDS
 // ═══════════════════════════════════════════════════════════
 const TIERS = [
@@ -427,13 +349,7 @@ const TIERS = [
 
 export function LoyaltyRewardsScreen() {
   const nav = useNavigation<any>();
-  const { loyalty, refreshLoyalty } = useApp();
-  const points = loyalty?.balancePoints ?? 0;
-  const [history, setHistory] = useState<LoyaltyTxn[]>([]);
-  useEffect(() => {
-    refreshLoyalty();
-    getLoyalty({ limit: 20 }).then((l) => setHistory(l.transactions)).catch(() => {});
-  }, [refreshLoyalty]);
+  const points = 1240;
   const currentTier = TIERS.filter(t => points >= t.min).pop()!;
   const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
   const curIdx = TIERS.indexOf(currentTier);
@@ -586,31 +502,11 @@ export function LoyaltyRewardsScreen() {
 // ═══════════════════════════════════════════════════════════
 export function GiftCardScreen() {
   const nav = useNavigation<any>();
-  const { showToast, refreshWallet } = useApp();
-  const [code, setCode] = useState('');
-  const [redeeming, setRedeeming] = useState(false);
-  const [cards, setCards] = useState<GiftCard[]>([]);
-  const [totalPaise, setTotalPaise] = useState(0);
-
-  const load = useCallback(() => {
-    listGiftCards().then((r) => { setCards(r.cards); setTotalPaise(r.totalPaise); }).catch(() => {});
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  const redeem = () => {
-    const c = code.trim().toUpperCase();
-    if (!c || redeeming) return;
-    setRedeeming(true);
-    redeemGiftCard(c)
-      .then((r) => {
-        showToast('Gift card redeemed', `₹${(r.creditedPaise / 100).toFixed(0)} added to your wallet`, 'gift');
-        setCode('');
-        refreshWallet();
-        load();
-      })
-      .catch((e: any) => showToast('Could not redeem', e?.message || 'Check the code', 'x'))
-      .finally(() => setRedeeming(false));
-  };
+  const { showToast } = useApp();
+  const [amount, setAmount] = useState('1000');
+  const [toEmail, setToEmail] = useState('');
+  const [note, setNote] = useState('');
+  const amounts = [500, 1000, 2000, 5000];
 
   return (
     <PageShell>
@@ -674,38 +570,7 @@ export function GiftCardScreen() {
 // ═══════════════════════════════════════════════════════════
 export function ReferralRewardsScreen() {
   const nav = useNavigation<any>();
-  const { user, showToast, refreshLoyalty } = useApp();
-  const [ref, setRef] = useState<Referral | null>(null);
-  const [friendCode, setFriendCode] = useState('');
-  const [redeeming, setRedeeming] = useState(false);
-  const code = ref?.code || user?.referralCode || '—';
-  const shareLink = ref?.shareLink || (ref?.code ? `https://closetx.app/invite/${ref.code}` : '');
-
-  useEffect(() => { getReferral().then(setRef).catch(() => {}); }, []);
-
-  const copy = async () => {
-    try { await Clipboard.setStringAsync(code); showToast('Copied', 'Referral code copied', 'copy'); } catch { /* ignore */ }
-  };
-  const share = async () => {
-    try {
-      await Share.share({ message: `Join me on Trendzo — use my code ${code}. ${shareLink}`.trim() });
-    } catch { /* user dismissed */ }
-  };
-  const redeemFriend = () => {
-    const c = friendCode.trim();
-    if (!c || redeeming) return;
-    setRedeeming(true);
-    redeemReferral(c)
-      .then((r) => {
-        showToast('Code applied', `You earned ${r.refereePointsGranted} points`, 'gift');
-        setFriendCode('');
-        refreshLoyalty();
-        getReferral().then(setRef).catch(() => {});
-      })
-      .catch((e: any) => showToast('Could not apply', e?.message || 'Check the code', 'x'))
-      .finally(() => setRedeeming(false));
-  };
-
+  const { showToast } = useApp();
   return (
     <PageShell>
       <ScreenHeader title="Refer & Earn" onBack={() => nav.goBack()} />
@@ -1273,99 +1138,77 @@ export function SustainabilityScreen() {
 // ═══════════════════════════════════════════════════════════
 // ORDER RETURN
 // ═══════════════════════════════════════════════════════════
-const RETURN_REASONS: { label: string; icon: string; category: ReasonCategory }[] = [
-  { label: "Doesn't fit", icon: 'maximize', category: 'doesnt_fit' },
-  { label: 'Damaged / defective', icon: 'alert-triangle', category: 'damaged' },
-  { label: 'Wrong item sent', icon: 'shuffle', category: 'wrong_item' },
-  { label: 'Not as described', icon: 'x-circle', category: 'not_as_described' },
-  { label: 'Other reason', icon: 'more-horizontal', category: 'other' },
+const RETURNABLE_ORDERS = [
+  {
+    id: 'CX10442', date: '02 APR 2026', daysLeft: 3,
+    items: [
+      { id: 'i1', name: 'Oversized Wool Coat', brand: 'NORTH.', price: 4990 },
+      { id: 'i2', name: 'Slim Fit Jeans', brand: 'YORK', price: 1500 },
+    ],
+  },
+  {
+    id: 'CX10388', date: '18 MAR 2026', daysLeft: 1,
+    items: [
+      { id: 'i3', name: 'Cotton Tee · Ecru', brand: 'AZUKI', price: 990 },
+    ],
+  },
+  {
+    id: 'CX10188', date: '25 JAN 2026', daysLeft: 0,
+    items: [
+      { id: 'i4', name: 'Leather Sneakers', brand: 'YORK', price: 4490 },
+    ],
+  },
 ];
-
-// 7-day post-delivery return window → whole days remaining (0 = closed).
-function returnDaysLeft(deliveredAt?: string | null): number {
-  if (!deliveredAt) return 0;
-  const elapsed = (Date.now() - new Date(deliveredAt).getTime()) / 86400000;
-  return Math.max(0, Math.ceil(7 - elapsed));
-}
-
-const DECISION_LABEL: Record<string, string> = {
-  pending: 'UNDER REVIEW', accepted: 'ACCEPTED', rejected: 'REJECTED', rejected_at_door: 'REJECTED AT DOOR',
-};
-const PICKUP_LABEL: Record<string, string> = {
-  pending: 'PICKUP PENDING', assigned: 'PARTNER ASSIGNED', collected: 'COLLECTED', delivered_to_store: 'BACK AT STORE', cancelled: 'CANCELLED',
-};
 
 type ReturnStep = 'order' | 'item' | 'reason';
 
 export function OrderReturnScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
-  const [tab, setTab] = useState<'new' | 'my'>('new');
-
-  // data
-  const [orders, setOrders] = useState<OrderListRow[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(true);
-  const [returns, setReturns] = useState<ReturnRow[]>([]);
-  const [loadingReturns, setLoadingReturns] = useState(true);
-
-  // new-return wizard
   const [step, setStep] = useState<ReturnStep>('order');
-  const [order, setOrder] = useState<OrderListRow | null>(null);
-  const [items, setItems] = useState<OrderDetailItem[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
   const [itemId, setItemId] = useState<string | null>(null);
-  const [reason, setReason] = useState<ReasonCategory | null>(null);
-  const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [reason, setReason] = useState('');
 
-  const loadOrders = useCallback(() => {
-    setLoadingOrders(true);
-    listOrders()
-      .then((rows) => setOrders(rows.filter((o) => o.status === 'delivered')))
-      .catch(() => {})
-      .finally(() => setLoadingOrders(false));
-  }, []);
-  const loadReturns = useCallback(() => {
-    setLoadingReturns(true);
-    listReturns().then(setReturns).catch(() => {}).finally(() => setLoadingReturns(false));
-  }, []);
-  useEffect(() => { loadOrders(); loadReturns(); }, [loadOrders, loadReturns]);
+  const reasons = [
+    { label: 'Wrong size', icon: 'maximize' },
+    { label: 'Defective item', icon: 'alert-triangle' },
+    { label: 'Not as described', icon: 'x-circle' },
+    { label: 'Changed my mind', icon: 'rotate-ccw' },
+    { label: 'Better price elsewhere', icon: 'tag' },
+  ];
 
-  const selectedItem = items.find((i) => i.id === itemId) || null;
+  const selectedOrder = RETURNABLE_ORDERS.find(o => o.id === orderId);
+  const selectedItem = selectedOrder?.items.find(i => i.id === itemId);
 
-  const pickOrder = (o: OrderListRow) => {
-    if (returnDaysLeft(o.deliveredAt) <= 0) { showToast('Return window closed', '7-day window has ended', 'alert-triangle'); return; }
-    setOrder(o); setItemId(null); setItems([]); setStep('item'); setLoadingItems(true);
-    getOrder(o.id)
-      .then((d) => setItems(d.items ?? []))
-      .catch((e: any) => { showToast('Could not load items', e?.message || 'Try again', 'x'); setStep('order'); })
-      .finally(() => setLoadingItems(false));
+  const pickOrder = (id: string) => {
+    const o = RETURNABLE_ORDERS.find(x => x.id === id)!;
+    if (o.daysLeft <= 0) {
+      showToast('Return window closed', '7-day window has ended', 'alert-triangle');
+      return;
+    }
+    setOrderId(id);
+    setItemId(null);
+    setStep('item');
+  };
+
+  const pickItem = (id: string) => {
+    setItemId(id);
+    setStep('reason');
   };
 
   const back = () => {
-    if (step === 'reason') { setStep('item'); setReason(null); setNote(''); return; }
-    if (step === 'item') { setStep('order'); setItemId(null); setItems([]); return; }
+    if (step === 'reason') { setStep('item'); setReason(''); return; }
+    if (step === 'item') { setStep('order'); setItemId(null); return; }
     nav.goBack();
   };
 
   const submit = () => {
-    if (!order || !itemId || !reason || submitting) return;
-    setSubmitting(true);
-    createReturn({ orderId: order.id, items: [{ orderItemId: itemId, reasonCategory: reason, ...(note.trim() ? { reasonText: note.trim() } : {}) }] })
-      .then((r) => {
-        showToast('Return requested', r.reversePickupId ? 'Pickup scheduled — see My Returns for the code' : 'The store will review your request', 'rotate-ccw');
-        setStep('order'); setOrder(null); setItemId(null); setReason(null); setNote(''); setItems([]);
-        setTab('my'); loadReturns(); loadOrders();
-      })
-      .catch((e: any) => {
-        const msg = e?.code === 'return_window_expired' ? '7-day window has ended'
-          : e?.code === 'return_invalid_state' ? 'This item is not eligible for return'
-          : e?.message || 'Please try again';
-        showToast('Return failed', msg, 'x');
-      })
-      .finally(() => setSubmitting(false));
+    showToast('Return initiated', 'Pickup scheduled for tomorrow', 'rotate-ccw');
+    nav.goBack();
   };
 
+  // Progress bar — shows current step of 3
   const stepIndex = step === 'order' ? 0 : step === 'item' ? 1 : 2;
   const stepLabels = ['Order', 'Item', 'Reason'];
 
@@ -1405,8 +1248,14 @@ export function OrderReturnScreen() {
             {RETURNABLE_ORDERS.map((o, i) => {
               const expired = o.daysLeft <= 0;
               return (
-                <FadeInUp key={r.id} delay={i * 40}>
-                  <View style={[{ marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
+                <FadeInUp key={o.id} delay={i * 40}>
+                  <Pressable
+                    onPress={() => pickOrder(o.id)}
+                    style={[
+                      { marginTop: SP.s, backgroundColor: expired ? C.white : C.white, opacity: expired ? 0.55 : 1 },
+                      BORDER(1),
+                    ]}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
                       <View style={{ flex: 1 }}>
                         <Text style={[T.caption, { color: C.ink }]}>{`#${o.id}`}</Text>
@@ -1433,17 +1282,7 @@ export function OrderReturnScreen() {
                         <Feather name="chevron-right" size={14} color={C.ink} />
                       </View>
                     )}
-
-                    <View style={{ padding: SP.m, gap: 4 }}>
-                      {rp && !showOtp && (
-                        <Row2 k="PICKUP" v={PICKUP_LABEL[rp.status] || rp.status} />
-                      )}
-                      {r.refund && (
-                        <Row2 k="REFUND" v={`₹${(r.refund.amountPaise / 100).toFixed(0)} · ${r.refund.status.toUpperCase()}`} />
-                      )}
-                      <Row2 k="OPENED" v={new Date(r.openedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} />
-                    </View>
-                  </View>
+                  </Pressable>
                 </FadeInUp>
               );
             })}
@@ -1507,15 +1346,6 @@ export function OrderReturnScreen() {
         )}
       </ScrollView>
     </PageShell>
-  );
-}
-
-function Row2({ k, v }: { k: string; v: string }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <Text style={[T.mono, { fontSize: 9, color: C.dim }]}>{k}</Text>
-      <Text style={[T.monoB, { fontSize: 10, color: C.ink }]}>{v}</Text>
-    </View>
   );
 }
 

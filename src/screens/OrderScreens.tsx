@@ -1,15 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { getOrder, listOrders, cancelOrder, retryPayment, verifyPayment, type OrderDetail, type OrderListRow } from '../services/orders';
-import { openRazorpayCheckout } from '../services/razorpay-checkout';
-
-const CANCELABLE = ['pending', 'payment_failed', 'confirmed', 'routing', 'accepted'];
+import { listOrders, type OrderListRow } from '../services/orders';
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
@@ -92,64 +89,11 @@ const STEPS_TRYBUY = [
   { label: 'Trial complete', sub: 'Keep what fits', icon: 'check-circle' },
 ];
 
-// Order is still travelling toward the customer — the handover proof is relevant.
-const OTP_ACTIVE_STATUSES = ['pending', 'confirmed', 'routing', 'accepted', 'packed', 'picked_up', 'out_for_delivery', 'at_door', 'undelivered'];
-
 export function OrderTrackingScreen() {
   const nav = useNavigation<any>();
   const { lastOrder } = useApp();
   const method = lastOrder?.method || 'express';
   const store = lastOrder?.store;
-  const isRealOrder = !!orderId && String(orderId).startsWith('ord_');
-
-  // Real order row (OTP / pickup code / live status).
-  const [real, setReal] = useState<OrderDetail | null>(null);
-  const [busy, setBusy] = useState(false);
-  const reload = () => { if (isRealOrder) getOrder(String(orderId)).then(setReal).catch(() => {}); };
-  useEffect(() => {
-    if (!token || !isRealOrder) { setReal(null); return; }
-    let cancelled = false;
-    const load = () => getOrder(String(orderId)).then((o) => { if (!cancelled) setReal(o); }).catch(() => {});
-    load();
-    const t = setInterval(load, 15000);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [token, orderId]);
-
-  const doCancel = () => showConfirm({
-    title: 'Cancel order?', danger: true, icon: 'x-circle',
-    msg: 'This cancels the order. Any payment is refunded to your original method or wallet.',
-    confirmLabel: 'Cancel order',
-    onConfirm: () => {
-      if (!orderId) return;
-      setBusy(true);
-      cancelOrder(String(orderId), 'Cancelled from tracking')
-        .then(() => { showToast('Order cancelled', 'Refund initiated if you paid', 'check'); reload(); })
-        .catch((e: any) => showToast('Could not cancel', e?.message || 'Try again', 'x'))
-        .finally(() => setBusy(false));
-    },
-  });
-  const doPay = () => {
-    if (!orderId || busy) return;
-    setBusy(true);
-    retryPayment(String(orderId))
-      .then(async (r) => {
-        const pay = await openRazorpayCheckout({
-          payment: r.payment,
-          name: user?.name || undefined,
-          email: user?.email || undefined,
-          phone: user?.phone || undefined,
-        });
-        await verifyPayment({
-          razorpayOrderId: pay.razorpay_order_id,
-          razorpayPaymentId: pay.razorpay_payment_id,
-          razorpaySignature: pay.razorpay_signature,
-        });
-        showToast('Payment successful', 'Your order is confirmed', 'check');
-        reload();
-      })
-      .catch((e: any) => showToast('Payment not completed', e?.message || 'Try again', 'x'))
-      .finally(() => setBusy(false));
-  };
 
   const STEPS =
     method === 'pickup' ? STEPS_PICKUP :
@@ -164,34 +108,16 @@ export function OrderTrackingScreen() {
     return () => clearInterval(t);
   }, [STEPS.length]);
 
-  const showOtp =
-    method !== 'pickup' &&
-    !!real?.deliveryOtp &&
-    OTP_ACTIVE_STATUSES.includes(real.status);
-
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
       <ScreenHeader title={method === 'pickup' ? 'Pickup' : 'Order Tracking'} onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
         {/* ═══ METHOD-SPECIFIC HEADER CARD ═══ */}
-        {method === 'pickup' ? <PickupHeader order={lastOrder} store={store} active={active} stepCount={STEPS.length} realCode={real?.pickupCode} /> :
+        {method === 'pickup' ? <PickupHeader order={lastOrder} store={store} active={active} stepCount={STEPS.length} /> :
          method === 'standard' ? <StandardHeader order={lastOrder} /> :
          method === 'tryandbuy' ? <TryBuyHeader order={lastOrder} /> :
          <ExpressHeader order={lastOrder} />}
-
-        {/* ═══ DELIVERY OTP — the handover proof the driver will ask for ═══ */}
-        {showOtp && (
-          <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.ink, alignItems: 'center' }, BORDER(1)]}>
-            <Text style={[T.monoB, { fontSize: 10, color: C.white, opacity: 0.7 }]}>{'DELIVERY OTP'}</Text>
-            <Text style={{ fontFamily: 'SpaceMono_700Bold', fontSize: rf(34), color: C.white, letterSpacing: 8, marginTop: 8 }}>
-              {real!.deliveryOtp}
-            </Text>
-            <Text style={[T.mono, { color: C.white, opacity: 0.6, fontSize: 9, marginTop: 8, textAlign: 'center' }]}>
-              {'SHARE WITH THE DELIVERY PARTNER ONLY\nWHEN YOUR ORDER IS IN YOUR HANDS'}
-            </Text>
-          </View>
-        )}
 
         {/* ═══ TIMELINE (always shown, steps vary by method) ═══ */}
         <View style={{ marginTop: SP.xl }}>
@@ -280,10 +206,9 @@ function TryBuyHeader({ order }: any) {
   );
 }
 
-function PickupHeader({ order, store, active, stepCount, realCode }: any) {
+function PickupHeader({ order, store, active, stepCount }: any) {
   const ready = active >= stepCount - 2; // "ready for pickup" state
-  // Real backend pickup code when available; mock fallbacks otherwise.
-  const code = realCode || store?.code || order?.id || 'CX48201';
+  const code = store?.code || order?.id || 'CX48201';
   const slot = store?.slot;
   return (
     <View>
