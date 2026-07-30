@@ -1,27 +1,54 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, HELV} from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, CARD } from '../components/Brutal';
-import { PRODUCTS } from '../data/mockData';
+import { useApp } from '../state/AppState';
+import { useCatalogProducts } from '../hooks/useCatalogProducts';
+import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 
 const CATS = ['All', 'Tops', 'Dresses', 'Outerwear', 'Bottoms'];
 
-// Pick what to try on FIRST — search / explore products, tap one to try it on.
+/**
+ * Pick what to try on FIRST — search / explore products, tap one to try it on.
+ *
+ * Every item here has to be a REAL listing: try-on resolves the garment by
+ * `listingId` server-side, so a bundled demo product can only ever produce the
+ * "Try-on works on store products only" refusal. This screen used to list the
+ * demo catalogue exclusively, which meant every single tile dead-ended.
+ */
 export default function TryOnPickerScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
+  const { gender } = useApp();
   const mode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('All');
 
-  const results = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    let list = PRODUCTS;
-    if (t) list = list.filter((p) => (p.name + ' ' + p.brand).toLowerCase().includes(t));
-    return list;
-  }, [q, cat]);
+  // Debounced so a fast typist does not fire a request per keystroke.
+  const [term, setTerm] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  /**
+   * An explicit search is NOT gender-filtered; an idle browse is.
+   *
+   * Typing a name is a statement of intent — "Kenneth Cole Shirt" is a HIM
+   * listing, so searching it from the HER rail returned nothing at all while the
+   * store plainly stocks it. Browsing with no term keeps the shopper's rail so
+   * the default grid is relevant rather than the entire catalog.
+   *
+   * (SearchScreen solves the same problem by searching the rail first and
+   * widening only when empty. Here there is no reason to prefer the rail at all:
+   * you can feature or try on anything the store sells.)
+   */
+  const { products: results, status, reload } = useCatalogProducts({
+    ...(term ? { search: term } : { gender }),
+    limit: 40,
+  });
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -57,13 +84,17 @@ export default function TryOnPickerScreen() {
 
       {/* GRID — tap a product to try it on */}
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 40 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={[T.caption, { marginBottom: SP.m }]}>{`${results.length} items`}</Text>
-        {results.length === 0 ? (
-          <View style={{ alignItems: 'center', paddingVertical: SP.huge }}>
-            <Feather name="search" size={36} color={C.dim} />
-            <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No items match "{q}".</Text>
-          </View>
-        ) : (
+        {status === 'ready' && <Text style={[T.caption, { marginBottom: SP.m }]}>{`${results.length} items`}</Text>}
+        <CatalogSection
+          status={status}
+          count={results.length}
+          onRetry={reload}
+          empty={<CatalogEmpty
+            icon="search"
+            title={term ? 'No matches' : 'Nothing to try on yet'}
+            sub={term ? `No live listings match "${term}".` : 'Products appear here as stores go live.'}
+          />}
+        >
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {results.map((p) => (
               <Pressable key={p.id} onPress={() => nav.navigate('TryOn', { mode, product: p })} style={{ width: CARD.w, marginBottom: SP.m }}>
@@ -75,13 +106,13 @@ export default function TryOnPickerScreen() {
                     <Text style={[T.caption, { color: C.white }]}>Try this on</Text>
                   </View>
                 </View>
-                <Text style={[T.micro, { fontFamily: 'Helvetica Neue', fontWeight: '600', color: C.ink, marginTop: 6 }]} numberOfLines={1}>{(p.brand ?? '').toUpperCase()}</Text>
+                <Text style={[T.micro, { fontFamily: HELV, fontWeight: '600', color: C.ink, marginTop: 6 }]} numberOfLines={1}>{(p.brand ?? '').toUpperCase()}</Text>
                 <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{p.name}</Text>
                 <Text style={[T.price, { marginTop: 3 }]}>₹{p.price}</Text>
               </Pressable>
             ))}
           </View>
-        )}
+        </CatalogSection>
       </ScrollView>
     </View>
   );

@@ -31,7 +31,14 @@
     },
     "plugins": [
       "./plugins/withReleaseSlimming",
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/HelveticaNeueBlack.ttf"
+          ]
+        }
+      ],
       [
         "expo-video",
         {
@@ -49,6 +56,14 @@
         "expo-image-picker",
         {
           "photosPermission": "Trendzo needs access to your photos so you can try on or search with your own images."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Trendzo uses your location only while you are adding a delivery address, to pin it for order routing.",
+          "locationWhenInUsePermission": "Trendzo uses your location only while you are adding a delivery address, to pin it for order routing.",
+          "isAndroidBackgroundLocationEnabled": false
         }
       ]
     ],

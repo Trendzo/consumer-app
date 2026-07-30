@@ -55,7 +55,15 @@ export const toRupees = (paise: number) => Math.round((paise ?? 0) / 100);
 export async function priceCart(
   items: CartLineItem[],
   couponCode?: string,
-  opts?: { pointsToRedeem?: number; applyWallet?: boolean; voucherCode?: string },
+  opts?: {
+    pointsToRedeem?: number;
+    applyWallet?: boolean;
+    voucherCode?: string;
+    /** Pass once the customer has chosen — omitting it prices the DEFAULT method,
+     *  which makes the shown total disagree with what checkout charges. */
+    deliveryMethod?: 'express' | 'standard' | 'pickup' | 'try_and_buy';
+    paymentMethod?: 'upi' | 'card' | 'cod' | 'wallet' | 'gift_card';
+  },
 ): Promise<CartPricing> {
   return request<CartPricing>('/pricing/cart', {
     method: 'POST',
@@ -65,6 +73,8 @@ export async function priceCart(
       ...(opts?.voucherCode ? { voucherCode: opts.voucherCode } : {}),
       ...(opts?.pointsToRedeem != null ? { pointsToRedeem: opts.pointsToRedeem } : {}),
       ...(opts?.applyWallet != null ? { applyWallet: opts.applyWallet } : {}),
+      ...(opts?.deliveryMethod ? { deliveryMethod: opts.deliveryMethod } : {}),
+      ...(opts?.paymentMethod ? { paymentMethod: opts.paymentMethod } : {}),
     },
     auth: true,
   });

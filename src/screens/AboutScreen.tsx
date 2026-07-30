@@ -8,15 +8,17 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalStatusBar } from '../components/Brutal';
+import { useAppConfig } from '../hooks/useAppConfig';
+import { formatWindow } from '../services/appConfig';
 
 const TILE = '#F4F4F4';
 
 // Informational sections — how Trendzo works (delivery, returns, refunds, try & buy, etc.)
-const INFO = [
+const buildInfo = (windowLabel: string, returnDays: number) => [
   { icon: 'zap', title: '60-Minute Delivery', body: 'Order from your nearest store and get it in under an hour. Express delivery is ₹99 — fast, tracked, door-to-door.' },
-  { icon: 'rotate-ccw', title: 'Returns & Exchanges', body: 'Easy 7-day returns on everything. Request a return from your order and we pick it up from your door — no questions asked.' },
+  { icon: 'rotate-ccw', title: 'Returns & Refunds', body: `Easy ${returnDays}-day returns on everything. Request a return from your order and we pick it up from your door — no questions asked.` },
   { icon: 'credit-card', title: 'Refunds', body: 'Refunds are processed within 3–5 business days to your original payment method. Trendzo Wallet refunds are instant.' },
-  { icon: 'home', title: 'Try & Buy', body: 'The courier waits up to 15 minutes while you try your order on. Keep what fits, hand back the rest on the spot — pay only for what you keep.' },
+  { icon: 'home', title: 'Try & Buy', body: `The courier waits up to ${windowLabel} while you try your order on. Keep what fits, hand back the rest on the spot — pay only for what you keep.` },
   { icon: 'map', title: 'Store Pickup', body: 'Reserve online and collect from a store near you in ~45 minutes, with zero delivery fee.' },
   { icon: 'wind', title: 'Sustainability', body: 'Every order is carbon-neutral. We use recycled packaging and partner with eco-conscious brands.' },
   { icon: 'shield', title: 'Secure Payments', body: 'UPI, cards, wallets, and Cash on Delivery — all encrypted and protected.' },
@@ -24,6 +26,12 @@ const INFO = [
 ];
 
 export default function AboutScreen() {
+  const cfg = useAppConfig();
+  // Trial + return windows are server config, not copy. See services/appConfig.ts.
+  const INFO = React.useMemo(
+    () => buildInfo(formatWindow(cfg.tryAndBuy.windowSeconds), cfg.returns.windowDays),
+    [cfg],
+  );
   const nav = useNavigation<any>();
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>

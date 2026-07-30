@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Animated, Easing, Alert, Modal, TextInput } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Animated, Easing, Alert, Modal, TextInput, RefreshControl } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -9,10 +9,18 @@ import { runOnJS } from 'react-native-reanimated';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { PRODUCTS } from '../data/mockData';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import { generateTryOn, subscribeTryOnLog, clearTryOnLog, getTryOnLog } from '../services/tryOn';
+import { generateTryOn, subscribeTryOnLog, clearTryOnLog, getTryOnLog, TryOnAuthRequiredError } from '../services/tryOn';
+import { getProductDetail, type ProductDetailData } from '../services/catalog';
+import {
+  listNotifications, markNotificationRead, markAllNotificationsRead,
+  type NotificationRow,
+} from '../services/notifications';
+import {
+  getWheel as getSpinWheel, play, claim as claimPrize, setPendingClaim, listRewards,
+  type SpinWheel as SpinWheelData, type SpinResult, type Reward,
+} from '../services/spin';
 
 // ─── DAILY REWARD — Brutalist streak board + tap-to-reveal ──
 const WEEK_REWARDS = [10, 20, 30, 40, 50, 60, 100]; // day 7 = jackpot
@@ -134,52 +142,82 @@ export function DailyRewardScreen() {
   );
 }
 
-// ─── SPIN WHEEL — Brutalist wheel + history + power-ups ─────
-const SLICES = [
-  { label: '10% off', weight: 3 },
-  { label: '₹100', weight: 2 },
-  { label: 'Try again', weight: 3 },
-  { label: '20% off', weight: 2 },
-  { label: '50 pts', weight: 3 },
-  { label: 'Free ship', weight: 2 },
-  { label: '₹500', weight: 1 },
-  { label: 'Better luck', weight: 3 },
-];
-const INITIAL_HISTORY = [
-  { prize: '10% off', user: 'YOU', date: '3d' },
-  { prize: '50 pts', user: 'YOU', date: '5d' },
-  { prize: 'Try again', user: 'YOU', date: '1w' },
-];
+// ─── SPIN WHEEL — the full-screen wheel, driven by the server ───
+//
+// This screen used to hold its own prize table (`SLICES`), its own weights, a fake
+// "Jackpot odds 1 in 19", a seeded history of spins that never happened, and a
+// "Lucky boost" that claimed to spend 100 points but only toggled a boolean. All
+// of it was local: the outcome came from `Math.random()` and the win was never
+// recorded anywhere.
+//
+// Now the slices, the odds, the spin allowance and the outcome all come from the
+// backend, and a win is a real single-use code (or real points) on the account.
+
+type SpinScreenState = {
+  wheel: SpinWheelData | null;
+  loading: boolean;
+  error: boolean;
+};
 
 export function SpinWheelScreen() {
   const nav = useNavigation<any>();
+  const { showToast, requireAuth, token } = useApp();
   const rotation = useRef(new Animated.Value(0)).current;
-  const [result, setResult] = useState<string | null>(null);
+
+  const [state, setState] = useState<SpinScreenState>({ wheel: null, loading: true, error: false });
+  const [result, setResult] = useState<SpinResult | null>(null);
   const [spinning, setSpinning] = useState(false);
-  const [spinsLeft, setSpinsLeft] = useState(3);
-  const [history, setHistory] = useState(INITIAL_HISTORY);
-  const [boost, setBoost] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  const [claimedPrize, setClaimedPrize] = useState<{ code: string | null; points: number | null } | null>(null);
+  const [rewards, setRewards] = useState<Reward[]>([]);
 
-  const spin = () => {
-    if (spinning || spinsLeft <= 0) return;
+  const load = useCallback(async () => {
+    setState((s) => ({ ...s, loading: true, error: false }));
+    try {
+      const wheel = await getSpinWheel('screen');
+      setState({ wheel, loading: false, error: false });
+    } catch {
+      setState({ wheel: null, loading: false, error: true });
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // Real history, replacing the three hardcoded rows: the codes this account has
+  // actually been given. Guests have none, which is the honest answer.
+  const loadRewards = useCallback(async () => {
+    if (!token) { setRewards([]); return; }
+    try { setRewards(await listRewards()); } catch { /* leave the list as it was */ }
+  }, [token]);
+
+  useEffect(() => { void loadRewards(); }, [loadRewards]);
+
+  const wheel = state.wheel;
+  const segments = wheel?.segments ?? [];
+  const spinsLeft = wheel?.spinsLeftToday ?? 0;
+
+  const spin = async () => {
+    if (spinning || !wheel || spinsLeft <= 0 || result) return;
     setSpinning(true);
-    setResult(null);
-    // Weighted selection — higher-weight slices come up more often. Boost removes dud slices.
-    const pool = boost ? SLICES.filter(s => !s.label.includes('again') && !s.label.includes('luck')) : SLICES;
-    const weightedBag: number[] = [];
-    pool.forEach(s => {
-      const srcIdx = SLICES.indexOf(s);
-      for (let i = 0; i < s.weight; i++) weightedBag.push(srcIdx);
-    });
-    const idx = weightedBag[Math.floor(Math.random() * weightedBag.length)];
+    let outcome: SpinResult;
+    try {
+      outcome = await play('screen');
+    } catch (e: any) {
+      setSpinning(false);
+      showToast(
+        e?.code === 'already_spun' ? 'No spins left' : "Couldn't spin",
+        e?.code === 'already_spun' ? 'Come back tomorrow for another go.' : 'Check your connection and try again.',
+        'x',
+      );
+      return;
+    }
 
-    // Slice i's center sits at angle (i * sliceDeg) clockwise from the top when the
-    // wheel is unrotated. The pointer is at 12 o'clock, so to land slice idx under
-    // the pointer we need rotation ≡ -idx * sliceDeg (mod 360). Add a small jitter
-    // inside the slice so it doesn't always stop dead-center.
-    const sliceDeg = 360 / SLICES.length;
+    // Slice i's centre sits at (i * sliceDeg) clockwise from the top when the wheel
+    // is unrotated, and the pointer is at 12 o'clock — so landing slice `idx` under
+    // it means rotating by -idx * sliceDeg (mod 360). The index is the server's.
+    const sliceDeg = 360 / Math.max(segments.length, 1);
     const jitter = (Math.random() - 0.5) * sliceDeg * 0.7;
-    const target = 360 * 6 + (360 - idx * sliceDeg) + jitter;
+    const target = 360 * 6 + (360 - outcome.segmentIndex * sliceDeg) + jitter;
 
     rotation.setValue(0);
     Animated.timing(rotation, {
@@ -188,16 +226,72 @@ export function SpinWheelScreen() {
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
-      const prize = SLICES[idx].label;
-      setResult(prize);
       setSpinning(false);
-      setSpinsLeft(s => s - 1);
-      setHistory(h => [{ prize, user: 'YOU', date: 'NOW' }, ...h].slice(0, 5));
-      setBoost(false);
+      setResult(outcome);
+      if (outcome.prize) {
+        setClaimedPrize({ code: outcome.prize.code, points: outcome.prize.points });
+        void loadRewards();
+      }
+      setState((s) => (s.wheel ? { ...s, wheel: { ...s.wheel, spinsLeftToday: Math.max(0, s.wheel.spinsLeftToday - 1) } } : s));
     });
   };
 
+  const runClaim = async (tokenStr: string) => {
+    setClaiming(true);
+    try {
+      const res = await claimPrize(tokenStr);
+      if (res.prize) {
+        setClaimedPrize({ code: res.prize.code, points: res.prize.points });
+        if (res.prize.code) showToast('Prize claimed', `Code ${res.prize.code} — apply it at checkout`, 'gift');
+        else if (res.prize.points) showToast('Prize claimed', `${res.prize.points} points added`, 'gift');
+        void loadRewards();
+      }
+    } catch {
+      showToast("Couldn't claim", 'Try again in a moment.', 'x');
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const onClaimPress = () => {
+    const t = result?.claimToken;
+    if (!result?.won || !t || claimedPrize) return;
+    if (result.requiresLogin) {
+      setPendingClaim(t);
+      requireAuth(() => { void runClaim(t); });
+      return;
+    }
+    void runClaim(t);
+  };
+
   const rotate = rotation.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'] });
+
+  // ── Empty / error states, before anything can be drawn ──
+  if (state.loading || state.error || !wheel || segments.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <BrutalStatusBar />
+        <ScreenHeader title="Spin & Win" onBack={() => nav.goBack()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
+          <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
+            {state.loading ? 'Loading…' : state.error ? 'Could not load' : 'Nothing running'}
+          </Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: SP.s, textAlign: 'center' }]}>
+            {state.loading ? 'Fetching today’s wheel.'
+              : state.error ? 'Check your connection and try again.'
+              : 'There’s no wheel running right now. Check back soon.'}
+          </Text>
+          {!state.loading && (
+            <Pressable onPress={() => void load()} style={[{ marginTop: SP.l, paddingHorizontal: SP.l, paddingVertical: SP.m, backgroundColor: C.ink }, BORDER(1)]}>
+              <Text style={[T.button, { color: C.white }]}>Try again</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  const available = rewards.filter((r) => r.state === 'available');
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -208,12 +302,15 @@ export function SpinWheelScreen() {
         <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
           <View style={[{ flex: 1, padding: SP.m, backgroundColor: '#F4F4F4', borderRightWidth: 1, borderColor: C.hairline }]}>
             <Text style={[T.micro, { color: C.dim }]}>{'Spins left'}</Text>
-            <Text style={[T.h1, { fontSize: rf(44), color: C.ink, marginTop: 2, lineHeight: rf(46) }]}>{spinsLeft}<Text style={[T.h3, { color: C.dim }]}>/3</Text></Text>
+            <Text style={[T.h1, { fontSize: rf(44), color: C.ink, marginTop: 2, lineHeight: rf(46) }]}>{spinsLeft}</Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>{spinsLeft > 0 ? 'today' : 'back tomorrow'}</Text>
           </View>
           <View style={{ flex: 1, padding: SP.m }}>
-            <Text style={[T.micro, { color: C.dim }]}>{'Jackpot odds'}</Text>
-            <Text style={[T.h2, { marginTop: 2, textTransform: 'uppercase' }]}>1 in 19</Text>
-            <Text style={[T.micro, { marginTop: 2 }]}>₹500 slice</Text>
+            <Text style={[T.micro, { color: C.dim }]}>{'Your prizes'}</Text>
+            <Text style={[T.h1, { fontSize: rf(44), color: C.ink, marginTop: 2, lineHeight: rf(46) }]}>
+              {token ? available.length : '—'}
+            </Text>
+            <Text style={[T.micro, { marginTop: 2 }]}>{token ? 'ready to use' : 'sign in to collect'}</Text>
           </View>
         </View>
 
@@ -221,7 +318,7 @@ export function SpinWheelScreen() {
         {(() => {
           const WHEEL = 300;
           const R = WHEEL / 2;
-          const N = SLICES.length;
+          const N = segments.length;
           const sliceAngle = 360 / N;
           const halfAngleRad = ((sliceAngle / 2) * Math.PI) / 180;
           const L = R * 1.22; // triangle extends past circle so no gaps after mask
@@ -239,12 +336,14 @@ export function SpinWheelScreen() {
               {/* ROTATING wheel — just slices + dividers */}
               <Animated.View style={{ marginTop: 18, width: WHEEL, height: WHEEL, transform: [{ rotate }] }}>
                 <View style={{ width: WHEEL, height: WHEEL, borderRadius: R, overflow: 'hidden', borderWidth: 3, borderColor: C.hairline, backgroundColor: C.ink }}>
-                  {/* 8 pie-slice triangles with alternating colors */}
-                  {SLICES.map((s, i) => {
+                  {segments.map((s, i) => {
                     const rot = i * sliceAngle;
-                    const isDark = i % 2 === 0;
+                    // The admin may set a colour per slice; otherwise keep the
+                    // screen's original alternating ink/white rhythm.
+                    const fill = s.colorHex ?? (i % 2 === 0 ? C.ink : C.white);
+                    const onDark = !s.colorHex && i % 2 === 0;
                     return (
-                      <View key={i} style={{ position: 'absolute', width: WHEEL, height: WHEEL, transform: [{ rotate: `${rot}deg` }] }}>
+                      <View key={s.id} style={{ position: 'absolute', width: WHEEL, height: WHEEL, transform: [{ rotate: `${rot}deg` }] }}>
                         <View style={{
                           position: 'absolute',
                           left: R - halfBase,
@@ -253,22 +352,25 @@ export function SpinWheelScreen() {
                           borderTopWidth: L,
                           borderLeftWidth: halfBase,
                           borderRightWidth: halfBase,
-                          borderTopColor: isDark ? C.ink : C.white,
+                          borderTopColor: fill,
                           borderLeftColor: 'transparent',
                           borderRightColor: 'transparent',
                         }} />
                         {/* Radial label reading outward */}
-                        <View style={{ position: 'absolute', top: 24, left: 0, right: 0, alignItems: 'center' }}>
-                          <Text style={[T.caption, { color: isDark ? C.white : C.ink }]}>{s.label}</Text>
+                        <View style={{ position: 'absolute', top: 24, left: 0, right: 0, alignItems: 'center', opacity: s.soldOut ? 0.4 : 1 }}>
+                          <Text style={[T.caption, { color: onDark ? C.white : C.ink }]}>{s.label}</Text>
+                          {!!s.sublabel && (
+                            <Text style={[T.micro, { color: onDark ? C.white : C.ink, marginTop: 1 }]}>{s.sublabel}</Text>
+                          )}
                         </View>
                       </View>
                     );
                   })}
 
                   {/* Radial divider lines at slice boundaries */}
-                  {SLICES.map((_, i) => (
+                  {segments.map((s, i) => (
                     <View
-                      key={'div' + i}
+                      key={'div' + s.id}
                       style={{
                         position: 'absolute',
                         width: 2,
@@ -298,49 +400,61 @@ export function SpinWheelScreen() {
         {result && !spinning && (
           <MotiView from={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring' }}>
             <View style={[{ marginTop: SP.l, padding: SP.l, alignItems: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
-              <Text style={[T.micro, { color: C.dim }]}>{'Spin result'}</Text>
-              <Text style={[T.h1, { color: C.ink, marginTop: 6, textTransform: 'uppercase' }]}>{result}</Text>
+              <Text style={[T.micro, { color: C.dim }]}>{result.won ? 'You won' : 'Spin result'}</Text>
+              <Text style={[T.h1, { color: C.ink, marginTop: 6, textTransform: 'uppercase', textAlign: 'center' }]}>
+                {`${result.label} ${result.sublabel ?? ''}`.trim()}
+              </Text>
+              {claimedPrize?.code && (
+                <Text style={[T.monoB, { marginTop: 8, letterSpacing: 2 }]}>{claimedPrize.code}</Text>
+              )}
+              {!!claimedPrize?.points && (
+                <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>{`${claimedPrize.points} points added`}</Text>
+              )}
+              {result.won && !claimedPrize && (
+                <Pressable
+                  onPress={onClaimPress}
+                  disabled={claiming}
+                  style={[{ marginTop: SP.m, alignSelf: 'stretch', paddingVertical: SP.m, alignItems: 'center', backgroundColor: claiming ? C.faint : C.ink }, BORDER(1)]}
+                >
+                  <Text style={[T.button, { color: C.white }]}>
+                    {claiming ? 'Claiming…' : result.requiresLogin ? 'Sign in to claim' : 'Claim it'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           </MotiView>
         )}
 
-        {/* Boost power-up */}
-        <Pressable
-          onPress={() => !spinning && spinsLeft > 0 && setBoost(b => !b)}
-          style={[{ marginTop: SP.m, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: boost ? C.ink : C.white, opacity: spinsLeft === 0 ? 0.4 : 1 }, BORDER(1)]}
-        >
-          <Feather name="zap" size={20} color={boost ? C.white : C.ink} />
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-              <Text style={[T.bodyB, { color: boost ? C.white : C.ink }]}>Lucky boost</Text>
-              {boost && <><Feather name="check" size={13} color={C.white} /><Text style={[T.micro, { color: C.white }]}>Active</Text></>}
-            </View>
-            <Text style={[T.micro, { color: boost ? C.white : C.dim, marginTop: 2 }]}>Spend 100 pts → remove "try again" slices</Text>
-          </View>
-          {!boost && <Text style={[T.caption, { color: C.ink }]}>─100</Text>}
-        </Pressable>
-
         {/* Spin action */}
         <Pressable
           onPress={spin}
-          disabled={spinning || spinsLeft === 0}
-          style={[{ marginTop: SP.m, padding: SP.l, alignItems: 'center', backgroundColor: spinsLeft === 0 ? C.hairline : C.ink }, BORDER(1)]}
+          disabled={spinning || spinsLeft <= 0 || result !== null}
+          style={[{ marginTop: SP.m, padding: SP.l, alignItems: 'center', backgroundColor: spinsLeft <= 0 || result !== null ? C.hairline : C.ink }, BORDER(1)]}
         >
-          <Text style={[T.button, { color: spinsLeft === 0 ? C.dim : C.white }]}>
-            {spinning ? 'Spinning...' : spinsLeft === 0 ? 'Come back tomorrow' : `Spin now (${spinsLeft} left)`}
+          <Text style={[T.button, { color: spinsLeft <= 0 || result !== null ? C.dim : C.white }]}>
+            {spinning ? 'Spinning...'
+              : result !== null ? 'Come back tomorrow'
+              : spinsLeft <= 0 ? 'Come back tomorrow'
+              : `Spin now (${spinsLeft} left)`}
           </Text>
         </Pressable>
 
-        {/* History */}
-        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Recent spins'}</Text>
+        {/* What you already hold — real codes, not a seeded list of fake spins */}
+        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Your prizes'}</Text>
         <View style={{ marginTop: SP.s }}>
-          {history.map((h, i) => (
-            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderColor: C.hairline }}>
-              <Text style={[T.micro, { width: 30 }]}>{`#${i + 1}`}</Text>
-              <Text style={[T.bodyB, { flex: 1 }]}>{h.prize}</Text>
-              <Text style={[T.micro]}>{h.date}</Text>
-            </View>
-          ))}
+          {!token ? (
+            <Text style={[T.micro, { color: C.dim, padding: 10 }]}>Sign in to collect prizes and see them here.</Text>
+          ) : rewards.length === 0 ? (
+            <Text style={[T.micro, { color: C.dim, padding: 10 }]}>Nothing yet — a win will show up here.</Text>
+          ) : (
+            rewards.slice(0, 6).map((r) => (
+              <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderColor: C.hairline, opacity: r.state === 'available' ? 1 : 0.45 }}>
+                <Text style={[T.monoB, { flex: 1 }]}>{r.code}</Text>
+                <Text style={[T.micro, { marginRight: 8 }]}>{r.name}</Text>
+                <Text style={[T.micro, { color: C.dim }]}>{r.state}</Text>
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
     </View>
@@ -823,68 +937,240 @@ function QuizResult({ picks, onRetake, onGoHome }: { picks: string[]; onRetake: 
 }
 
 // ─── NOTIFICATIONS ──────────────────────────────────────────
-const NOTIFS = [
-  { id: '1', icon: 'shopping-bag', title: 'Order out for delivery', sub: 'Arriving in 23 min', time: '2m' },
-  { id: '2', icon: 'heart', title: '@maya.styles liked your post', sub: '"Spring brunch fit"', time: '1h' },
-  { id: '3', icon: 'zap', title: 'Flash sale starting soon', sub: '50% off · 12 hrs only', time: '3h' },
-  { id: '4', icon: 'gift', title: 'Daily reward unlocked', sub: '+70 points · Day 7 streak', time: '5h' },
-  { id: '5', icon: 'tag', title: 'Price drop alert', sub: 'Cropped Cargo · -30%', time: '1d' },
-  { id: '6', icon: 'user-plus', title: 'New follower', sub: '@kai.fits is now following you', time: '2d' },
-];
+// (NOTIFS removed — the inbox is real; see NotificationsScreen below.)
+
+/** Server notification kind -> the Feather icon the row already used. */
+const NOTIF_ICON: Record<string, string> = {
+  order: 'package',
+  order_status: 'package',
+  refund: 'credit-card',
+  return: 'rotate-ccw',
+  payment: 'credit-card',
+  promo: 'tag',
+  loyalty: 'award',
+  referral: 'gift',
+  system: 'bell',
+};
+
+/** "2h" / "3d" — compact age, matching the mock list's right-hand column. */
+function notifAge(iso: string): string {
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
 
 export function NotificationsScreen() {
   const nav = useNavigation<any>();
+  const { token, requireAuth } = useApp();
+  const [items, setItems] = useState<NotificationRow[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!token) { setLoading(false); return; }
+    try {
+      const page = await listNotifications({ limit: 30 });
+      setItems(page.items);
+      setUnread(page.unreadCount);
+    } catch {
+      /* offline — show the empty state rather than invented updates */
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  // Tapping marks read locally first so the row responds instantly, then follows
+  // the deep link if the notification carries one.
+  const open = (n: NotificationRow) => {
+    if (!n.read) {
+      setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      setUnread((u) => Math.max(0, u - 1));
+      markNotificationRead(n.id).catch(() => {});
+    }
+    const orderId = (n.payload?.orderId as string | undefined)
+      ?? (n.deepLink?.startsWith('/orders/') ? n.deepLink.slice('/orders/'.length) : undefined);
+    if (orderId) nav.navigate('OrderTracking', { orderId });
+  };
+
+  const markAll = () => {
+    if (unread === 0) return;
+    setItems((prev) => prev.map((x) => ({ ...x, read: true })));
+    setUnread(0);
+    markAllNotificationsRead().catch(() => load());
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
       <ScreenHeader title="Notifications" onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
-        <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <Text style={[T.micro]}>{`${NOTIFS.length} updates`}</Text>
+
+      {!token ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
+          <Feather name="bell" size={26} color={C.dim} />
+          <Text style={[T.h3, { marginTop: 12 }]}>Sign in to see your updates</Text>
+          <BrutalButton label="Sign in" onPress={() => requireAuth()} style={{ marginTop: SP.l }} />
         </View>
-        {NOTIFS.map((n, i) => (
-          <FadeInUp key={n.id} delay={i * 40}>
-            <View style={{ flexDirection: 'row', padding: SP.l, alignItems: 'flex-start', borderBottomWidth: 1, borderColor: C.hairline }}>
-              <View style={[{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                <Feather name={n.icon as any} size={16} color={C.ink} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={[T.bodyB]}>{n.title}</Text>
-                <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{n.sub}</Text>
-              </View>
-              <Text style={[T.micro]}>{n.time}</Text>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 60 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+              tintColor={C.ink}
+            />
+          }
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: SP.l }}>
+            <Text style={[T.micro]}>
+              {loading ? 'Loading…' : `${items.length} update${items.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`}
+            </Text>
+            {unread > 0 && (
+              <Pressable onPress={markAll} hitSlop={8}>
+                <Text style={[T.caption, { color: C.ink, textDecorationLine: 'underline' }]}>Mark all read</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {!loading && items.length === 0 && (
+            <View style={{ padding: SP.xl, alignItems: 'center', marginTop: SP.xl }}>
+              <Feather name="bell" size={26} color={C.dim} />
+              <Text style={[T.h3, { marginTop: 12 }]}>Nothing yet</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>
+                Order updates and offers will land here.
+              </Text>
             </View>
-          </FadeInUp>
-        ))}
-      </ScrollView>
+          )}
+
+          {items.map((n, i) => (
+            <FadeInUp key={n.id} delay={Math.min(i, 8) * 40}>
+              <Pressable
+                onPress={() => open(n)}
+                style={{
+                  flexDirection: 'row', padding: SP.l, alignItems: 'flex-start',
+                  borderBottomWidth: 1, borderColor: C.hairline,
+                  // Unread rows sit on white; read ones recede into the page.
+                  backgroundColor: n.read ? 'transparent' : C.white,
+                }}
+              >
+                <View style={[{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                  <Feather name={(NOTIF_ICON[n.kind] ?? 'bell') as any} size={16} color={C.ink} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {!n.read && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.ink }} />}
+                    <Text style={[T.bodyB, { flex: 1 }]} numberOfLines={1}>{n.title}</Text>
+                  </View>
+                  {!!n.body && <Text style={[T.body, { color: C.dim, marginTop: 2 }]}>{n.body}</Text>}
+                </View>
+                <Text style={[T.micro]}>{notifAge(n.createdAt)}</Text>
+              </Pressable>
+            </FadeInUp>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
 
+
 // ─── VIRTUAL TRY-ON — AR + photo modes, brutalist hero layout ─────
+/**
+ * One thing the shopper can try on: the product's default image, or a variant
+ * that has a picture of its own.
+ *
+ * `variantId` is a REFERENCE, not a URL. The app never sends a garment image to
+ * the backend — it names the listing (and optionally the variant) and the server
+ * resolves the real hosted file. The app's own thumbnails are Cloudinary-
+ * transformed renditions that would not match what the catalogue stores.
+ */
+type GarmentOption = { key: string; label: string; thumb: string; variantId?: string };
+
+/**
+ * Default first, then only those variants carrying their own image.
+ *
+ * A variant whose `img` merely fell back to the gallery is skipped: it would be a
+ * second button producing a byte-identical try-on, which reads as a broken
+ * picker rather than a choice.
+ */
+function buildGarmentOptions(detail: ProductDetailData): GarmentOption[] {
+  const opts: GarmentOption[] = [];
+  /**
+   * `defaultImage`, NOT gallery[0].
+   *
+   * `gallery` is variant-first so the card→detail zoom is seamless, which means
+   * its head is usually the cheapest variant's photo. Using it here showed that
+   * variant's picture under "Default" while the request — which omits variantId
+   * — generated from the listing's galleryUrls[0] instead. The same variant then
+   * appeared as its own button too: two identical thumbnails, two different
+   * outputs. `defaultImage` is exactly what the backend resolves to.
+   */
+  const def = detail.defaultImage;
+  if (def) opts.push({ key: 'default', label: 'Default', thumb: def });
+  for (const v of detail.variants ?? []) {
+    if (!v.hasOwnImage) continue;
+    opts.push({
+      key: v.id,
+      label: [v.color, v.size].filter(Boolean).join(' · ') || 'Variant',
+      thumb: v.img,
+      variantId: v.id,
+    });
+  }
+  return opts;
+}
+
 export function TryOnScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const initialMode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const incomingProduct = route.params?.product;
-  const { showToast } = useApp();
+  const { showToast, requireAuth } = useApp();
   const [mode, setMode] = useState<'ar' | 'photo'>(initialMode);
-  // Build the swap-strip so it always contains the product the user came from
-  // (pinned first), padded with a few others for variety.
-  const picks = React.useMemo(() => {
-    const base = PRODUCTS.slice(0, 6);
-    if (!incomingProduct) return base;
-    const rest = base.filter(p => p.id !== incomingProduct.id);
-    return [incomingProduct, ...rest].slice(0, 6);
-  }, [incomingProduct]);
-  const [pick, setPick] = useState(picks[0]);
-  // If the screen gets reused with a different product param, re-point the pick.
+
+  /**
+   * Try-on always runs against the product the shopper arrived with.
+   *
+   * This strip used to offer six OTHER products pulled from the bundled mock
+   * catalogue, so "swap fit" mostly listed things the store does not sell and
+   * that have no backend listing to try on. It now offers the images of THIS
+   * product: its default, plus any variant with a picture of its own.
+   */
+  const pick = incomingProduct;
+  const listingId = React.useMemo(
+    () => String(pick?.id ?? '').replace(/-\d+$/, ''),
+    [pick?.id],
+  );
+  const isRealListing = listingId.startsWith('lst_');
+
+  const [garmentOptions, setGarmentOptions] = useState<GarmentOption[]>([]);
+  const [selectedGarment, setSelectedGarment] = useState<GarmentOption | null>(null);
+  const [garmentsLoading, setGarmentsLoading] = useState(false);
+
   React.useEffect(() => {
-    if (incomingProduct && incomingProduct.id !== pick?.id) {
-      setPick(incomingProduct);
-      setGeneratedPhoto(null);
-    }
-  }, [incomingProduct?.id]);
+    setGeneratedPhoto(null);
+    setGarmentOptions([]);
+    setSelectedGarment(null);
+    if (!isRealListing) return;
+    let cancelled = false;
+    setGarmentsLoading(true);
+    getProductDetail(listingId)
+      .then((d) => {
+        if (cancelled) return;
+        const opts = buildGarmentOptions(d);
+        setGarmentOptions(opts);
+        setSelectedGarment(opts[0] ?? null);
+      })
+      .catch(() => { /* leave it empty — the UI shows "no image to try on" */ })
+      .finally(() => { if (!cancelled) setGarmentsLoading(false); });
+    return () => { cancelled = true; };
+  }, [listingId, isRealListing]);
 
   // Live camera — permission + controls for the in-app AR try-on
   const [permission, requestPermission] = useCameraPermissions();
@@ -892,8 +1178,8 @@ export function TryOnScreen() {
   const [facing, setFacing] = useState<'front' | 'back'>('front');
   const cameraRef = useRef<CameraView>(null);
 
-  // Photo try-on — user's uploaded photo acts as the mirror. When the HF model
-  // runs, its generated image replaces the preview in `generatedPhoto`.
+  // Photo try-on — the user's uploaded photo acts as the mirror. The generated
+  // result replaces the preview in `generatedPhoto`.
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [generatedPhoto, setGeneratedPhoto] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -962,18 +1248,49 @@ export function TryOnScreen() {
       openErrorInspector(`No photo. runTryOn got: ${JSON.stringify(uri)}`);
       return;
     }
-    const garment = pick?.img;
-    if (!garment || typeof garment !== 'string') {
-      openErrorInspector(`No garment. pick.img is: ${JSON.stringify(garment)}`);
+    // Try-on runs on the backend against a REAL store product. Mock catalogue
+    // products (bundled art) have no backend listing to resolve a garment from.
+    if (!isRealListing) {
+      showToast('Not available', 'Try-on works on store products only', 'x');
+      return;
+    }
+    if (!selectedGarment) {
+      showToast('No image to try on', 'This product has no picture to work from', 'x');
       return;
     }
     setGenerating(true);
     setGeneratedPhoto(null);
     try {
-      const outUrl = await generateTryOn(uri, garment);
+      // A REFERENCE, never a URL — the server resolves the real garment file.
+      // Omitting variantId asks for the listing's default image.
+      const outUrl = await generateTryOn(uri, listingId, selectedGarment.variantId);
       setGeneratedPhoto(outUrl);
-      showToast('Try-on ready', `${pick.name} on you`, 'check');
+      showToast('Try-on ready', `${pick?.name ?? 'Look'} on you`, 'check');
     } catch (e: any) {
+      /**
+       * Guests get the real sign-in sheet, not a dead-end toast. `requireAuth`
+       * opens it and runs the callback once a session exists, so the shopper
+       * lands back on the try-on they asked for instead of having to start over.
+       */
+      if (e instanceof TryOnAuthRequiredError) {
+        showToast('Sign in required', 'Sign in to try this on', 'lock');
+        requireAuth(() => { void runTryOn(uri); });
+        return;
+      }
+      // Friendly copy for the one failure the shopper can act on; everything else
+      // goes to the copyable inspector.
+      if (e?.code === 'rate_limited') {
+        showToast('Try-on is busy', 'Give it a moment and try again', 'clock');
+        return;
+      }
+      if (e?.code === 'invalid_state') {
+        showToast('No image to try on', 'This product has no picture to work from', 'x');
+        return;
+      }
+      if (e?.code === 'not_found') {
+        showToast('Product unavailable', 'That item is no longer available', 'x');
+        return;
+      }
       openErrorInspector(e?.message || String(e));
     } finally {
       setGenerating(false);
@@ -993,6 +1310,31 @@ export function TryOnScreen() {
       showToast('Capture failed', e?.message || 'Try again', 'x');
     }
   };
+
+  /**
+   * Try-on needs a product to try on.
+   *
+   * The screen is reachable from Profile with no params (ProfileScreens "Scan
+   * with AR"), which previously landed on a mock catalogue row. Now that the
+   * garment comes from the product the shopper arrived with, a bare entry has
+   * nothing to work from — so say that instead of dereferencing undefined.
+   */
+  if (!pick) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <BrutalStatusBar />
+        <ScreenHeader title="Virtual Try-On" onBack={() => nav.goBack()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
+          <Feather name="camera-off" size={26} color={C.dim} />
+          <Text style={[T.h3, { marginTop: 12, textAlign: 'center' }]}>Pick something to try on</Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 6, textAlign: 'center' }]}>
+            Open any product and tap Try On.
+          </Text>
+          <BrutalButton label="Browse products" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.l }} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -1071,7 +1413,7 @@ export function TryOnScreen() {
                   <Text style={[T.micro, { color: C.ink }]}>Photo loaded</Text>
                 </View>
               )}
-              {/* Loading overlay while the HF Space is generating */}
+              {/* Loading overlay while Vertex generates the try-on (~10-30s) */}
               {generating && (
                 <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
                   <Text style={[T.h1, { color: C.white }]}>Generating...</Text>
@@ -1132,7 +1474,8 @@ export function TryOnScreen() {
               label={generating ? 'Generating…' : generatedPhoto ? 'Regenerate' : 'Generate try-on'}
               icon="zap"
               onPress={() => runTryOn()}
-              disabled={generating}
+              // Nothing to send: no backend listing, or the product has no image.
+              disabled={generating || !isRealListing || !selectedGarment}
               style={{ flex: 1 }}
             />
           ) : (
@@ -1140,18 +1483,39 @@ export function TryOnScreen() {
           )}
         </View>
 
-        {/* Pick a fit strip */}
-        <Text style={[T.caption, { marginTop: SP.xl }]}>{'Swap fit'}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
-          {picks.map(p => (
-            <Pressable key={p.id} onPress={() => { setPick(p); setGeneratedPhoto(null); }} style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, pick.id === p.id ? BORDER(2) : BORDER(1)]}>
-              <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
-              <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: pick.id === p.id ? C.ink : C.white, borderTopWidth: 1, borderColor: C.hairline }}>
-                <Text style={[T.micro, { color: pick.id === p.id ? C.white : C.ink }]} numberOfLines={1}>{p.brand}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
+        {/* WHICH IMAGE — the default, plus any variant with its own picture.
+            Only rendered when there is a genuine choice to make: a single-image
+            product needs no picker, and a product with no images at all says so. */}
+        {isRealListing && (
+          <>
+            <Text style={[T.caption, { marginTop: SP.xl }]}>{'Try on which one'}</Text>
+            {garmentsLoading ? (
+              <Text style={[T.micro, { color: C.dim, marginTop: SP.s }]}>Loading images…</Text>
+            ) : garmentOptions.length === 0 ? (
+              <Text style={[T.micro, { color: C.dim, marginTop: SP.s }]}>
+                This product has no image to try on.
+              </Text>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
+                {garmentOptions.map((g) => {
+                  const on = selectedGarment?.key === g.key;
+                  return (
+                    <Pressable
+                      key={g.key}
+                      onPress={() => { setSelectedGarment(g); setGeneratedPhoto(null); }}
+                      style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, on ? BORDER(2) : BORDER(1)]}
+                    >
+                      <CachedImage source={{ uri: g.thumb }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
+                      <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: on ? C.ink : C.white, borderTopWidth: 1, borderColor: C.hairline }}>
+                        <Text style={[T.micro, { color: on ? C.white : C.ink }]} numberOfLines={1}>{g.label}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </>
+        )}
 
         {/* How it works */}
         <Text style={[T.caption, { marginTop: SP.l }]}>{'How it works'}</Text>

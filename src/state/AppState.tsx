@@ -1,5 +1,6 @@
 // Lightweight global state — auth, cart, favorites, onboarding flag.
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { InteractionManager } from 'react-native';
 import { useSharedValue, withSpring, SharedValue } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -110,28 +111,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Hydrate the persisted session (token + consumer) once on cold start so the
   // user stays signed in across launches. setAuthToken makes the token visible
   // to the fetch client (services/api.ts) for Bearer auth.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [t, u, ob] = await Promise.all([
-          AsyncStorage.getItem(TOKEN_KEY),
-          AsyncStorage.getItem(USER_KEY),
-          AsyncStorage.getItem(ONBOARDED_KEY),
-        ]);
-        if (cancelled) return;
-        if (ob === '1') setOnboardedState(true);
-        if (t) {
-          setAuthToken(t);
-          setTokenState(t);
-          if (u) { try { setUser(JSON.parse(u)); } catch { /* ignore corrupt cache */ } }
-        }
-      } finally {
-        if (!cancelled) setAuthHydrated(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // (Hydration effect lives below, next to the gender state it also restores.)
 
   const [gender, setGenderRaw] = useState<'her' | 'him'>('him');
   // Toast/confirm write to the uiBus — NOT provider state — so firing one
@@ -175,23 +155,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [gender]);
 
-  // Persist gender — hydrate once on mount, write on every change.
+  // ── Cold-start hydration: session + onboarding + gender, in ONE disk trip ──
+  //
+  // These were two effects doing four separate AsyncStorage.getItem calls (three
+  // in a Promise.all, plus gender on its own), and all four gate what the app
+  // routes to. `multiGet` is a single bridge crossing instead of four.
   const hydratedGender = useRef(false);
   useEffect(() => {
     let cancelled = false;
-    AsyncStorage.getItem(GENDER_KEY).then(v => {
-      if (cancelled) return;
-      if ((v === 'her' || v === 'him') && v !== gender) {
-        // Jump curveProgress directly and skip the spring in the gender
-        // effect so the restore is instant — no opening animation on cold
-        // start. Only arm the skip flag when state is actually changing,
-        // otherwise the flag leaks and swallows the next real spring.
-        skipNextCurveSpring.current = true;
-        curveProgress.value = v === 'her' ? 1 : 0;
-        setGenderRaw(v);
+    (async () => {
+      try {
+        const pairs = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY, ONBOARDED_KEY, GENDER_KEY]);
+        if (cancelled) return;
+        const read = (k: string) => pairs.find(([key]) => key === k)?.[1] ?? null;
+        const t = read(TOKEN_KEY);
+        const u = read(USER_KEY);
+        const ob = read(ONBOARDED_KEY);
+        const g = read(GENDER_KEY);
+
+        if (ob === '1') setOnboardedState(true);
+        if (t) {
+          setAuthToken(t);
+          setTokenState(t);
+          if (u) { try { setUser(JSON.parse(u)); } catch { /* ignore corrupt cache */ } }
+        }
+        if ((g === 'her' || g === 'him') && g !== gender) {
+          // Jump curveProgress directly and skip the spring in the gender
+          // effect so the restore is instant — no opening animation on cold
+          // start. Only arm the skip flag when state is actually changing,
+          // otherwise the flag leaks and swallows the next real spring.
+          skipNextCurveSpring.current = true;
+          curveProgress.value = g === 'her' ? 1 : 0;
+          setGenderRaw(g);
+        }
+      } finally {
+        if (!cancelled) {
+          hydratedGender.current = true;
+          setAuthHydrated(true);
+        }
       }
-      hydratedGender.current = true;
-    }).catch(() => { hydratedGender.current = true; });
+    })();
     return () => { cancelled = true; };
   }, []);
   useEffect(() => {
@@ -296,6 +299,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (cartHydratedRef.current) return;
     cartHydratedRef.current = true;
     let cancelled = false;
+    // Deferred behind InteractionManager. For a signed-in shopper this is up to
+    // TWO sequential network round trips (getServerCart → priceCart) fired at
+    // cold start, competing with the first screen's own render and fetches. The
+    // bag is not on screen yet, so it can wait for the app to settle.
+    const task = InteractionManager.runAfterInteractions(() => {
     (async () => {
       try {
         const localItems = cartRef.current
@@ -318,7 +326,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled && rebuilt.length) { skipCartSyncRef.current = true; setCart(rebuilt); }
       } catch { /* offline / not authed — keep the local cart */ }
     })();
-    return () => { cancelled = true; };
+    });
+    return () => { cancelled = true; task.cancel(); };
   }, [token, authHydrated]);
   useEffect(() => {
     if (!token || !cartHydratedRef.current) return;
@@ -331,13 +340,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toggleFavorite = useCallback((p: Product) => {
     setFavorites(prev => (prev.find(f => f.id === p.id) ? prev.filter(f => f.id !== p.id) : [...prev, p]));
   }, []);
-  const isFavorite = useCallback((id: string) => favorites.some(f => f.id === id), [favorites]);
+  // `isFavorite` and `placeOrder` read their data through refs rather than
+  // closing over it. Both used to be keyed on `favorites` / `cart`, so each got a
+  // NEW identity whenever those changed — and because both sit in the context
+  // value's dependency array, one tap on "add to bag" invalidated four entries
+  // (cart, cartTotal, cartCount, placeOrder) instead of three. Refs keep the
+  // functions stable for the whole session while still seeing current data.
+  const favoritesRef = useRef(favorites);
+  favoritesRef.current = favorites;
+  const isFavorite = useCallback((id: string) => favoritesRef.current.some(f => f.id === id), []);
 
+  // Reuses the cartRef declared above for cart sync — it is already kept current.
   const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => {
     // Real order id/total come from the backend when available; fall back to a local
     // synthesised order for the mock (guest) path so the success/tracking UI still works.
-    const total = info?.total ?? cart.reduce((s, it) => s + it.price * it.qty, 0);
-    const items = info?.items ?? cart.reduce((s, it) => s + it.qty, 0);
+    const current = cartRef.current;
+    const total = info?.total ?? current.reduce((s, it) => s + it.price * it.qty, 0);
+    const items = info?.items ?? current.reduce((s, it) => s + it.qty, 0);
     setLastOrder({
       id: info?.id ?? ('CX' + Math.floor(Math.random() * 90000 + 10000)),
       total,
@@ -346,7 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       store: info?.store || null,
     });
     setCart([]);
-  }, [cart]);
+  }, []);
 
   const cartTotal = useMemo(() => cart.reduce((s, it) => s + it.price * it.qty, 0), [cart]);
   const cartCount = useMemo(() => cart.reduce((s, it) => s + it.qty, 0), [cart]);
@@ -365,8 +384,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     user, token, authHydrated, onboarded,
     cart, cartTotal, cartCount,
-    favorites, isFavorite,
-    lastOrder, placeOrder,
+    favorites,
+    lastOrder,
     gender,
     // stable references, listed for lint-completeness:
     signIn, signOut, updateUser, signInWithSession, applyConsumer, setOnboarded,

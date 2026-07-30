@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Platform, DeviceEventEmitter, BackHandler, ToastAndroid } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform, DeviceEventEmitter, BackHandler, ToastAndroid, InteractionManager } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { ZoomProvider } from './ZoomTransition';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -7,9 +7,19 @@ import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/b
 import Animated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { PixelIcon, PixelIconName } from '../components/PixelIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, BORDER } from '../theme/brutal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { C, T, BORDER, HELV} from '../theme/brutal';
 import { BrutalToast, BrutalConfirm } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+
+/** Placeholder while a lazily-loaded screen's chunk resolves. Deliberately plain —
+ *  it is on screen for a frame or two at most. */
+function ScreenFallback() {
+  return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
+}
+
+/** Date-string of the last day the Spin & Win welcome popup was shown. */
+const SPIN_POPUP_KEY = '@closetx/spinPopupShownOn';
 
 import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -17,6 +27,8 @@ import CompleteProfileScreen from '../screens/CompleteProfileScreen';
 import { AuthSheet } from '../components/AuthSheet';
 import HomeScreen from '../screens/HomeScreen';
 import ReelsScreen from '../screens/ReelsScreen';
+import CreateReelScreen from '../screens/CreateReelScreen';
+import ReelProductPickerScreen from '../screens/ReelProductPickerScreen';
 import CartScreen from '../screens/CartScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
@@ -29,25 +41,63 @@ import TryOnPickerScreen from '../screens/TryOnPickerScreen';
 import AboutScreen from '../screens/AboutScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import { OrderSuccessScreen, OrderTrackingScreen, OrderHistoryScreen } from '../screens/OrderScreens';
-import { DailyRewardScreen, SpinWheelScreen, StyleQuizScreen, NotificationsScreen, TryOnScreen } from '../screens/GameScreens';
+
 import {
   SavedAddressesScreen, PaymentMethodsScreen, LoyaltyRewardsScreen, GiftCardScreen,
   ReferralRewardsScreen, NotificationSettingsScreen, LanguageScreen, CustomerSupportScreen,
   StylePreferencesScreen, MeasurementScreen, FashionCalendarScreen,
-  SustainabilityScreen, OrderReturnScreen, ReviewsScreen,
+  SustainabilityScreen, ReviewsScreen,
   StorePickupScreen, TryAndBuyScreen,
 } from '../screens/ProfileScreens';
-import {
-  ImageSearchScreen, CouponWalletScreen, CommunityFeedScreen, MoodBoardScreen,
-  LuckyDrawScreen, InviteFriendsScreen, AppChallengesScreen, NewArrivalsScreen,
-  DiscoverBrandsScreen, OccasionShoppingScreen,
-} from '../screens/FeatureScreens';
+import { OrderReturnScreen } from '../screens/ReturnScreens';
+/**
+ * Lazily loaded screen groups.
+ *
+ * GameScreens and FeatureScreens between them pull in expo-camera,
+ * expo-image-picker and expo-clipboard. Statically importing them here put all
+ * three native modules — plus every module-scope asset require in those files —
+ * into the STARTUP graph, even though nothing in the first-paint path touches
+ * them. `import()` defers that module evaluation until the user actually opens
+ * one of these screens.
+ */
+const lazyScreen = <K extends string>(load: () => Promise<Record<K, React.ComponentType<any>>>, key: K) => {
+  const L = React.lazy(() => load().then((m) => ({ default: m[key] })));
+  return (props: any) => (
+    <React.Suspense fallback={<ScreenFallback />}>
+      <L {...props} />
+    </React.Suspense>
+  );
+};
+
+const loadGames = () => import('../screens/GameScreens');
+const loadFeatures = () => import('../screens/FeatureScreens');
+
+const DailyRewardScreen = lazyScreen(loadGames, 'DailyRewardScreen');
+const SpinWheelScreen = lazyScreen(loadGames, 'SpinWheelScreen');
+const StyleQuizScreen = lazyScreen(loadGames, 'StyleQuizScreen');
+const NotificationsScreen = lazyScreen(loadGames, 'NotificationsScreen');
+const TryOnScreen = lazyScreen(loadGames, 'TryOnScreen');
+
+const ImageSearchScreen = lazyScreen(loadFeatures, 'ImageSearchScreen');
+const CouponWalletScreen = lazyScreen(loadFeatures, 'CouponWalletScreen');
+const CommunityFeedScreen = lazyScreen(loadFeatures, 'CommunityFeedScreen');
+const MoodBoardScreen = lazyScreen(loadFeatures, 'MoodBoardScreen');
+const LuckyDrawScreen = lazyScreen(loadFeatures, 'LuckyDrawScreen');
+const InviteFriendsScreen = lazyScreen(loadFeatures, 'InviteFriendsScreen');
+const AppChallengesScreen = lazyScreen(loadFeatures, 'AppChallengesScreen');
+const NewArrivalsScreen = lazyScreen(loadFeatures, 'NewArrivalsScreen');
+const DiscoverBrandsScreen = lazyScreen(loadFeatures, 'DiscoverBrandsScreen');
+const OccasionShoppingScreen = lazyScreen(loadFeatures, 'OccasionShoppingScreen');
 import {
   StealsScreen, TopStoriesScreen, ShopByOccasionScreen, FlashFitScreen,
   ForHerEditScreen, ForHimEditScreen,
 } from '../screens/HomeSectionScreens';
 import { PushWinScreen } from '../screens/PushWinScreen';
 import { SpinWinPopup } from '../components/SpinWinPopup';
+import {
+  getWheel as getSpinWheel, claim as claimSpinPrize, hasPendingClaim, takePendingClaim,
+  type SpinWheel as SpinWheelData,
+} from '../services/spin';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -168,7 +218,7 @@ const tabStylesStatic = StyleSheet.create({
     textAlign: 'center',
   },
   lblActive: {
-    fontFamily: 'Helvetica Neue', fontWeight: '600',
+    fontFamily: HELV, fontWeight: '600',
   },
   badge: {
     position: 'absolute',
@@ -182,7 +232,7 @@ const tabStylesStatic = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  badgeTxt: { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 9 },
+  badgeTxt: { color: '#fff', fontFamily: HELV, fontWeight: '500', fontSize: 9 },
 });
 
 const navigationRef = createNavigationContainerRef<any>();
@@ -213,7 +263,7 @@ export default function RootNav() {
   // splashDone: the splash animation has finished. We still wait on
   // authHydrated before routing so a persisted session isn't missed.
   const [splashDone, setSplashDone] = useState(false);
-  const { onboarded, setOnboarded, token, authHydrated } = useApp();
+  const { onboarded, setOnboarded, token, authHydrated, showToast } = useApp();
   const lastBackRef = React.useRef(0);
 
   // Decide where a new launch goes once the splash is done AND the persisted
@@ -232,28 +282,81 @@ export default function RootNav() {
     setPhase(token || onboarded ? 'main' : 'onboarding');
   }, [phase, authHydrated, token, onboarded]);
 
-  // Mount the app during the splash's CALM window — after the pixel intro
-  // finishes (~1.3s) but before the particle burst (2.05s). Mounting at t=0
-  // made Home's heavy first render fight the intro animation (jitter); in the
-  // hold window nothing but the thin loader bar is moving, so the mount cost
-  // is invisible and Home is still fully settled before the burst reveals it.
+  // Mount the app as soon as the JS thread is free, not on a fixed 1450 ms
+  // timer. The old delay assumed Home's first render fits inside the splash's
+  // calm window — true on a flagship, false on a mid-range device, where the
+  // real work then ADDED to the wait instead of hiding inside it.
+  // runAfterInteractions still yields to the splash's intro animation, so the
+  // original anti-jitter intent holds without paying a fixed 1.45 s on every
+  // launch on every device.
   const [appMountReady, setAppMountReady] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setAppMountReady(true), 1450);
-    return () => clearTimeout(t);
+    const task = InteractionManager.runAfterInteractions(() => setAppMountReady(true));
+    return () => task.cancel();
   }, []);
 
   // SPIN & WIN welcome popup — fires once per app launch, right after the
   // splash particles clear AND the main app is on screen (if the user goes
   // through onboarding first, it waits and fires when they land in the app).
+  // At most ONCE PER DAY, not once per launch. It used to open on every single
+  // cold start, 700 ms after an already-3.35 s splash — the first thing a
+  // returning user had to dismiss, every time.
   const [spinPopup, setSpinPopup] = useState(false);
+  const [spinWheel, setSpinWheel] = useState<SpinWheelData | null>(null);
   const spinShownRef = React.useRef(false);
   useEffect(() => {
     if (!splashDone || phase !== 'main' || spinShownRef.current) return;
     spinShownRef.current = true;
-    const t = setTimeout(() => setSpinPopup(true), 700);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      // The local day key is a cheap throttle so a returning shopper is not shown
+      // the same popup twice in a session. It is NOT the rule — the server owns
+      // how many spins this device has left, and an admin pausing the wheel has
+      // to silence the popup everywhere immediately.
+      const today = new Date().toDateString();
+      const last = await AsyncStorage.getItem(SPIN_POPUP_KEY).catch(() => null);
+      if (cancelled || last === today) return;
+
+      const wheel = await getSpinWheel('popup').catch(() => null);
+      // No wheel running, or this device is out of spins → show nothing at all.
+      // Note the day key is only written once we actually intend to show it, so a
+      // paused wheel does not burn today's slot.
+      if (cancelled || !wheel || wheel.spinsLeftToday <= 0) return;
+
+      await AsyncStorage.setItem(SPIN_POPUP_KEY, today).catch(() => {});
+      setSpinWheel(wheel);
+      // Let the first frames of the app settle before covering them.
+      t = setTimeout(() => { if (!cancelled) setSpinPopup(true); }, 700);
+    })();
+    return () => { cancelled = true; if (t) clearTimeout(t); };
   }, [splashDone, phase]);
+
+  /**
+   * Collect a prize that was won while signed out.
+   *
+   * The claim normally rides on `requireAuth`'s success callback, straight from the
+   * button that opened the sheet. That covers the happy path and nothing else: if
+   * the shopper dismisses the sheet and signs in a few minutes later from Profile,
+   * the callback is gone and the win — which the server is still holding — is never
+   * collected. Draining the parked token here makes signing in AT ALL settle it,
+   * however they got there.
+   *
+   * `takePendingClaim` clears as it reads, and the server is idempotent on the
+   * token, so a race with the button's own callback cannot issue two prizes.
+   */
+  useEffect(() => {
+    if (!token || !hasPendingClaim()) return;
+    const parked = takePendingClaim();
+    if (!parked) return;
+    claimSpinPrize(parked)
+      .then((res) => {
+        if (!res.prize) return;
+        if (res.prize.code) showToast('Prize claimed', `Code ${res.prize.code} — apply it at checkout`, 'gift');
+        else if (res.prize.points) showToast('Prize claimed', `${res.prize.points} points added`, 'gift');
+      })
+      .catch(() => { /* the code is still in Coupons; don't nag on a flaky network */ });
+  }, [token, showToast]);
 
   // Android hardware back: route → Home tab → "press again to exit"
   useEffect(() => {
@@ -307,15 +410,19 @@ export default function RootNav() {
           <SplashScreen onDone={() => setSplashDone(true)} />
         </View>
       )}
-      {/* Welcome-gift wheel — only ever visible after the splash is gone */}
-      <SpinWinPopup
-        visible={spinPopup}
-        onClose={() => setSpinPopup(false)}
-        onShop={() => {
-          setSpinPopup(false);
-          if (navigationRef.current?.isReady()) navigationRef.current.navigate('Steals');
-        }}
-      />
+      {/* Welcome-gift wheel — only after the splash is gone, and only when the
+          server actually has a wheel running for this device. */}
+      {spinWheel && (
+        <SpinWinPopup
+          visible={spinPopup}
+          wheel={spinWheel}
+          onClose={() => setSpinPopup(false)}
+          onShop={() => {
+            setSpinPopup(false);
+            if (navigationRef.current?.isReady()) navigationRef.current.navigate('Steals');
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -368,6 +475,9 @@ function MainApp() {
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="TryOn" component={TryOnScreen} />
         <Stack.Screen name="TryOnPicker" component={TryOnPickerScreen} />
+        {/* Posting a reel — full-screen, slides up like a compose sheet. */}
+        <Stack.Screen name="CreateReel" component={CreateReelScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="ReelProductPicker" component={ReelProductPickerScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         {/* Profile sub-screens */}

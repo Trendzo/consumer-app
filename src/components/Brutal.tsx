@@ -5,7 +5,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer } from '../theme/brutal';
+import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV} from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { toastBus, confirmBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
@@ -13,13 +13,27 @@ import { useZoomCard } from '../navigation/ZoomTransition';
 // CachedImage — drop-in `<Image>` replacement backed by expo-image.
 // Aggressively caches to memory + disk so product PNGs load once over the
 // network, then stay instant for the rest of the session.
+/** Neutral fill shown until the real bitmap decodes — a 1x1 grey, expanded by
+ *  expo-image. Large heroes used to pop in from nothing; now they resolve out of
+ *  a colour, which also stops the layout flashing white on dark art. Callers can
+ *  override with their own `placeholder` prop. */
+const IMG_PLACEHOLDER = { blurhash: 'L6PZfSjE.AyE_3t7t7R**0o#DgR4' };
+
 export function CachedImage({ source, style, resizeMode = 'contain', ...rest }: any) {
-  const uri = typeof source === 'string' ? source : source?.uri;
+  // A bundled require() is a NUMBER, and most call sites wrap their value in
+  // `{ uri: x }` — which silently renders nothing for a local asset. Unwrap that
+  // case so either form works and no call site has to care where the image lives.
+  const inner = source && typeof source === 'object' && 'uri' in source ? source.uri : source;
+  const isBundled = typeof inner === 'number';
+  const uri = typeof inner === 'string' ? inner : undefined;
   return (
     <ExpoImage
-      source={uri ? { uri } : source}
+      source={isBundled ? inner : uri ? { uri } : source}
       style={style}
       contentFit={resizeMode === 'cover' ? 'cover' : resizeMode === 'stretch' ? 'fill' : 'contain'}
+      // Only for REMOTE images. Bundled requires decode from local storage fast
+      // enough that a placeholder just adds a visible extra step.
+      {...(uri && !isBundled ? { placeholder: IMG_PLACEHOLDER, placeholderContentFit: 'cover' as const } : {})}
       cachePolicy="memory-disk"
       // Android: the 200ms fade ran a compositor animation for every image that
       // (re)entered the viewport while scrolling — measurable jank on older
@@ -141,7 +155,7 @@ export function BrutalToast() {
             onPress={() => { toast.action!.onPress(); hideToast(); }}
             style={{ paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.hairline }}
           >
-            <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>{toast.action.label}</Text>
+            <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>{toast.action.label}</Text>
           </Pressable>
         )}
       </View>
@@ -161,14 +175,18 @@ export function useGenderCurve(maxRadius = 14) {
   // them they're already rounded, so you never see the difference. The on-screen rounding
   // (hero / search / categories, via HomeScreen's curveStyle) still animates live & smooth.
   //
-  // Subscribes to the theme store directly (NOT the app context) — same update
-  // timing (setGenderCurve fires the theme subscribers on every gender commit),
-  // but the primitives using this hook no longer re-render when unrelated
-  // context state (cart, user, favorites…) changes.
-  useSyncExternalStore(subscribeTheme, isHer);
-  // Sharp corners everywhere — no radius on any card / box / element.
-  return { borderRadius: 0 };
+  // The subscription is GONE on purpose. This hook subscribed to the theme store
+  // and then returned the literal `{ borderRadius: 0 }` — a constant. Every
+  // BrutalButton, BrutalIconBtn and BrutalBox in the tree therefore re-rendered
+  // on every gender flip in order to receive a value that never changes. The
+  // design settled on sharp corners everywhere, so there is nothing to subscribe
+  // to; re-add the subscription if a non-zero radius ever comes back.
+  return SHARP;
 }
+
+// One frozen object so the identity is stable too — returning a fresh literal
+// would still invalidate any downstream memo comparing style props by reference.
+const SHARP = Object.freeze({ borderRadius: 0 });
 
 // ─── BRUTAL BOX — curve-aware bordered container ──────────────
 // Drop-in replacement for `<View style={[{...}, BORDER(1)]}>`. Applies
@@ -238,7 +256,7 @@ export function BrutalButton({ label, onPress, variant = 'solid', icon, iconRigh
           style={{ paddingHorizontal: small ? SP.m : SP.l, paddingVertical: small ? SP.s : SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
         >
           {icon && <Feather name={icon} size={small ? 14 : 16} color={fg} />}
-          <Text style={[small ? { fontFamily: 'Helvetica Neue', fontWeight: '600', fontSize: rf(14) } : T.button, { color: fg }]}>
+          <Text style={[small ? { fontFamily: HELV, fontWeight: '600', fontSize: rf(14) } : T.button, { color: fg }]}>
             {label}
           </Text>
           {iconRight && <Feather name={iconRight} size={small ? 14 : 16} color={fg} />}
@@ -282,6 +300,11 @@ type InputProps = {
   secureTextEntry?: boolean;
   icon?: keyof typeof Feather.glyphMap;
   keyboardType?: any;
+  /** Modern keyboard hint — some Android OEM keyboards honour this over keyboardType. */
+  inputMode?: any;
+  /** OS autofill hints (Android / iOS respectively). */
+  autoComplete?: any;
+  textContentType?: any;
   autoCapitalize?: any;
   maxLength?: number;
   autoFocus?: boolean;
@@ -291,7 +314,7 @@ type InputProps = {
   error?: string;
   inputStyle?: TextStyle;
 };
-export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, autoCapitalize, maxLength, autoFocus, editable = true, returnKeyType, onSubmitEditing, error, inputStyle }: InputProps) {
+export function BrutalInput({ value, onChangeText, placeholder, label, secureTextEntry, icon, keyboardType, inputMode, autoComplete, textContentType, autoCapitalize, maxLength, autoFocus, editable = true, returnKeyType, onSubmitEditing, error, inputStyle }: InputProps) {
   return (
     <View style={{ marginBottom: SP.l }}>
       {label && <Text style={[T.caption, { color: C.dim, marginBottom: 6 }]}>{label}</Text>}
@@ -304,13 +327,16 @@ export function BrutalInput({ value, onChangeText, placeholder, label, secureTex
           placeholderTextColor={C.dim}
           secureTextEntry={secureTextEntry}
           keyboardType={keyboardType}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
           autoCapitalize={autoCapitalize}
           maxLength={maxLength}
           autoFocus={autoFocus}
           editable={editable}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
-          style={[{ flex: 1, fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
+          style={[{ flex: 1, fontFamily: HELV, fontWeight: '500', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
         />
       </View>
       {error ? <Text style={[T.micro, { color: '#c1121f', marginTop: 5 }]}>{error}</Text> : null}
@@ -330,7 +356,7 @@ export function SectionHead({ title, emphasis, sub, action, onAction, hideCaret,
         {action && (
           // Plain text link — matches Home's "View all ›" pattern, no box/bg.
           <Pressable onPress={onAction} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-            <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>{action}</Text>
+            <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>{action}</Text>
             <Feather name="chevron-right" size={15} color={C.ink} />
           </Pressable>
         )}
@@ -381,11 +407,28 @@ export const CARD = {
   imgH: 220,                                            // fixed image box height — same for every card
 };
 
+/**
+ * Shared, STABLE card-spacing styles.
+ *
+ * `<ProductCard style={{ marginBottom: SP.s }} />` looks harmless but mints a new
+ * object every render, which is a new prop identity, which means the React.memo
+ * on ProductCard can never skip a re-render. These are hoisted once.
+ */
+export const CARD_STYLES = StyleSheet.create({
+  mb_s: { marginBottom: SP.s },
+  mb_m: { marginBottom: SP.m },
+  gridCell: { marginBottom: SP.s, width: CARD.w },
+  railCell: { width: CARD.w * 0.86 },
+});
+
 export const ProductCard = React.memo(function ProductCard({
   p, onPress, brand, rank, zoomParams, onAdd, style, frameStyle, children,
 }: {
   p: any;
-  onPress?: () => void;        // fallback when there's no image to zoom
+  // Receives the product, so a call site can hoist ONE stable useCallback
+  // instead of minting `() => go(p)` per item. That closure was the single most
+  // common reason this React.memo never fired.
+  onPress?: (p: any) => void;  // fallback when there's no image to zoom
   brand?: string;              // label override (e.g. store name on brand pages)
   rank?: number;               // 1-based → "#01" badge + giant ghost number (trending/top-rated)
   zoomParams?: any;            // extra route params for ProductDetail (e.g. { brand })
@@ -397,7 +440,7 @@ export const ProductCard = React.memo(function ProductCard({
   const scale = useRef(new Animated.Value(1)).current;
   const { ref: imgRef, open } = useZoomCard();
   // Tapping zooms the image into the product page (falls back to onPress if no image)
-  const handlePress = () => { if (p?.img) open(p.img, p, zoomParams); else onPress?.(); };
+  const handlePress = () => { if (p?.img) open(p.img, p, zoomParams); else onPress?.(p); };
   const off = p?.original > p?.price ? Math.round((1 - p.price / p.original) * 100) : 0;
   return (
     <Animated.View style={[{ transform: [{ scale }], width: CARD.w }, style]}>
@@ -413,7 +456,7 @@ export const ProductCard = React.memo(function ProductCard({
           <CachedImage transition={0} source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
           {rank != null ? (
             <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
-              <Text style={[T.micro, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>{`#0${rank}`}</Text>
+              <Text style={[T.micro, { color: C.white, fontFamily: HELV, fontWeight: '700' }]}>{`#0${rank}`}</Text>
             </View>
           ) : p?.tag ? (
             <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
@@ -423,7 +466,7 @@ export const ProductCard = React.memo(function ProductCard({
           {children}
         </Reanimated.View>
         <View style={{ marginTop: 6 }}>
-          <Text style={[T.micro, { fontFamily: 'Helvetica Neue', fontWeight: '600', color: C.ink }]} numberOfLines={1}>{(brand ?? p.brand ?? '').toUpperCase()}</Text>
+          <Text style={[T.micro, { fontFamily: HELV, fontWeight: '600', color: C.ink }]} numberOfLines={1}>{(brand ?? p.brand ?? '').toUpperCase()}</Text>
           <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{p.name}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
             <Text style={T.price}>₹{p.price}</Text>
@@ -436,7 +479,7 @@ export const ProductCard = React.memo(function ProductCard({
       </Pressable>
       {onAdd && (
         <Pressable onPress={() => onAdd(p)} style={[{ marginTop: 6, paddingVertical: 8, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-          <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>+ Add</Text>
+          <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>+ Add</Text>
         </Pressable>
       )}
     </Animated.View>
@@ -503,7 +546,7 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
                   onPress={() => onSelect?.(o)}
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline, backgroundColor: on ? C.ink : 'transparent' }}
                 >
-                  <Text style={[T.body, { color: on ? C.white : C.ink, fontFamily: 'Helvetica Neue', fontWeight: on ? '700' : '400' }]}>{o}</Text>
+                  <Text style={[T.body, { color: on ? C.white : C.ink, fontFamily: HELV, fontWeight: on ? '700' : '400' }]}>{o}</Text>
                   {on && <Feather name="check" size={16} color={C.white} />}
                 </Pressable>
               );

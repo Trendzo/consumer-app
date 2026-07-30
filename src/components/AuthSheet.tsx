@@ -2,11 +2,12 @@
 // useApp().requireAuth() whenever a guest attempts to buy/checkout; the
 // pending action resumes automatically the moment sign-in succeeds.
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, Pressable, TextInput, KeyboardAvoidingView, Platform, Dimensions, StyleSheet, Modal } from 'react-native';
+import { View, Text, Pressable, TextInput, Dimensions, StyleSheet, Modal } from 'react-native';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { BrutalButton, BrutalInput } from './Brutal';
 import { useApp } from '../state/AppState';
 import { authBus } from '../state/uiBus';
@@ -174,11 +175,18 @@ export function AuthSheet() {
     }
   };
 
+  // Drives the lift; see the note on the wrapper below.
+  const kb = useKeyboardHeight();
+
   if (!data) return null;
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={hideAuthSheet}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+      {/* NOT KeyboardAvoidingView. A Modal is its own Android window and does not
+          inherit the activity's adjustResize, so KAV had nothing to react to —
+          and its `behavior` was undefined on Android anyway, making it a no-op.
+          The sheet is lifted by the measured keyboard height instead. */}
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Pressable onPress={hideAuthSheet} style={StyleSheet.absoluteFill}>
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' }} />
         </Pressable>
@@ -187,7 +195,19 @@ export function AuthSheet() {
           animate={{ translateY: 0 }}
           transition={{ type: 'timing', duration: 280 }}
           onStartShouldSetResponder={() => true}
-          style={[{ backgroundColor: '#fff', paddingBottom: insets.bottom + SP.l }, BORDER(1)]}
+          style={[
+            {
+              backgroundColor: '#fff',
+              // The home-indicator inset only matters when the keyboard is down;
+              // with it up, the keyboard already occupies that space and adding
+              // the inset would leave a visible white gap above it.
+              paddingBottom: kb > 0 ? SP.l : insets.bottom + SP.l,
+              // marginBottom, not translateY — translateY is driven by the
+              // slide-in animation above and the two would fight.
+              marginBottom: kb,
+            },
+            BORDER(1),
+          ]}
         >
           {/* Solid fill below the sheet — while the keyboard lifts it (and
               during the slide-in) the area underneath stays white, so the
@@ -213,11 +233,19 @@ export function AuthSheet() {
                   <BrutalInput
                     label={`Mobile (+${DEFAULT_DIAL_CODE})`}
                     value={phone}
-                    onChangeText={setPhone}
+                    // Digits only. phone-pad still offers * # + , and a stray one
+                    // would fail validation with no visible reason.
+                    onChangeText={(v: string) => setPhone(v.replace(/\D/g, '').slice(0, 10))}
                     icon="smartphone"
                     keyboardType="phone-pad"
+                    // inputMode is the modern hint and wins on Android where some
+                    // OEM keyboards ignore keyboardType; autoComplete/textContentType
+                    // enable OS autofill of the user's own number.
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
                     placeholder="98765 43210"
-                    maxLength={14}
+                    maxLength={10}
                     returnKeyType="go"
                     onSubmitEditing={handleSend}
                     error={phoneErr}
@@ -244,7 +272,7 @@ export function AuthSheet() {
             )}
           </View>
         </MotiView>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }

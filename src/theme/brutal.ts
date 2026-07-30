@@ -2,7 +2,7 @@
 // Reactive palette: C is a Proxy that resolves at access time, so styles
 // built inside components (re-evaluated on `night` toggle) flip instantly.
 
-import { Dimensions } from 'react-native';
+import { Dimensions, Platform } from 'react-native';
 
 // ── Responsive scaling ──────────────────────────────────────────────
 // Baseline 390pt ≈ iPhone 13/14 logical width. On screens NARROWER than
@@ -144,7 +144,24 @@ export const HAIRLINE = { borderWidth: 1, get borderColor() { return C.hairline;
 // Helvetica Neue at the weight below. (On Android these weights fall back to
 // Roboto, since only the Black face is bundled.)
 // Sizes pass through rf() so small Android phones scale down gracefully.
-const HELV = 'Helvetica Neue';
+/**
+ * The UI text family.
+ *
+ * 'Helvetica Neue' is a REAL system face on iOS and does not exist on Android —
+ * and the app only bundles HelveticaNeueBlack.ttf (aliased Inter_900Black for
+ * headings). So on Android all 49 sites naming it were silently falling back to
+ * the system font anyway, except that naming an unresolvable family there also
+ * makes `fontWeight` unreliable: Android cannot pick a weight within a family it
+ * cannot find, so bold text often rendered regular.
+ *
+ * `undefined` = the platform default (Roboto), which is what Android was already
+ * showing — but now the weights actually resolve. iOS keeps the intended face.
+ * Exported so screens stop hardcoding the string inline.
+ */
+export const HELV = Platform.select<string | undefined>({
+  ios: 'Helvetica Neue',
+  default: undefined,
+});
 const buildT = (P: Palette) => ({
   // Headings → Helvetica Neue Black
   h1: { fontFamily: 'Inter_900Black', fontSize: rf(24), lineHeight: rf(30), color: P.ink, letterSpacing: -0.4 }, // screen titles: "Home", "Your Cart"

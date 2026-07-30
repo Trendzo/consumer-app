@@ -1,30 +1,45 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, RefreshControl, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
+import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { listOrders, type OrderListRow } from '../services/orders';
+import {
+  listOrders, getOrder, cancelOrder, retryPayment, verifyPayment, reportPaymentFailed,
+  type OrderListRow, type OrderDetail,
+} from '../services/orders';
+import { openRazorpayCheckout } from '../services/razorpay-checkout';
+import { listReturns, type ReturnRow } from '../services/returns';
+import {
+  activeStep, bucketOf, canCancel, canOpenReturn, canRetryPayment, exceptionFor,
+  handoverProof, isLive, METHOD_LABEL, returnDaysLeftFor, statusLabel, stepsFor, toApiMethod,
+  type Method,
+} from '../services/orderLifecycle';
+
+const rupees = (paise?: number | null) => Math.round((paise ?? 0) / 100);
 
 // ─── ORDER SUCCESS ──────────────────────────────────────────
 export function OrderSuccessScreen() {
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
   const { lastOrder } = useApp();
-  const method = lastOrder?.method || 'express';
-  const store = lastOrder?.store;
+  // The placement screen passes the real order id; lastOrder is the fallback for
+  // the legacy (mock) path so the screen still renders something sane.
+  const orderId: string | undefined = route.params?.orderId ?? lastOrder?.id;
+  const method = toApiMethod(route.params?.method ?? lastOrder?.method);
 
   const headline =
     method === 'pickup' ? 'Order confirmed.' :
-    method === 'tryandbuy' ? 'Trial booked.' :
+    method === 'try_and_buy' ? 'Trial booked.' :
     'Order placed.';
 
   const caption =
-    method === 'pickup' ? `Ready at ${store?.name} in ~${store?.eta}` :
-    method === 'tryandbuy' ? 'Courier arrives tomorrow · 15 min trial' :
-    method === 'standard' ? 'Arriving in 2–3 days' :
-    'Arriving in 47 minutes';
+    method === 'pickup' ? 'We will tell you the moment it is ready to collect.' :
+    method === 'try_and_buy' ? 'Try everything at the door — the rider waits.' :
+    method === 'standard' ? 'Tracked shipping, door to door.' :
+    'Your store is packing it now.';
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
@@ -38,10 +53,12 @@ export function OrderSuccessScreen() {
       </MotiView>
 
       <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 450 }} style={{ marginTop: 24, alignItems: 'center' }}>
-        <Text style={[T.caption, { color: C.ink }]}>
-          {'Order '}
-          <Text style={[T.monoB]}>{`#${lastOrder?.id || 'CX' + Math.floor(Math.random() * 90000)}`}</Text>
-        </Text>
+        {!!orderId && (
+          <Text style={[T.caption, { color: C.ink }]}>
+            {'Order '}
+            <Text style={[T.monoB]}>{`#${orderId.slice(-8).toUpperCase()}`}</Text>
+          </Text>
+        )}
         <Text style={[T.body, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>{caption}</Text>
       </MotiView>
 
@@ -49,7 +66,7 @@ export function OrderSuccessScreen() {
         <BrutalButton
           label={method === 'pickup' ? 'View pickup details' : 'Track order'}
           iconRight="arrow-right"
-          onPress={() => nav.replace('OrderTracking')}
+          onPress={() => nav.replace('OrderTracking', orderId ? { orderId } : undefined)}
           block
         />
         <BrutalButton label="Continue shopping" variant="outline" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} block />
@@ -58,202 +75,434 @@ export function OrderSuccessScreen() {
   );
 }
 
-// ─── TRACKING STEPS — different flow per method ────────────
-const STEPS_EXPRESS = [
-  { label: 'Order placed', sub: 'Just now', icon: 'check' },
-  { label: 'Store confirmed', sub: '2 min', icon: 'shopping-bag' },
-  { label: 'Packed & dispatched', sub: '8 min', icon: 'package' },
-  { label: 'Out for delivery', sub: '24 min', icon: 'truck' },
-  { label: 'Delivered', sub: '47 min · ETA', icon: 'home' },
-];
-const STEPS_STANDARD = [
-  { label: 'Order placed', sub: 'Just now', icon: 'check' },
-  { label: 'Payment verified', sub: '3 min', icon: 'credit-card' },
-  { label: 'Packed at warehouse', sub: '6 hrs', icon: 'package' },
-  { label: 'Shipped', sub: 'Tomorrow', icon: 'send' },
-  { label: 'Out for delivery', sub: 'Day 2', icon: 'truck' },
-  { label: 'Delivered', sub: 'Day 2-3 · ETA', icon: 'home' },
-];
-const STEPS_PICKUP = [
-  { label: 'Order placed', sub: 'Just now', icon: 'check' },
-  { label: 'Store received order', sub: '2 min', icon: 'shopping-bag' },
-  { label: 'Being prepared', sub: '18 min', icon: 'package' },
-  { label: 'Ready for pickup', sub: '45 min · ETA', icon: 'map-pin' },
-  { label: 'Collected', sub: 'Show QR at counter', icon: 'check-circle' },
-];
-const STEPS_TRYBUY = [
-  { label: 'Order placed', sub: 'Just now', icon: 'check' },
-  { label: 'Packed', sub: '1 hr', icon: 'package' },
-  { label: 'Dispatched', sub: 'Tomorrow 9am', icon: 'send' },
-  { label: 'Courier at your door', sub: '15 min window', icon: 'home' },
-  { label: 'Trial complete', sub: 'Keep what fits', icon: 'check-circle' },
-];
+// ═══════════════════════════════════════════════════════════
+// ORDER TRACKING — one screen, four order types, real state
+// ═══════════════════════════════════════════════════════════
+
+/** Live orders are re-fetched on this cadence while the screen has focus. */
+const POLL_MS = 20000;
 
 export function OrderTrackingScreen() {
   const nav = useNavigation<any>();
-  const { lastOrder } = useApp();
-  const method = lastOrder?.method || 'express';
-  const store = lastOrder?.store;
+  const route = useRoute<any>();
+  const { lastOrder, showToast, showConfirm, user } = useApp();
+  const orderId: string | undefined = route.params?.orderId ?? lastOrder?.id;
 
-  const STEPS =
-    method === 'pickup' ? STEPS_PICKUP :
-    method === 'standard' ? STEPS_STANDARD :
-    method === 'tryandbuy' ? STEPS_TRYBUY :
-    STEPS_EXPRESS;
+  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const mounted = useRef(true);
 
-  const [active, setActive] = useState(method === 'pickup' ? 2 : method === 'standard' ? 1 : 2);
+  const load = useCallback(async () => {
+    if (!orderId) { setLoading(false); setErr('missing'); return; }
+    try {
+      const o = await getOrder(orderId);
+      if (mounted.current) { setOrder(o); setErr(null); }
+    } catch (e: any) {
+      if (mounted.current) setErr(e?.message || 'Could not load this order');
+    } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }, [orderId]);
 
-  useEffect(() => {
-    const t = setInterval(() => setActive(a => Math.min(STEPS.length - 1, a + 1)), 4000);
-    return () => clearInterval(t);
-  }, [STEPS.length]);
+  // Fetch on focus, then poll only while the order is still moving. A delivered or
+  // cancelled order never changes again, so polling it is pure battery burn.
+  useFocusEffect(useCallback(() => {
+    mounted.current = true;
+    load();
+    const t = setInterval(() => {
+      setOrder((cur) => { if (!cur || isLive(cur.status)) load(); return cur; });
+    }, POLL_MS);
+    return () => { mounted.current = false; clearInterval(t); };
+  }, [load]));
+
+  const method: Method = toApiMethod(order?.deliveryMethod ?? lastOrder?.method);
+  const status = order?.status ?? '';
+  const steps = useMemo(() => stepsFor(method), [method]);
+  const active = activeStep(steps, status);
+  const exception = exceptionFor(status, method);
+  const proof = order ? handoverProof(order, method) : null;
+
+  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  /* ── Actions ─────────────────────────────────────────────── */
+
+  const doCancel = () => {
+    if (!order) return;
+    showConfirm({
+      title: 'Cancel this order?',
+      msg: order.paymentMethod === 'cod'
+        ? 'Nothing was charged, so there is nothing to refund.'
+        : 'Anything already charged is refunded to the original payment method.',
+      confirmLabel: 'Cancel order',
+      cancelLabel: 'Keep it',
+      danger: true,
+      icon: 'x-circle',
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          await cancelOrder(order.id);
+          showToast('Order cancelled', 'Refunds start right away', 'check');
+          await load();
+        } catch (e: any) {
+          showToast('Could not cancel', e?.message || 'The store may have already packed it', 'x');
+          await load();
+        } finally { setBusy(false); }
+      },
+    });
+  };
+
+  const doRetryPayment = async () => {
+    if (!order) return;
+    setBusy(true);
+    // Held outside the try so a dismissed/failed sheet can still be reported —
+    // otherwise the attempt stays 'pending' server-side and blocks the next retry.
+    let gatewayOrderId: string | null = null;
+    try {
+      const { payment } = await retryPayment(order.id);
+      gatewayOrderId = payment.gatewayOrderId;
+      const res = await openRazorpayCheckout({
+        payment,
+        ...(user?.name ? { name: user.name } : {}),
+        ...(user?.email ? { email: user.email } : {}),
+        ...(user?.phone ? { phone: user.phone } : {}),
+      });
+      await verifyPayment({
+        razorpayOrderId: res.razorpay_order_id,
+        razorpayPaymentId: res.razorpay_payment_id,
+        razorpaySignature: res.razorpay_signature,
+      });
+      showToast('Payment received', 'Your order is on its way', 'check');
+    } catch (e: any) {
+      if (gatewayOrderId) await reportPaymentFailed(gatewayOrderId, e?.message || 'dismissed').catch(() => {});
+      showToast('Payment not completed', e?.message || 'Try again', 'x');
+    } finally {
+      setBusy(false);
+      await load();
+    }
+  };
+
+  const openMaps = () => {
+    if (!order) return;
+    const q = order.storeLat != null && order.storeLng != null
+      ? `${order.storeLat},${order.storeLng}`
+      : encodeURIComponent(order.storeAddressSnap || order.storeNameSnap || '');
+    if (!q) { showToast('No location', 'This store has no address on file', 'map-pin'); return; }
+    const url = Platform.select({
+      ios: `maps://?daddr=${q}`,
+      default: `geo:0,0?q=${q}`,
+    })!;
+    Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${q}`).catch(() => {}),
+    );
+  };
+
+  const callStore = () => {
+    if (!order?.storePhone) return;
+    Linking.openURL(`tel:${order.storePhone}`).catch(() => {});
+  };
+
+  /* ── Render ──────────────────────────────────────────────── */
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <BrutalStatusBar />
+        <ScreenHeader title="Order" onBack={() => nav.goBack()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!order) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <BrutalStatusBar />
+        <ScreenHeader title="Order" onBack={() => nav.goBack()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
+          <Feather name="alert-circle" size={26} color={C.dim} />
+          <Text style={[T.h3, { marginTop: 12, textAlign: 'center' }]}>
+            {err === 'missing' ? 'No order selected' : 'Could not load this order'}
+          </Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>
+            {err === 'missing' ? 'Open it from your order history.' : err}
+          </Text>
+          <BrutalButton label="View orders" variant="outline" onPress={() => nav.replace('OrderHistory')} style={{ marginTop: SP.l }} />
+        </View>
+      </View>
+    );
+  }
+
+  const showCancel = canCancel(status);
+  const showRetry = canRetryPayment(status, order.paymentMethod);
+  const showReturn = canOpenReturn(order);
+  const daysLeft = returnDaysLeftFor(order);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
-      <ScreenHeader title={method === 'pickup' ? 'Pickup' : 'Order Tracking'} onBack={() => nav.goBack()} />
-      <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 120 }}>
-        {/* ═══ METHOD-SPECIFIC HEADER CARD ═══ */}
-        {method === 'pickup' ? <PickupHeader order={lastOrder} store={store} active={active} stepCount={STEPS.length} /> :
-         method === 'standard' ? <StandardHeader order={lastOrder} /> :
-         method === 'tryandbuy' ? <TryBuyHeader order={lastOrder} /> :
-         <ExpressHeader order={lastOrder} />}
-
-        {/* ═══ TIMELINE (always shown, steps vary by method) ═══ */}
-        <View style={{ marginTop: SP.xl }}>
-          <Text style={[T.label]}>{'Timeline'}</Text>
-          <View style={{ marginTop: SP.m }}>
-            {STEPS.map((step, i) => {
-              const done = i <= active;
-              const current = i === active;
-              return (
-                <FadeInUp key={i} delay={i * 80}>
-                  <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                    <View style={{ alignItems: 'center', width: 36 }}>
-                      <View style={[{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: done ? C.ink : C.white }, BORDER(1)]}>
-                        <Feather name={step.icon as any} size={13} color={done ? C.white : C.ink} />
-                      </View>
-                      {i < STEPS.length - 1 && <View style={{ width: 1, flex: 1, backgroundColor: done ? C.ink : C.hairline, marginTop: 2 }} />}
-                    </View>
-                    <View style={{ flex: 1, paddingLeft: 12, paddingBottom: 18 }}>
-                      <Text style={[T.caption, { color: done ? C.ink : C.dim }]}>{step.label}</Text>
-                      <Text style={[T.micro, { color: current ? C.ink : C.dim, marginTop: 2 }]}>{step.sub}</Text>
-                    </View>
-                  </View>
-                </FadeInUp>
-              );
-            })}
+      <ScreenHeader title={method === 'pickup' ? 'Pickup' : 'Order tracking'} onBack={() => nav.goBack()} />
+      <ScrollView
+        contentContainerStyle={{ padding: SP.l, paddingBottom: 140 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
+      >
+        {/* ═══ HEADER CARD ═══ */}
+        <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
+          <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>
+            {`ORDER #${order.id.slice(-8).toUpperCase()} · ${METHOD_LABEL[method].toUpperCase()}`}
+          </Text>
+          <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>{statusLabel(status)}</Text>
+          <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>{order.storeNameSnap || 'Your store'}</Text>
+          {!!order.storeAddressSnap && method === 'pickup' && (
+            <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{order.storeAddressSnap}</Text>
+          )}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.m }}>
+            <HeaderStat label="Items" value={String((order.items ?? []).reduce((s, it) => s + it.qty, 0))} />
+            <HeaderStat label="Total" value={`₹${rupees(order.grandTotalPaise).toLocaleString()}`} />
+            <HeaderStat label="Paid by" value={order.paymentMethodLabel || (order.paymentMethod || '').toUpperCase()} />
           </View>
+          {method === 'pickup' && !!order.pickupSlotStart && (
+            <View style={{ flexDirection: 'row', marginTop: 12, gap: 6 }}>
+              <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.ink }}>
+                <Text style={[T.caption, { color: C.white }]}>{`Slot · ${fmtSlot(order.pickupSlotStart, order.pickupSlotEnd)}`}</Text>
+              </View>
+            </View>
+          )}
+          {method === 'try_and_buy' && !!order.doorWindowExpiresAt && status === 'at_door' && (
+            <View style={[{ marginTop: 12, padding: SP.s, backgroundColor: '#FFF8E1' }, BORDER(1)]}>
+              <Text style={[T.caption, { color: C.ink }]}>
+                {`Trial window closes at ${fmtTime(order.doorWindowExpiresAt)}`}
+              </Text>
+            </View>
+          )}
         </View>
 
-        {/* ═══ METHOD-SPECIFIC ACTION ═══ */}
-        {method === 'pickup' && <PickupActions store={store} />}
-        {method === 'express' && <BrutalButton label="Contact rider" icon="phone" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
-        {method === 'standard' && <BrutalButton label="Get shipping updates" icon="bell" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
-        {method === 'tryandbuy' && <BrutalButton label="Reschedule trial" icon="calendar" variant="outline" block onPress={() => {}} style={{ marginTop: SP.l }} />}
+        {/* ═══ EXCEPTION BANNER ═══ */}
+        {exception && (
+          <View style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: exception.tone === 'bad' ? '#FDECEC' : '#FFF8E1' }, BORDER(1)]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Feather name={exception.icon as any} size={16} color={exception.tone === 'bad' ? '#C1121F' : '#B0740A'} />
+              <Text style={[T.bodyB, { color: exception.tone === 'bad' ? '#C1121F' : '#B0740A' }]}>{exception.title}</Text>
+            </View>
+            <Text style={[T.caption, { color: C.ink, marginTop: 4 }]}>{exception.body}</Text>
+          </View>
+        )}
 
-        {/* Return / exchange — available once an order exists */}
-        <BrutalButton label="Return or exchange" icon="rotate-ccw" variant="outline" block onPress={() => nav.navigate('OrderReturn')} style={{ marginTop: SP.s }} />
+        {/* ═══ REFUNDS — including cancellation refunds ═══ */}
+        <RefundBlock refunds={order.refunds ?? []} />
+
+        {/* ═══ HANDOVER PROOF — OTP (door) or pickup code (counter) ═══ */}
+        {proof && (
+          <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
+            <Text style={[T.caption]}>{proof.title}</Text>
+            {proof.kind === 'pickup' && (
+              <View style={[{ marginTop: SP.m, width: 180, height: 180, backgroundColor: C.white, padding: 8 }, BORDER(2)]}>
+                <PseudoQR seed={proof.code} />
+              </View>
+            )}
+            <Text style={[T.monoB, { fontSize: rf(28), letterSpacing: 6, marginTop: 12 }]}>{proof.code}</Text>
+            <Text style={[T.micro, { marginTop: 6, textAlign: 'center', color: C.dim }]}>{proof.hint}</Text>
+          </View>
+        )}
+
+        {/* ═══ TIMELINE ═══ */}
+        {status !== 'cancelled' && (
+          <View style={{ marginTop: SP.xl }}>
+            <Text style={[T.label]}>{'Timeline'}</Text>
+            <View style={{ marginTop: SP.m }}>
+              {steps.map((step, i) => {
+                const done = i <= active;
+                const current = i === active;
+                return (
+                  <FadeInUp key={step.label} delay={i * 60}>
+                    <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                      <View style={{ alignItems: 'center', width: 36 }}>
+                        <View style={[{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: done ? C.ink : C.white }, BORDER(1)]}>
+                          <Feather name={step.icon as any} size={13} color={done ? C.white : C.ink} />
+                        </View>
+                        {i < steps.length - 1 && <View style={{ width: 1, flex: 1, backgroundColor: done ? C.ink : C.hairline, marginTop: 2 }} />}
+                      </View>
+                      <View style={{ flex: 1, paddingLeft: 12, paddingBottom: 18 }}>
+                        <Text style={[T.caption, { color: done ? C.ink : C.dim }]}>{step.label}</Text>
+                        <Text style={[T.micro, { color: current ? C.ink : C.dim, marginTop: 2 }]}>
+                          {current ? step.hint : stampFor(order, step.at)}
+                        </Text>
+                      </View>
+                    </View>
+                  </FadeInUp>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ═══ ITEMS — with per-item outcome once the door visit has happened ═══ */}
+        {!!order.items?.length && (
+          <View style={{ marginTop: SP.l }}>
+            <Text style={[T.label]}>{`Items · ${order.items.length}`}</Text>
+            <View style={[{ marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              {order.items.map((it, i) => (
+                <View key={it.id} style={{ flexDirection: 'row', gap: SP.m, padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
+                  <View style={[{ width: 52, height: 66, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
+                    {it.galleryImageSnap
+                      ? <CachedImage source={{ uri: it.galleryImageSnap }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Feather name="shopping-bag" size={18} color={C.dim} /></View>}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[T.caption, { color: C.dim }]} numberOfLines={1}>{it.brandSnap}</Text>
+                    <Text style={[T.productName, { marginTop: 1 }]} numberOfLines={2}>{it.listingNameSnap}</Text>
+                    <Text style={[T.micro, { color: C.dim, marginTop: 3 }]}>{`${it.attributesLabelSnap} · Qty ${it.qty}`}</Text>
+                    <OutcomeChip outcome={it.outcome} />
+                  </View>
+                  <Text style={[T.price]}>{`₹${rupees(it.netLinePaise).toLocaleString()}`}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* ═══ ACTIONS ═══ */}
+        <View style={{ marginTop: SP.l, gap: SP.s }}>
+          {method === 'pickup' && (
+            <>
+              <BrutalButton label="Get directions" icon="navigation" block onPress={openMaps} />
+              {!!order.storePhone && <BrutalButton label="Call store" icon="phone" variant="outline" block onPress={callStore} />}
+            </>
+          )}
+
+          {showRetry && (
+            <BrutalButton label={busy ? 'Opening…' : 'Retry payment'} icon="credit-card" block disabled={busy} onPress={doRetryPayment} />
+          )}
+
+          {showReturn && (
+            <BrutalButton
+              label={`Return items · ${daysLeft}d left`}
+              icon="rotate-ccw"
+              variant="outline"
+              block
+              onPress={() => nav.navigate('OrderReturn', { orderId: order.id })}
+            />
+          )}
+
+          {showCancel && (
+            <BrutalButton label={busy ? 'Working…' : 'Cancel order'} icon="x-circle" variant="outline" block disabled={busy} onPress={doCancel} />
+          )}
+
+          <BrutalButton label="Need help with this order" icon="life-buoy" variant="ghost" block onPress={() => nav.navigate('CustomerSupport')} />
+        </View>
       </ScrollView>
     </View>
   );
 }
 
-// ─── Method-specific headers ────────────────────────────────
+/** Refund status -> customer-facing copy. Mirrors the refund_status enum. */
+const REFUND_COPY: Record<string, { label: string; note: string; color: string }> = {
+  pending: { label: 'Refund initiated', note: 'We have raised it with your bank.', color: '#B0740A' },
+  processing: { label: 'Refund processing', note: 'Usually 3-5 working days.', color: '#B0740A' },
+  partially_disbursed: { label: 'Refund partly paid', note: 'The rest is still on its way.', color: '#B0740A' },
+  succeeded: { label: 'Refund complete', note: 'Back on your original payment method.', color: '#1B8A5A' },
+  failed: { label: 'Refund failed', note: 'Contact support and we will sort it out.', color: '#C1121F' },
+};
 
-function ExpressHeader({ order }: any) {
+/**
+ * Refunds raised against this order.
+ *
+ * Cancelling a prepaid order raises a real refund row, but nothing in the app
+ * ever showed it — refunds were only visible attached to a RETURN. So a customer
+ * who cancelled saw "you will be refunded" and then had no way to check whether
+ * it had happened, for how much, or whether it failed.
+ */
+function RefundBlock({ refunds }: { refunds: NonNullable<OrderDetail['refunds']> }) {
+  if (!refunds.length) return null;
   return (
-    <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · EXPRESS`}</Text>
-      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>Arriving soon</Text>
-      <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>From NORTH. store · 2.4 km</Text>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="ETA" value="23 min" />
-        <HeaderStat label="Rider" value="Ravi K." />
-        <HeaderStat label="Bike" value="MH02" />
-      </View>
-    </View>
-  );
-}
-
-function StandardHeader({ order }: any) {
-  return (
-    <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · STANDARD`}</Text>
-      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>On its way</Text>
-      <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Tracked shipping · signature on delivery</Text>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="ETA" value="2-3 days" />
-        <HeaderStat label="AWB" value="CX48201" />
-        <HeaderStat label="Carrier" value="Delhivery" />
-      </View>
-    </View>
-  );
-}
-
-function TryBuyHeader({ order }: any) {
-  return (
-    <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-      <Text style={[T.monoB, { fontSize: 10 }]}>{`ORDER #${order?.id || 'CX48201'} · TRY & BUY`}</Text>
-      <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>Trial booked</Text>
-      <Text style={[T.body, { color: C.dim, marginTop: 4 }]}>Courier will wait 15 min · keep what fits</Text>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.s }}>
-        <HeaderStat label="Arrives" value="Tomorrow" />
-        <HeaderStat label="Window" value="10-12 AM" />
-        <HeaderStat label="Trial" value="15 min" />
-      </View>
-    </View>
-  );
-}
-
-function PickupHeader({ order, store, active, stepCount }: any) {
-  const ready = active >= stepCount - 2; // "ready for pickup" state
-  const code = store?.code || order?.id || 'CX48201';
-  const slot = store?.slot;
-  return (
-    <View>
-      <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-        <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>{`ORDER #${order?.id || 'CX48201'} · PICKUP`}</Text>
-        <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>
-          {ready ? 'Ready at store' : 'Being prepared'}
-        </Text>
-        <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>{store?.name || 'NORTH. × ANDHERI'}</Text>
-        <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{store?.addr || 'Infiniti Mall, Level 2'}</Text>
-        {slot && (
-          <View style={{ flexDirection: 'row', marginTop: 10, gap: 6 }}>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: C.ink }}>
-              <Text style={[T.caption, { color: C.white }]}>{`Slot · ${slot}`}</Text>
+    <View style={{ marginTop: SP.l }}>
+      <Text style={[T.label]}>{refunds.length > 1 ? 'Refunds' : 'Refund'}</Text>
+      <View style={[{ marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+        {refunds.map((r, i) => {
+          const meta = REFUND_COPY[r.status] ?? { label: r.status, note: '', color: C.dim };
+          return (
+            <View key={r.id} style={{ padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: meta.color }} />
+                  <Text style={[T.bodyB, { color: meta.color }]}>{meta.label}</Text>
+                </View>
+                <Text style={[T.price]}>{`₹${rupees(r.amountPaise).toLocaleString()}`}</Text>
+              </View>
+              {!!meta.note && <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{meta.note}</Text>}
+              <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>
+                {r.completedAt ? `Completed ${fmtTime(r.completedAt)}` : `Raised ${fmtTime(r.createdAt)}`}
+              </Text>
             </View>
-            <View style={[{ paddingHorizontal: 8, paddingVertical: 3 }, BORDER(1)]}>
-              <Text style={[T.caption, { color: C.ink }]}>{`ETA · ${store?.eta || '45 min'}`}</Text>
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* QR CODE block — key difference from delivery flows */}
-      <View style={[{ marginTop: SP.m, padding: SP.l, backgroundColor: C.white, alignItems: 'center' }, BORDER(1)]}>
-        <Text style={[T.caption]}>{'Show this at counter'}</Text>
-        <View style={[{ marginTop: SP.m, width: 180, height: 180, backgroundColor: C.white, padding: 8 }, BORDER(2)]}>
-          <PseudoQR seed={code} />
-        </View>
-        <Text style={[T.monoB, { fontSize: rf(22), letterSpacing: 4, marginTop: 12 }]}>{code}</Text>
-        <Text style={[T.micro, { marginTop: 4 }]}>Pickup code</Text>
-        {ready && (
-          <View style={[{ marginTop: SP.m, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.ink }]}>
-            <Text style={[T.caption, { color: C.white }]}>Ready now · Head to store</Text>
-          </View>
-        )}
+          );
+        })}
       </View>
     </View>
   );
 }
 
-function PickupActions({ store }: any) {
+/** Server timestamps for the milestones that actually carry one. */
+function stampFor(o: OrderDetail, at: number): string {
+  const src =
+    at <= 0 ? o.placedAt :
+    at === 2 ? o.acceptedAt :
+    at === 3 ? o.packedAt :
+    at === 6 ? o.deliveredAt :
+    null;
+  return src ? fmtTime(src) : '';
+}
+
+const fmtTime = (iso?: string | null) => {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+};
+
+const fmtSlot = (start?: string | null, end?: string | null) => {
+  if (!start) return '';
+  try {
+    const s = new Date(start);
+    const day = s.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+    const from = s.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const to = end ? new Date(end).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+    return to ? `${day} ${from}–${to}` : `${day} ${from}`;
+  } catch { return ''; }
+};
+
+/**
+ * Per-item outcome, shown only once it stops being the default. Try & Buy orders
+ * are the reason this exists: after the door visit, some lines are kept and some
+ * went straight back, and only the item row can say which.
+ */
+const OUTCOME_COPY: Record<string, { label: string; color: string }> = {
+  delivered_kept: { label: 'Kept', color: '#1B8A5A' },
+  at_door_kept: { label: 'Kept at door', color: '#1B8A5A' },
+  at_door_returned: { label: 'Returned at door', color: '#B0740A' },
+  at_door_refused: { label: 'Refused', color: '#B0740A' },
+  at_door_return_rejected: { label: 'Return refused by rider', color: '#C1121F' },
+  at_store_pending_verification: { label: 'Being checked at store', color: '#B0740A' },
+  store_accepted_return: { label: 'Return accepted', color: '#1B8A5A' },
+  store_rejected_held: { label: 'Return rejected · held at store', color: '#C1121F' },
+  held_collected_at_counter: { label: 'Collected at counter', color: '#1B8A5A' },
+  held_redelivered: { label: 'Redelivered', color: '#1B8A5A' },
+  held_abandoned: { label: 'Abandoned', color: '#C1121F' },
+  held_window_expired: { label: 'Hold window expired', color: '#C1121F' },
+  dispute_open: { label: 'Dispute open', color: '#C1121F' },
+};
+
+function OutcomeChip({ outcome }: { outcome: string }) {
+  const meta = OUTCOME_COPY[outcome];
+  if (!meta) return null; // pending_delivery + anything new — nothing worth saying yet
   return (
-    <View style={{ marginTop: SP.l, gap: SP.s }}>
-      <BrutalButton label="Get directions" icon="navigation" block onPress={() => {}} />
-      <BrutalButton label={`Call ${store?.name?.split(' ')[0] || 'store'}`} icon="phone" variant="outline" block onPress={() => {}} />
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: meta.color }} />
+      <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(10), letterSpacing: 0.3, color: meta.color }}>
+        {meta.label.toUpperCase()}
+      </Text>
     </View>
   );
 }
@@ -262,186 +511,184 @@ function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
     <View>
       <Text style={[T.micro]}>{label}</Text>
-      <Text style={[T.bodyB, { marginTop: 2 }]}>{value}</Text>
+      <Text style={[T.bodyB, { marginTop: 2 }]} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
 
 // ═══════════════════════════════════════════════════════════
-// ORDER HISTORY — list of past & active orders (not live tracking)
+// ORDER HISTORY
 // ═══════════════════════════════════════════════════════════
-const HISTORY: {
-  id: string;
-  date: string;
-  items: { name: string; brand: string; qty: number }[];
-  total: number;
-  status: 'DELIVERED' | 'CANCELLED' | 'RETURNED' | 'SHIPPED';
-  method: 'express' | 'standard' | 'pickup' | 'tryandbuy';
-}[] = [
-  {
-    id: 'CX10442', date: '02 APR 2026',
-    items: [
-      { name: 'Oversized Wool Coat', brand: 'NORTH.', qty: 1 },
-      { name: 'Slim Fit Jeans', brand: 'YORK', qty: 1 },
-    ],
-    total: 6490, status: 'DELIVERED', method: 'standard',
-  },
-  {
-    id: 'CX10388', date: '18 MAR 2026',
-    items: [
-      { name: 'Cotton Tee · Ecru', brand: 'AZUKI', qty: 2 },
-    ],
-    total: 1980, status: 'DELIVERED', method: 'express',
-  },
-  {
-    id: 'CX10301', date: '27 FEB 2026',
-    items: [
-      { name: 'Cargo Trousers', brand: 'KOH', qty: 1 },
-      { name: 'Canvas Belt', brand: 'KOH', qty: 1 },
-    ],
-    total: 3340, status: 'RETURNED', method: 'tryandbuy',
-  },
-  {
-    id: 'CX10277', date: '11 FEB 2026',
-    items: [
-      { name: 'Knit Beanie', brand: 'NORTH.', qty: 1 },
-    ],
-    total: 790, status: 'CANCELLED', method: 'standard',
-  },
-  {
-    id: 'CX10188', date: '25 JAN 2026',
-    items: [
-      { name: 'Leather Sneakers', brand: 'YORK', qty: 1 },
-      { name: 'Crew Socks · 3pk', brand: 'YORK', qty: 1 },
-    ],
-    total: 5480, status: 'DELIVERED', method: 'pickup',
-  },
-  {
-    id: 'CX10112', date: '08 JAN 2026',
-    items: [
-      { name: 'Wool Scarf', brand: 'AZUKI', qty: 1 },
-    ],
-    total: 1490, status: 'DELIVERED', method: 'standard',
-  },
-];
 
-type StatusFilter = 'ALL' | 'DELIVERED' | 'RETURNED' | 'CANCELLED';
+type StatusFilter = 'ALL' | 'ACTIVE' | 'DELIVERED' | 'RETURNED' | 'CANCELLED';
 
-// Map a backend order row to the history-card display shape. The list row is slim
-// (no line items), so we show the store as the summary line.
 const fmtOrderDate = (iso?: string) => {
   if (!iso) return '';
   try { return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase(); }
   catch { return ''; }
 };
-const mapOrderStatus = (s: string): 'DELIVERED' | 'CANCELLED' | 'RETURNED' | 'SHIPPED' =>
-  s === 'delivered' ? 'DELIVERED' : s === 'cancelled' ? 'CANCELLED' : s === 'returned' ? 'RETURNED' : 'SHIPPED';
-const mapOrderMethod = (m?: string): 'express' | 'standard' | 'pickup' | 'tryandbuy' =>
-  m === 'standard' ? 'standard' : m === 'pickup' ? 'pickup' : m === 'try_and_buy' ? 'tryandbuy' : 'express';
-function mapOrderRow(o: OrderListRow): typeof HISTORY[number] {
-  return {
-    id: o.id,
-    date: fmtOrderDate(o.placedAt),
-    items: [{ name: o.storeName || 'Order', brand: '', qty: 1 }],
-    total: Math.round((o.grandTotalPaise ?? 0) / 100),
-    status: mapOrderStatus(o.status),
-    method: mapOrderMethod(o.deliveryMethod),
-  };
-}
 
 export function OrderHistoryScreen() {
   const nav = useNavigation<any>();
-  const { token } = useApp();
+  const { token, requireAuth } = useApp();
   const [filter, setFilter] = useState<StatusFilter>('ALL');
-  // Real orders when logged in; mock HISTORY as the fallback.
-  const [orders, setOrders] = useState(HISTORY);
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    listOrders().then((rows) => { if (!cancelled && rows.length) setOrders(rows.map(mapOrderRow)); }).catch(() => {});
-    return () => { cancelled = true; };
+  const [orders, setOrders] = useState<OrderListRow[]>([]);
+  const [returns, setReturns] = useState<ReturnRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!token) { setLoading(false); return; }
+    // Returns are fetched alongside because RETURNED is not an order status — an
+    // order with items sent back is still 'delivered' server-side.
+    const [o, r] = await Promise.all([
+      listOrders().catch(() => [] as OrderListRow[]),
+      listReturns().catch(() => [] as ReturnRow[]),
+    ]);
+    setOrders(o);
+    setReturns(r);
+    setLoading(false);
   }, [token]);
 
-  const filtered = orders.filter(o => filter === 'ALL' || o.status === filter);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const returnedOrderIds = useMemo(() => new Set(returns.map((r) => r.orderId)), [returns]);
+
+  /**
+   * Orders with a return the store has NOT yet decided on.
+   *
+   * The row badge used to read "RETURN OPEN" for any order that had a return row at
+   * all, so it stayed on screen after the store accepted the goods and the refund
+   * had already landed — and it also lit up for door-returns handed back at
+   * delivery, which were never "open" in the first place. Split the two states so
+   * the badge says what is actually true.
+   */
+  const openReturnOrderIds = useMemo(
+    () => new Set(returns.filter((r) => r.storeDecision === 'pending').map((r) => r.orderId)),
+    [returns],
+  );
+
+  const filtered = useMemo(() => orders.filter((o) => {
+    if (filter === 'ALL') return true;
+    if (filter === 'RETURNED') return returnedOrderIds.has(o.id);
+    return bucketOf(o.status) === filter;
+  }), [orders, filter, returnedOrderIds]);
+
+  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  if (!token) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <BrutalStatusBar />
+        <ScreenHeader title="Orders" onBack={() => nav.goBack()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
+          <Feather name="user" size={26} color={C.dim} />
+          <Text style={[T.h3, { marginTop: 12 }]}>Sign in to see your orders</Text>
+          <BrutalButton label="Sign in" onPress={() => requireAuth()} style={{ marginTop: SP.l }} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
       <ScreenHeader title="Orders" onBack={() => nav.goBack()} />
 
-      {/* Filter tabs — clean underline row */}
-      <View style={{ flexDirection: 'row', gap: SP.l, paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-        {(['ALL', 'DELIVERED', 'RETURNED', 'CANCELLED'] as StatusFilter[]).map(f => {
-          const on = filter === f;
-          return (
-            <Pressable key={f} onPress={() => setFilter(f)} hitSlop={6} style={{ paddingBottom: 6, borderBottomWidth: 2, borderColor: on ? C.ink : 'transparent' }}>
-              <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700', fontSize: rf(12), letterSpacing: 0.3, color: on ? C.ink : C.dim }}>{f}</Text>
-            </Pressable>
-          );
-        })}
+      <View style={{ borderBottomWidth: 1, borderColor: C.hairline }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexDirection: 'row', gap: SP.l, paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.m }}>
+          {(['ALL', 'ACTIVE', 'DELIVERED', 'RETURNED', 'CANCELLED'] as StatusFilter[]).map((f) => {
+            const on = filter === f;
+            return (
+              <Pressable key={f} onPress={() => setFilter(f)} hitSlop={6} style={{ paddingBottom: 6, borderBottomWidth: 2, borderColor: on ? C.ink : 'transparent' }}>
+                <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(12), letterSpacing: 0.3, color: on ? C.ink : C.dim }}>{f}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-        {filtered.map((o, i) => {
-          const itemCount = o.items.reduce((s, it) => s + it.qty, 0);
-          const primary = o.items[0];
-          const extra = o.items.length - 1;
-          return (
-            <FadeInUp key={o.id} delay={i * 40}>
-              <Pressable
-                onPress={() => nav.navigate('OrderTracking')}
-                style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: 18, borderBottomWidth: 1, borderColor: C.hairline }}
-              >
-                {/* Thumbnail */}
-                <View style={[{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
-                  <Feather name="shopping-bag" size={20} color={C.dim} />
-                </View>
-
-                {/* Middle — item + meta + status */}
-                <View style={{ flex: 1, marginLeft: SP.m }}>
-                  <Text style={[T.h3, { color: C.ink }]} numberOfLines={1}>
-                    {primary?.name || 'Order'}{extra > 0 ? `  +${extra} more` : ''}
-                  </Text>
-                  <Text style={[T.caption, { color: C.dim, marginTop: 3 }]} numberOfLines={1}>
-                    {o.date} · {itemCount} item{itemCount !== 1 ? 's' : ''}
-                  </Text>
-                  <View style={{ marginTop: 7 }}>
-                    <StatusBadge status={o.status} />
+      {loading ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 120 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.ink} />}
+        >
+          {filtered.map((o, i) => {
+            const primary = o.items?.[0];
+            const extra = Math.max(0, (o.items?.length ?? 0) - 1);
+            const count = o.itemCount ?? o.items?.reduce((s, it) => s + it.qty, 0) ?? 0;
+            const wasReturned = returnedOrderIds.has(o.id);
+            const returnPending = openReturnOrderIds.has(o.id);
+            return (
+              <FadeInUp key={o.id} delay={Math.min(i, 8) * 40}>
+                <Pressable
+                  onPress={() => nav.navigate('OrderTracking', { orderId: o.id })}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.l, paddingVertical: 18, borderBottomWidth: 1, borderColor: C.hairline }}
+                >
+                  <View style={[{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
+                    {primary?.image
+                      ? <CachedImage source={{ uri: primary.image }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      : <Feather name="shopping-bag" size={20} color={C.dim} />}
                   </View>
-                </View>
 
-                {/* Right — total + chevron */}
-                <View style={{ alignItems: 'flex-end', marginLeft: SP.s }}>
-                  <Text style={T.price}>₹{o.total.toLocaleString()}</Text>
-                  <Feather name="chevron-right" size={18} color={C.dim} style={{ marginTop: 10 }} />
-                </View>
-              </Pressable>
-            </FadeInUp>
-          );
-        })}
+                  <View style={{ flex: 1, marginLeft: SP.m }}>
+                    <Text style={[T.h3, { color: C.ink }]} numberOfLines={1}>
+                      {primary?.name || o.storeName || 'Order'}{extra > 0 ? `  +${extra} more` : ''}
+                    </Text>
+                    <Text style={[T.caption, { color: C.dim, marginTop: 3 }]} numberOfLines={1}>
+                      {`${fmtOrderDate(o.placedAt)} · ${count} item${count !== 1 ? 's' : ''} · ${METHOD_LABEL[toApiMethod(o.deliveryMethod)]}`}
+                    </Text>
+                    <View style={{ marginTop: 7, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <StatusBadge status={o.status} />
+                      {wasReturned && (
+                        <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(10), color: returnPending ? '#B0740A' : '#1B8A5A' }}>
+                          {returnPending ? 'RETURN OPEN' : 'RETURNED'}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
 
-        {filtered.length === 0 && (
-          <View style={{ padding: SP.xl, alignItems: 'center', marginTop: SP.xl }}>
-            <Feather name="inbox" size={26} color={C.dim} />
-            <Text style={[T.h3, { marginTop: 12 }]}>No orders yet</Text>
-            <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>No orders match this filter.</Text>
-          </View>
-        )}
-      </ScrollView>
+                  <View style={{ alignItems: 'flex-end', marginLeft: SP.s }}>
+                    <Text style={T.price}>₹{rupees(o.grandTotalPaise).toLocaleString()}</Text>
+                    <Feather name="chevron-right" size={18} color={C.dim} style={{ marginTop: 10 }} />
+                  </View>
+                </Pressable>
+              </FadeInUp>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <View style={{ padding: SP.xl, alignItems: 'center', marginTop: SP.xl }}>
+              <Feather name="inbox" size={26} color={C.dim} />
+              <Text style={[T.h3, { marginTop: 12 }]}>{orders.length === 0 ? 'No orders yet' : 'Nothing here'}</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>
+                {orders.length === 0 ? 'Your orders will show up here.' : 'No orders match this filter.'}
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
 
-function StatusBadge({ status }: { status: 'DELIVERED' | 'CANCELLED' | 'RETURNED' | 'SHIPPED' }) {
+function StatusBadge({ status }: { status: string }) {
+  const bucket = bucketOf(status);
   const color =
-    status === 'DELIVERED' ? '#1B8A5A' :
-    status === 'SHIPPED' ? C.ink :
-    status === 'RETURNED' ? '#B0740A' :
-    '#C1121F';
+    bucket === 'DELIVERED' ? '#1B8A5A' :
+    bucket === 'CANCELLED' ? '#C1121F' :
+    status === 'payment_failed' || status === 'undelivered' ? '#B0740A' :
+    C.ink;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
-      <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700', fontSize: rf(11), letterSpacing: 0.3, color }}>{status}</Text>
+      <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(11), letterSpacing: 0.3, color }}>
+        {statusLabel(status).toUpperCase()}
+      </Text>
     </View>
   );
 }
@@ -449,6 +696,8 @@ function StatusBadge({ status }: { status: 'DELIVERED' | 'CANCELLED' | 'RETURNED
 // Fake QR code — 13×13 grid of squares derived from the seed string, plus
 // the 3 corner finder patterns that make it look like a real QR. Good enough
 // to render a convincing brutalist pickup code without pulling in a QR lib.
+// NOTE: the counter flow is code-entry, not scan — the code below it is the
+// thing that actually works.
 function PseudoQR({ seed }: { seed: string }) {
   const SIZE = 13;
   const cells: boolean[][] = [];
@@ -462,10 +711,9 @@ function PseudoQR({ seed }: { seed: string }) {
     }
     cells.push(row);
   }
-  // Force finder squares at 3 corners
   const markFinder = (rr: number, cc: number) => {
-    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) cells[rr + r][cc + c] = true;
-    cells[rr + 1][cc + 1] = false;
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) cells[rr + r]![cc + c] = true;
+    cells[rr + 1]![cc + 1] = false;
   };
   markFinder(0, 0); markFinder(0, SIZE - 3); markFinder(SIZE - 3, 0);
 

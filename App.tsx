@@ -56,8 +56,8 @@ export default function App() {
     Inter_600SemiBold: RobotoMono_600SemiBold,
     Inter_500Medium: RobotoMono_500Medium,
     Inter_400Regular: RobotoMono_400Regular,
-    SpaceMono_400Regular: RobotoMono_400Regular,
-    SpaceMono_700Bold: RobotoMono_700Bold,
+    // SpaceMono_400Regular / SpaceMono_700Bold removed — zero call sites in src/,
+    // and every TTF here blocks first paint until it resolves.
   });
 
   if (!loaded) {

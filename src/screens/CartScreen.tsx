@@ -4,26 +4,59 @@
 // and slab CTAs sinking into yellow offset shadows. All the original cart
 // logic is preserved: per-method buckets, move-to, server pricing, coupon,
 // auth-gated checkout, tab-bar scroll behaviour.
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, StatusBar, TextInput, Animated, Easing, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
 import { CachedImage, FadeInUp, ProductCard } from '../components/Brutal';
 import { useApp, DeliveryMethod } from '../state/AppState';
 import { useTabBarScroll } from '../hooks/useTabBarScroll';
-import { PRODUCTS } from '../data/mockData';
+import { ProductRailSkeleton } from '../components/CatalogState';
+import { useCatalogProducts } from '../hooks/useCatalogProducts';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
+import { useAppConfig } from '../hooks/useAppConfig';
+import type { AppConfig } from '../services/appConfig';
+import { readCouponOutcome, type CouponOutcome } from '../services/coupons';
 
 const TAB_BAR_HEIGHT = 72;
 const YELLOW = '#F2E63C'; // the Home highlighter — the one accent
 const FREE_SHIP_AT = 999;
 
-const METHOD_META: Record<DeliveryMethod, { label: string; icon: string; time: string; fee: number; blurb: string }> = {
-  express:  { label: 'Express · 60 min',     icon: 'zap',     time: '60 min',     fee: 99, blurb: 'From your block · in under an hour' },
-  standard: { label: 'Standard · 2-3 days',  icon: 'package', time: '2-3 days',   fee: 49, blurb: 'Tracked shipping · door-to-door' },
-  pickup:   { label: 'Instore pickup',       icon: 'map-pin', time: 'In store',   fee: 0,  blurb: 'Ready at your nearest store · free' },
+type MethodMeta = { label: string; icon: string; time: string; fee: number; blurb: string };
+
+/**
+ * Delivery labels and fees come from GET /app-config, not from here.
+ *
+ * These were written twice with the same numbers — once in this file, once in
+ * ReviewOrderScreen — while the real values live in
+ * `platform_config.base_delivery_fee_table` x `surge_multiplier`, with per-store
+ * overrides on top. They agreed by coincidence; the first pricing change would
+ * have made the app wrong in two places at once.
+ *
+ * This shape is only the offline fallback and the type the screen renders.
+ */
+const methodMetaFrom = (cfg: AppConfig): Record<DeliveryMethod, MethodMeta> => {
+  // Defensive: the hook merges over defaults, but a screen must not crash if
+  // an older backend (or a bad cache entry) ever yields a partial config.
+  const by = new Map((cfg.delivery?.methods ?? []).map((m) => [m.id, m]));
+  const one = (id: DeliveryMethod, fallback: MethodMeta): MethodMeta => {
+    const m = by.get(id);
+    if (!m) return fallback;
+    return {
+      label: `${m.label} · ${m.etaLabel}`,
+      icon: m.icon,
+      time: m.etaLabel,
+      fee: Math.round(m.feePaise / 100),
+      blurb: m.blurb,
+    };
+  };
+  return {
+    express: one('express', { label: 'Express · 60 min', icon: 'zap', time: '60 min', fee: 99, blurb: 'From your block · in under an hour' }),
+    standard: one('standard', { label: 'Standard · 2-3 days', icon: 'package', time: '2-3 days', fee: 49, blurb: 'Tracked shipping · door-to-door' }),
+    pickup: one('pickup', { label: 'Instore pickup', icon: 'map-pin', time: 'In store', fee: 0, blurb: 'Ready at your nearest store · free' }),
+  };
 };
 const METHOD_ORDER: DeliveryMethod[] = ['express', 'standard', 'pickup'];
 
@@ -31,7 +64,10 @@ const METHOD_ORDER: DeliveryMethod[] = ['express', 'standard', 'pickup'];
 function Ticker({ text }: { text: string }) {
   const [segW, setSegW] = useState(0);
   const x = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
+  // Tabs stay mounted after their first visit, so an unmount-only cleanup meant
+  // this marquee kept animating forever while the user was on Home, Reels or
+  // Category. Tie it to focus instead.
+  useFocusEffect(useCallback(() => {
     if (!segW) return;
     x.setValue(0);
     const loop = Animated.loop(
@@ -39,7 +75,7 @@ function Ticker({ text }: { text: string }) {
     );
     loop.start();
     return () => loop.stop();
-  }, [segW]);
+  }, [segW, x]));
   const seg = <Text numberOfLines={1} style={[T.caption, { color: C.white }]}>{text}</Text>;
   return (
     <View style={{ height: 30, backgroundColor: C.ink, overflow: 'hidden', justifyContent: 'center' }}>
@@ -67,44 +103,113 @@ function Slab({ label, onPress, small }: { label: string; onPress: () => void; s
 export default function CartScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, showToast, requireAuth } = useApp();
+  const { cart, updateQty, removeFromCart, updateMethod, cartTotal, cartCount, showToast, requireAuth, gender } = useApp();
   const tabScroll = useTabBarScroll();
+  const cfg = useAppConfig();
+  const METHOD_META = useMemo(() => methodMetaFrom(cfg), [cfg]);
   const checkoutBarOffset = TAB_BAR_HEIGHT + (insets.bottom > 0 ? insets.bottom : 12);
   const [coupon, setCoupon] = useState('');
-  const [applied, setApplied] = useState(0);
+  // `submitted` is the code currently being priced WITH the cart; `outcome` is
+  // the server's verdict on it. The old `applied` was a locally-invented rupee
+  // amount that never reached the backend.
+  const [submitted, setSubmitted] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CouponOutcome>({ state: 'none' });
   // Real server-computed totals when every line carries a backend variant id
   // (guest-ok via /pricing/cart). Falls back to local math for mock items.
   const [pricing, setPricing] = useState<CartPricing | null>(null);
   const allPriceable = cart.length > 0 && cart.every(it => !!it.variantId);
+  // Debounced. Every quantity tap used to fire an immediate, un-abortable
+  // POST /pricing/cart; holding the + button put several in flight at once and
+  // their results applied in arrival order, so the displayed total could settle
+  // on a stale response. 400 ms is below the threshold where the delay reads as
+  // lag but well above a rapid tap-tap-tap.
   useEffect(() => {
     if (!allPriceable) { setPricing(null); return; }
     let cancelled = false;
     const items = cart.map(it => ({ variantId: it.variantId as string, qty: it.qty }));
-    priceCart(items).then(p => { if (!cancelled) setPricing(p); }).catch(() => { if (!cancelled) setPricing(null); });
-    return () => { cancelled = true; };
-  }, [cart, allPriceable]);
+    const t = setTimeout(() => {
+      priceCart(items, submitted ?? undefined)
+        .then(p => {
+          if (cancelled) return;
+          setPricing(p);
+          // The discount and the rejection reason both come from THIS response,
+          // so what the customer is shown is exactly what the server computed.
+          setOutcome(readCouponOutcome(submitted, p.aggregate.couponPaise, p.rejectedCodes));
+        })
+        .catch(() => { if (!cancelled) { setPricing(null); setOutcome({ state: 'none' }); } });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [cart, allPriceable, submitted]);
   const agg = pricing?.aggregate;
 
+  // Submitting re-prices the cart with the code attached; the server decides.
   const apply = () => {
-    if (coupon.toUpperCase() === 'NEWVIBE') {
-      setApplied(500);
-      showToast('Coupon applied', '₹500 off · NEWVIBE', 'tag');
-    } else {
-      showToast('Invalid code', 'Try NEWVIBE', 'x');
+    const code = coupon.trim().toUpperCase();
+    if (!code) return;
+    if (!allPriceable) {
+      showToast('Cannot apply yet', 'Some items in your bag are not checkout-ready', 'x');
+      return;
     }
+    setSubmitted(code);
   };
+  const clearCoupon = () => { setSubmitted(null); setOutcome({ state: 'none' }); setCoupon(''); };
 
-  // Group cart items by delivery method
-  const buckets: Record<DeliveryMethod, typeof cart> = { express: [], standard: [], pickup: [] };
-  cart.forEach(it => {
-    const m: DeliveryMethod = (it as any).method || 'express';
-    buckets[m].push(it);
-  });
-  const bucketSubtotal = (m: DeliveryMethod) => buckets[m].reduce((s, it) => s + it.price * it.qty, 0);
-  const bucketFee = (m: DeliveryMethod) => (buckets[m].length > 0 ? METHOD_META[m].fee : 0);
-  const allFees = METHOD_ORDER.reduce((s, m) => s + bucketFee(m), 0);
-  const total = Math.max(0, cartTotal - applied) + allFees;
-  const activeBuckets = METHOD_ORDER.filter(m => buckets[m].length > 0);
+  // Surface the server's own reason rather than "Try NEWVIBE".
+  const lastNotified = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${outcome.state}:${'code' in outcome ? outcome.code : ''}`;
+    if (lastNotified.current === key) return;
+    lastNotified.current = key;
+    if (outcome.state === 'applied') {
+      showToast('Coupon applied', `₹${Math.round(outcome.discountPaise / 100)} off · ${outcome.code}`, 'tag');
+    } else if (outcome.state === 'rejected') {
+      showToast('Code not applied', outcome.message, 'x');
+    }
+  }, [outcome, showToast]);
+
+  const appliedRupees = outcome.state === 'applied' ? Math.round(outcome.discountPaise / 100) : 0;
+  const isApplied = outcome.state === 'applied';
+
+  // Group cart items by delivery method. Bucketing + the three derived totals all
+  // depend ONLY on `cart`, but ran on every render — including once per keystroke
+  // in the coupon field, which has nothing to do with the bag's contents.
+  const { buckets, bucketSubtotal, bucketFee, allFees, activeBuckets } = useMemo(() => {
+    const b: Record<DeliveryMethod, typeof cart> = { express: [], standard: [], pickup: [] };
+    cart.forEach(it => {
+      const m: DeliveryMethod = (it as any).method || 'express';
+      b[m].push(it);
+    });
+    const subtotal = (m: DeliveryMethod) => b[m].reduce((s, it) => s + it.price * it.qty, 0);
+    const fee = (m: DeliveryMethod) => (b[m].length > 0 ? METHOD_META[m].fee : 0);
+    return {
+      buckets: b,
+      bucketSubtotal: subtotal,
+      bucketFee: fee,
+      allFees: METHOD_ORDER.reduce((s, m) => s + fee(m), 0),
+      activeBuckets: METHOD_ORDER.filter(m => b[m].length > 0),
+    };
+  }, [cart]);
+  // Server total when we have one — it already includes the coupon, delivery and
+  // tax. The local arithmetic is the offline fallback only, and must subtract the
+  // SERVER's discount, never a locally chosen number.
+  const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, cartTotal - appliedRupees) + allFees;
+
+  /**
+   * Both upsell rails come from the live catalog now.
+   *
+   * They were slices of the bundled demo array, so "Start with these" and
+   * "Complete the fit" recommended six products the store does not sell — and
+   * tapping one opened a fully priced, add-to-bag-able page for it.
+   *
+   * One fetch feeds both: the empty-bag rail shows the head of it, the
+   * has-items rail shows the same list minus whatever is already in the bag.
+   */
+  const { products: suggested, status: suggestedStatus } = useCatalogProducts({ gender, limit: 12 });
+  const startWith = useMemo(() => suggested.slice(0, 6), [suggested]);
+  const completeTheFit = useMemo(
+    () => suggested.filter(p => !cart.find(c => c.id === p.id)).slice(0, 6),
+    [suggested, cart],
+  );
 
   const checkoutBucket = (m: DeliveryMethod) => {
     // Single-page checkout (Myntra-style): address, delivery, payment and pay
@@ -113,6 +218,9 @@ export default function CartScreen() {
     // Guests get the login sheet first — checkout only opens once signed in.
     requireAuth(() => nav.navigate('ReviewOrder', { preMethod: m }));
   };
+
+  // Stable so the upsell rails' ProductCard memo can hold.
+  const goToProduct = useCallback((p: any) => nav.navigate('ProductDetail', { product: p }), [nav]);
 
   const shipProgress = Math.min(1, cartTotal / FREE_SHIP_AT);
   const shipRemaining = Math.max(0, FREE_SHIP_AT - cartTotal);
@@ -142,7 +250,7 @@ export default function CartScreen() {
                 ))}
                 {cart.length > 3 && (
                   <View style={{ width: 34, height: 42, marginLeft: -10, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.ink }}>
-                    <Text style={[T.micro, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>+{cart.length - 3}</Text>
+                    <Text style={[T.micro, { color: C.white, fontFamily: HELV, fontWeight: '700' }]}>+{cart.length - 3}</Text>
                   </View>
                 )}
               </View>
@@ -167,18 +275,24 @@ export default function CartScreen() {
               <Slab label="START SHOPPING" onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} />
             </View>
           </View>
-          <View style={{ marginTop: SP.huge }}>
-            <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m }}>
-              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Start with these</Text>
+          {(suggestedStatus === 'loading' || startWith.length > 0) && (
+            <View style={{ marginTop: SP.huge }}>
+              <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m }}>
+                <Text style={[T.h2, { textTransform: 'uppercase' }]}>Start with these</Text>
+              </View>
+              {suggestedStatus === 'loading' ? (
+                <ProductRailSkeleton count={3} />
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
+                  {startWith.map((p, i) => (
+                    <FadeInUp key={p.id} delay={i * 30}>
+                      <ProductCard p={p} onPress={goToProduct} />
+                    </FadeInUp>
+                  ))}
+                </ScrollView>
+              )}
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
-              {PRODUCTS.slice(0, 6).map((p, i) => (
-                <FadeInUp key={p.id} delay={i * 30}>
-                  <ProductCard p={p} onPress={() => nav.navigate('ProductDetail', { product: p })} />
-                </FadeInUp>
-              ))}
-            </ScrollView>
-          </View>
+          )}
         </ScrollView>
       ) : (
         /* Keyboard-aware: typing a coupon never hides the field — the page
@@ -190,7 +304,7 @@ export default function CartScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Feather name="truck" size={15} color={C.ink} />
               <Text style={[T.caption, { color: C.ink, flex: 1 }]}>
-                {shipRemaining > 0 ? <>₹{shipRemaining} away from <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '700' }}>free standard delivery</Text></> : 'Free standard delivery unlocked'}
+                {shipRemaining > 0 ? <>₹{shipRemaining} away from <Text style={{ fontFamily: HELV, fontWeight: '700' }}>free standard delivery</Text></> : 'Free standard delivery unlocked'}
               </Text>
               {shipRemaining === 0 && <Feather name="check-circle" size={15} color={C.ink} />}
             </View>
@@ -211,13 +325,13 @@ export default function CartScreen() {
                 {/* Method bar — black strip, yellow fee chip */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.ink, paddingHorizontal: SP.m, paddingVertical: 10 }}>
                   <Feather name={meta.icon as any} size={14} color={C.white} />
-                  <Text style={[T.caption, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1 }]}>{meta.label.toUpperCase()}</Text>
+                  <Text style={[T.caption, { color: C.white, fontFamily: HELV, fontWeight: '700', letterSpacing: 1 }]}>{meta.label.toUpperCase()}</Text>
                   <View style={{ flex: 1 }} />
                   <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]}>
                     {m === 'express' ? `~${40 + (items.length % 4) * 5} min` : meta.time}
                   </Text>
                   <View style={{ backgroundColor: YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
+                    <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>{fee === 0 ? 'FREE' : `₹${fee}`}</Text>
                   </View>
                 </View>
 
@@ -293,7 +407,7 @@ export default function CartScreen() {
                 <Text style={[T.h3, { textTransform: 'uppercase' }]}>Coupon</Text>
               </View>
               <Pressable onPress={() => nav.navigate('CouponWallet')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>View wallet</Text>
+                <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>View wallet</Text>
                 <Feather name="chevron-right" size={13} color={C.ink} />
               </Pressable>
             </View>
@@ -303,31 +417,34 @@ export default function CartScreen() {
                 <TextInput
                   value={coupon}
                   onChangeText={setCoupon}
-                  placeholder="TRY: NEWVIBE"
+                  placeholder="Enter code"
                   placeholderTextColor={C.dim}
                   autoCapitalize="characters"
-                  editable={!applied}
+                  editable={!isApplied}
                   style={[T.monoB, { flex: 1, marginLeft: 8, letterSpacing: 1, padding: 0 }]}
                 />
-                {coupon.length > 0 && !applied && (
+                {coupon.length > 0 && !isApplied && (
                   <Pressable onPress={() => setCoupon('')} hitSlop={10}>
                     <Feather name="x" size={12} color={C.dim} />
                   </Pressable>
                 )}
               </View>
               <Pressable
-                onPress={applied ? undefined : apply}
-                disabled={!!applied}
-                style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: applied ? C.faint : C.ink }}
+                onPress={isApplied ? undefined : apply}
+                disabled={isApplied}
+                style={{ paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: isApplied ? C.faint : C.ink }}
               >
-                <Text style={[T.button, { fontSize: rf(14) }]}>{applied ? 'Applied' : 'Apply'}</Text>
+                <Text style={[T.button, { fontSize: rf(14) }]}>{isApplied ? 'Applied' : 'Apply'}</Text>
               </Pressable>
             </View>
-            {applied > 0 && (
-              <Pressable onPress={() => { setApplied(0); setCoupon(''); }} style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            {isApplied && (
+              <Pressable onPress={clearCoupon} style={{ marginTop: 6, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Feather name="x" size={11} color={C.dim} />
                 <Text style={[T.caption, { textDecorationLine: 'underline' }]}>Remove coupon</Text>
               </Pressable>
+            )}
+            {outcome.state === 'rejected' && (
+              <Text style={[T.caption, { marginTop: 6, color: '#C1121F' }]}>{outcome.message}</Text>
             )}
           </View>
 
@@ -335,7 +452,7 @@ export default function CartScreen() {
           <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
             <Text style={{ position: 'absolute', right: -8, bottom: -24, fontFamily: 'Inter_900Black', fontSize: rf(110), color: 'rgba(0,0,0,0.03)' }}>₹</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-              <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1.5 }]}>ORDER SUMMARY</Text>
+              <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '700', letterSpacing: 1.5 }]}>ORDER SUMMARY</Text>
               <Feather name="file-text" size={14} color={C.ink} />
             </View>
             <View style={{ padding: SP.m }}>
@@ -363,7 +480,7 @@ export default function CartScreen() {
                       <Text style={[T.bodyB]}>₹{bucketFee(m)}</Text>
                     </View>
                   ) : null)}
-                  {applied > 0 && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>Coupon · NEWVIBE</Text><Text style={[T.bodyB, { color: C.green }]}>−₹{applied}</Text></View>}
+                  {isApplied && <View style={s.sumRow}><Text style={[T.body, { color: C.dim }]}>{`Coupon · ${outcome.state === 'applied' ? outcome.code : ''}`}</Text><Text style={[T.bodyB, { color: C.green }]}>−₹{appliedRupees}</Text></View>}
                   <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
                   <View style={s.sumRow}>
                     <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
@@ -380,20 +497,27 @@ export default function CartScreen() {
             </View>
           </View>
 
-          {/* ── COMPLETE THE FIT — upsell rail ── */}
-          <View style={{ marginTop: SP.xl }}>
-            <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Complete the fit</Text>
-              <Text style={[T.micro, { color: C.dim }]}>Picked for your bag</Text>
+          {/* ── COMPLETE THE FIT — upsell rail. Hidden when the catalog has
+              nothing left to suggest, rather than padded with demo art. ── */}
+          {(suggestedStatus === 'loading' || completeTheFit.length > 0) && (
+            <View style={{ marginTop: SP.xl }}>
+              <View style={{ paddingHorizontal: SP.l, marginBottom: SP.m, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <Text style={[T.h2, { textTransform: 'uppercase' }]}>Complete the fit</Text>
+                <Text style={[T.micro, { color: C.dim }]}>Picked for your bag</Text>
+              </View>
+              {suggestedStatus === 'loading' ? (
+                <ProductRailSkeleton count={3} />
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
+                  {completeTheFit.map((p, i) => (
+                    <FadeInUp key={p.id} delay={i * 30}>
+                      <ProductCard p={p} onPress={goToProduct} />
+                    </FadeInUp>
+                  ))}
+                </ScrollView>
+              )}
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
-              {PRODUCTS.filter(p => !cart.find(c => c.id === p.id)).slice(0, 6).map((p, i) => (
-                <FadeInUp key={p.id} delay={i * 30}>
-                  <ProductCard p={p} onPress={() => nav.navigate('ProductDetail', { product: p })} />
-                </FadeInUp>
-              ))}
-            </ScrollView>
-          </View>
+          )}
         </ScrollView>
         </KeyboardAvoidingView>
       )}

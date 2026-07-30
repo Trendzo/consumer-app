@@ -1,12 +1,24 @@
 // Profile sub-screens — each page has a unique hero banner, structured
 // body, and consistent brutalist treatment.
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Linking, Share } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, BrutalInput, Chip, OptionSheet } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import * as Clipboard from 'expo-clipboard';
+import { getLoyalty } from '../services/loyalty';
+import { getWallet } from '../services/wallet';
+import { listGiftCards, redeemGiftCard, type GiftCard } from '../services/giftCards';
+import { listIssues, createIssue, type IssueRow } from '../services/issues';
+import { listOrders, type OrderListRow } from '../services/orders';
+import { listReviews, isBackendListingId } from '../services/catalog';
+import { lookupPincode } from '../services/pincode';
+import { captureCurrentLocation } from '../services/geo';
+import { getReferral, type Referral } from '../services/referrals';
+import { useAppConfig } from '../hooks/useAppConfig';
+import { formatWindow, tierFor, pointsToRupees, type AppConfig } from '../services/appConfig';
 import {
   listAddresses, createAddress, removeAddress, setDefaultAddress, formatAddress, type Address,
 } from '../services/addresses';
@@ -109,10 +121,15 @@ function IconTile({ icon, size = 40, on }: { icon: string; size?: number; on?: b
 // ═══════════════════════════════════════════════════════════
 // SAVED ADDRESSES
 // ═══════════════════════════════════════════════════════════
-// lat/lng feed delivery routing + GST place-of-supply; without a map picker we approximate
-// to a city centroid. Swap for a real map/geocode pin later.
-const DEFAULT_COORDS = { lat: 19.076, lng: 72.8777 };
-const EMPTY_ADDR_FORM = { label: '', line1: '', line2: '', city: '', pincode: '', stateCode: '' };
+// lat/lng feed delivery routing + the serviceable-radius check + GST
+// place-of-supply. They used to be a single hardcoded Mumbai coordinate sent for
+// EVERY address, so a Delhi customer's address was routed as if it were in
+// Mumbai. Now: captured from the device on request (services/geo.ts), and the
+// pincode fills city + GST state code (services/pincode.ts).
+const EMPTY_ADDR_FORM = {
+  label: '', line1: '', line2: '', city: '', pincode: '', stateCode: '',
+  lat: null as number | null, lng: null as number | null,
+};
 
 export function SavedAddressesScreen() {
   const nav = useNavigation<any>();
@@ -154,7 +171,63 @@ export function SavedAddressesScreen() {
     .then(() => { showToast('Default set', a.label || formatAddress(a), 'check'); load(); })
     .catch((e: any) => showToast('Failed', e?.message || 'Try again', 'x'));
 
-  const canSave = !!form.line1.trim() && !!form.city.trim() && /^\d{6}$/.test(form.pincode.trim()) && form.stateCode.trim().length === 2;
+  // Six digits typed → resolve city + GST state code. Cached for a day, so
+  // re-opening the form or correcting a typo costs nothing.
+  const [pinLookup, setPinLookup] = useState<'idle' | 'loading' | 'failed'>('idle');
+  useEffect(() => {
+    const pin = form.pincode.trim();
+    if (!/^\d{6}$/.test(pin)) { setPinLookup('idle'); return; }
+    let cancelled = false;
+    setPinLookup('loading');
+    lookupPincode(pin)
+      .then((info) => {
+        if (cancelled) return;
+        if (!info) { setPinLookup('failed'); return; }
+        setPinLookup('idle');
+        setForm((f) => ({
+          ...f,
+          // Never clobber something the customer typed themselves.
+          city: f.city.trim() ? f.city : info.city,
+          stateCode: f.stateCode.trim() ? f.stateCode : (info.stateCode ?? ''),
+        }));
+      })
+      .catch(() => { if (!cancelled) setPinLookup('failed'); });
+    return () => { cancelled = true; };
+  }, [form.pincode]);
+
+  const [locating, setLocating] = useState(false);
+  const useMyLocation = async () => {
+    if (locating) return;
+    setLocating(true);
+    const res = await captureCurrentLocation();
+    setLocating(false);
+    if (!res.ok) {
+      showToast(
+        res.reason === 'denied' ? 'Location permission needed' : 'Could not get location',
+        res.reason === 'denied'
+          ? 'Allow location access to pin this address'
+          : 'Move somewhere with a clearer signal and retry',
+        'map-pin',
+      );
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      lat: res.coords.lat,
+      lng: res.coords.lng,
+      pincode: f.pincode.trim() || res.postalCode || f.pincode,
+      city: f.city.trim() || res.city || f.city,
+    }));
+    showToast('Location set', 'This address is now pinned for delivery', 'check');
+  };
+
+  // Coordinates are now REQUIRED to save. That is deliberate: the alternative is
+  // shipping a wrong one, and a wrong coordinate silently misroutes the order.
+  const canSave =
+    !!form.line1.trim() && !!form.city.trim() &&
+    /^\d{6}$/.test(form.pincode.trim()) && form.stateCode.trim().length === 2 &&
+    form.lat != null && form.lng != null;
+
   const onSave = () => {
     if (!canSave || saving) return;
     setSaving(true);
@@ -162,7 +235,7 @@ export function SavedAddressesScreen() {
       label: form.label.trim() || null,
       line1: form.line1.trim(), line2: form.line2.trim() || null,
       city: form.city.trim(), pincode: form.pincode.trim(), stateCode: form.stateCode.trim().toUpperCase(),
-      lat: DEFAULT_COORDS.lat, lng: DEFAULT_COORDS.lng,
+      lat: form.lat!, lng: form.lng!,
     })
       .then((created) => {
         setFormOpen(false); setForm(EMPTY_ADDR_FORM);
@@ -223,7 +296,7 @@ export function SavedAddressesScreen() {
                     </Pressable>
                     {pickReturn ? (
                       <Pressable onPress={() => pickForOrder(a)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.m, paddingVertical: 11, borderTopWidth: 1, borderColor: C.hairline, backgroundColor: '#F4F4F4' }}>
-                        <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Deliver here</Text>
+                        <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>Deliver here</Text>
                         <Feather name="arrow-right" size={14} color={C.ink} />
                       </Pressable>
                     ) : !a.isDefault && (
@@ -253,13 +326,45 @@ export function SavedAddressesScreen() {
                   <BrutalInput label="City" value={form.city} onChangeText={(v: string) => setForm(f => ({ ...f, city: v }))} placeholder="Mumbai" />
                   <View style={{ flexDirection: 'row', gap: SP.m }}>
                     <View style={{ flex: 1 }}>
-                      <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" />
+                      <BrutalInput label="Pincode" value={form.pincode} onChangeText={(v: string) => setForm(f => ({ ...f, pincode: v }))} keyboardType="number-pad" placeholder="400050" maxLength={6} />
                     </View>
                     <View style={{ width: 110 }}>
-                      <BrutalInput label="State (2)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="MH" />
+                      <BrutalInput label="State (GST)" value={form.stateCode} onChangeText={(v: string) => setForm(f => ({ ...f, stateCode: v.toUpperCase() }))} placeholder="27" maxLength={2} />
                     </View>
                   </View>
-                  <Text style={[T.micro, { marginTop: 4 }]}>Location approximated to your city — precise map pin coming soon.</Text>
+                  {pinLookup === 'loading' && (
+                    <Text style={[T.micro, { marginTop: 4, color: C.dim }]}>Looking up pincode…</Text>
+                  )}
+                  {pinLookup === 'failed' && (
+                    <Text style={[T.micro, { marginTop: 4, color: '#B0740A' }]}>
+                      We could not find that pincode — check it, or fill city and state yourself.
+                    </Text>
+                  )}
+
+                  {/* Delivery pin. Required, because a guessed coordinate silently
+                      misroutes the order — see the note on EMPTY_ADDR_FORM. */}
+                  <View style={[{ marginTop: SP.m, padding: SP.m, backgroundColor: form.lat != null ? '#F1F8F3' : '#FFF8E1' }, BORDER(1)]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Feather name={form.lat != null ? 'check-circle' : 'map-pin'} size={15} color={form.lat != null ? '#1B8A5A' : '#B0740A'} />
+                      <Text style={[T.bodyB, { flex: 1, color: C.ink }]}>
+                        {form.lat != null ? 'Delivery location pinned' : 'Pin this address'}
+                      </Text>
+                    </View>
+                    <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>
+                      {form.lat != null
+                        ? 'We use this only to route your order to the nearest store.'
+                        : 'We need your location to route orders and check we deliver here.'}
+                    </Text>
+                    <BrutalButton
+                      label={locating ? 'Getting location…' : form.lat != null ? 'Update location' : 'Use my current location'}
+                      icon="navigation"
+                      variant="outline"
+                      block
+                      disabled={locating}
+                      onPress={useMyLocation}
+                      style={{ marginTop: SP.s }}
+                    />
+                  </View>
                   <BrutalButton label={saving ? 'Saving…' : 'Save address'} icon="check" block onPress={onSave} style={{ marginTop: SP.m, opacity: canSave && !saving ? 1 : 0.5 }} />
                 </View>
               </View>
@@ -279,13 +384,25 @@ export function SavedAddressesScreen() {
 const PAYMENTS = [
   { id: '1', type: 'UPI', label: 'pay@okhdfcbank', sub: 'HDFC · linked Oct 2024', icon: 'smartphone' },
   { id: '2', type: 'CARD', label: '•••• •••• •••• 4242', sub: 'VISA · exp 08/28', icon: 'credit-card' },
-  { id: '3', type: 'WALLET', label: 'Trendzo Pay', sub: 'Balance: ₹1,240', icon: 'briefcase' },
+  // Balance filled from GET /consumer/wallet at render — it was the literal ₹1,240.
+  { id: '3', type: 'WALLET', label: 'Trendzo Pay', sub: '', icon: 'briefcase' },
 ];
 
 export function PaymentMethodsScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
   const [selected, setSelected] = useState('1');
+  // Real wallet balance. The saved UPI id and card here remain placeholders —
+  // there is no stored-instrument endpoint yet, so they are NOT presented as the
+  // customer's own (see the note on PAYMENTS above).
+  const [walletPaise, setWalletPaise] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    getWallet({ limit: 1 })
+      .then((w) => { if (!cancelled) setWalletPaise(w.balancePaise); })
+      .catch(() => { /* guest / offline — 0 */ });
+    return () => { cancelled = true; };
+  }, []);
   return (
     <PageShell>
       <ScreenHeader title="Payment" onBack={() => nav.goBack()} />
@@ -308,7 +425,9 @@ export function PaymentMethodsScreen() {
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{p.type}</Text>
                     <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{p.label}</Text>
-                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>{p.sub}</Text>
+                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, marginTop: 2 }]}>
+                      {p.type === 'WALLET' ? `Balance: ₹${Math.round(walletPaise / 100).toLocaleString()}` : p.sub}
+                    </Text>
                   </View>
                   <View style={[{ width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? C.white : 'transparent' }, BORDER(1), on && { borderColor: C.white }]}>
                     {on && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: C.ink }} />}
@@ -340,21 +459,38 @@ export function PaymentMethodsScreen() {
 // ═══════════════════════════════════════════════════════════
 // LOYALTY REWARDS
 // ═══════════════════════════════════════════════════════════
-const TIERS = [
-  { name: 'BRONZE', min: 0 },
-  { name: 'SILVER', min: 1000 },
-  { name: 'GOLD', min: 5000 },
-  { name: 'PLATINUM', min: 10000 },
-];
+/**
+ * The tier ladder now comes from GET /app-config.
+ *
+ * It was hardcoded here as 0 / 1000 / 5000 / 10000 while the backend derives
+ * tiers from loyalty_tier_silver_min (500), _gold_min (2000) and _platinum_min
+ * (5000). A customer on 600 points was SILVER server-side and BRONZE in the app,
+ * with a wrong "points to next tier" to match. Those three config keys were also
+ * read-but-never-seeded; they are seeded now.
+ */
 
 export function LoyaltyRewardsScreen() {
   const nav = useNavigation<any>();
-  const points = 1240;
-  const currentTier = TIERS.filter(t => points >= t.min).pop()!;
-  const nextTier = TIERS[TIERS.indexOf(currentTier) + 1];
-  const curIdx = TIERS.indexOf(currentTier);
-  const progress = nextTier ? Math.min((points - currentTier.min) / (nextTier.min - currentTier.min), 1) : 1;
-  const toNext = nextTier ? nextTier.min - points : 0;
+  // Real balance from GET /consumer/loyalty. This was the literal 1240, so every
+  // customer saw the same made-up tier and the same distance to the next one.
+  const [points, setPoints] = useState(0);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    getLoyalty({ limit: 1 })
+      .then((l) => { if (!cancelled) setPoints(l.balancePoints); })
+      .catch(() => { /* signed out / offline — show zero, never a fake balance */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  const cfg = useAppConfig();
+  const TIERS = cfg.loyalty.tiers;
+  const t = tierFor(points, cfg);
+  const currentTier = t.current;
+  const nextTier = t.next;
+  const curIdx = TIERS.findIndex((x) => x.name === currentTier.name);
+  const progress = t.progress;
+  const toNext = t.toNext;
 
   return (
     <PageShell>
@@ -417,7 +553,7 @@ export function LoyaltyRewardsScreen() {
                       {reached ? <Feather name={isCurrent ? 'star' : 'check'} size={13} color="#fff" /> : <Text style={[T.micro, { color: C.dim }]}>{i + 1}</Text>}
                     </View>
                     <Text numberOfLines={1} style={[T.micro, { color: reached ? C.ink : C.dim, fontFamily: isCurrent ? 'Inter_700Bold' : 'Inter_400Regular', marginTop: 6, textTransform: 'uppercase' }]}>{t.name}</Text>
-                    <Text style={[T.micro, { color: C.dim, marginTop: 1 }]}>{t.min >= 1000 ? `${t.min / 1000}K` : t.min}</Text>
+                    <Text style={[T.micro, { color: C.dim, marginTop: 1 }]}>{t.minPoints >= 1000 ? `${t.minPoints / 1000}K` : t.minPoints}</Text>
                   </View>
                 );
               })}
@@ -444,13 +580,41 @@ export function LoyaltyRewardsScreen() {
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink, letterSpacing: 0.5 }}>PUSH & WIN</Text>
                   </View>
                   <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Match 3 on the machine · win up to ₹500</Text>
-                  <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600', marginTop: 2 }]}>3 free pushes today</Text>
+                  <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '600', marginTop: 2 }]}>3 free pushes today</Text>
                 </View>
                 {/* PLAY — black slab on a yellow offset shadow */}
                 <View>
                   <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: '#F2E63C', borderWidth: 1, borderColor: C.ink }} />
                   <View style={{ backgroundColor: C.ink, paddingHorizontal: 18, paddingVertical: 11 }}>
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 2 }}>PLAY</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          </FadeInUp>
+
+          {/* SPIN & WIN — the one game that pays out for real. Its only entry point:
+              the wheel was previously reachable solely from DailyRewardScreen, which
+              itself has no way in, so nobody could open it on purpose. */}
+          <FadeInUp>
+            <Pressable onPress={() => nav.navigate('SpinWheel')} style={[{ backgroundColor: C.white, overflow: 'hidden', marginTop: SP.s }, BORDER(1)]}>
+              <Text numberOfLines={1} style={{ position: 'absolute', right: -6, bottom: -16, fontFamily: 'Inter_900Black', fontSize: rf(72), letterSpacing: -3, color: 'rgba(0,0,0,0.04)' }}>SPIN&WIN</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.l, gap: SP.m }}>
+                <View style={[{ width: 60, height: 60, alignItems: 'center', justifyContent: 'center', backgroundColor: TILE }, BORDER(1)]}>
+                  <MaterialCommunityIcons name="ferris-wheel" size={32} color={C.ink} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ alignSelf: 'flex-start' }}>
+                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: '#F2E63C' }} />
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink, letterSpacing: 0.5 }}>SPIN & WIN</Text>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Real coupon codes and points · applied at checkout</Text>
+                  <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '600', marginTop: 2 }]}>One spin a day</Text>
+                </View>
+                <View>
+                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: '#F2E63C', borderWidth: 1, borderColor: C.ink }} />
+                  <View style={{ backgroundColor: C.ink, paddingHorizontal: 18, paddingVertical: 11 }}>
+                    <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 2 }}>SPIN</Text>
                   </View>
                 </View>
               </View>
@@ -500,64 +664,133 @@ export function LoyaltyRewardsScreen() {
 // ═══════════════════════════════════════════════════════════
 // GIFT CARD
 // ═══════════════════════════════════════════════════════════
+/**
+ * Gift cards — the two things the backend actually supports: seeing the cards on
+ * your account, and redeeming a code into your wallet.
+ *
+ * This screen used to be a full PURCHASE flow (amount picker, recipient email,
+ * personal note, "Buy gift card" button) for which there is no endpoint at all —
+ * the button ended in a "coming soon" toast. Selling something the platform
+ * cannot deliver is worse than not offering it, so the purchase form is gone and
+ * the real capability is here instead.
+ */
 export function GiftCardScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
-  const [amount, setAmount] = useState('1000');
-  const [toEmail, setToEmail] = useState('');
-  const [note, setNote] = useState('');
-  const amounts = [500, 1000, 2000, 5000];
+  const { showToast, token, requireAuth } = useApp();
+  const [cards, setCards] = useState<GiftCard[]>([]);
+  const [totalPaise, setTotalPaise] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+
+  const load = useCallback(() => {
+    if (!token) { setLoading(false); return; }
+    listGiftCards()
+      .then((res) => { setCards(res.cards); setTotalPaise(res.totalPaise); })
+      .catch(() => { /* offline — leave empty rather than invent a balance */ })
+      .finally(() => setLoading(false));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  const redeem = () => {
+    const c = code.trim().toUpperCase();
+    if (!c || redeeming) return;
+    if (!token) { requireAuth(); return; }
+    setRedeeming(true);
+    redeemGiftCard(c)
+      .then((res) => {
+        showToast('Gift card redeemed', `₹${Math.round(res.creditedPaise / 100)} added to your wallet`, 'gift');
+        setCode('');
+        load();
+      })
+      // The server distinguishes invalid / expired / already-redeemed; show its reason.
+      .catch((e: any) => showToast('Could not redeem', e?.message || 'Check the code and try again', 'x'))
+      .finally(() => setRedeeming(false));
+  };
 
   return (
     <PageShell>
-      <ScreenHeader title="Gift Card" onBack={() => nav.goBack()} />
-      {/* Keyboard-aware — the recipient/note fields sit low on the page */}
+      <ScreenHeader title="Gift Cards" onBack={() => nav.goBack()} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 120 }}>
         <Hero
-          code={'GIFT_CARD · DIGITAL'}
-          title={'Give the\ngift of fit.'}
-          intro="Send a Trendzo gift card to anyone. Redeemable across the entire catalog."
-          chips={[{ label: 'INSTANT DELIVERY', solid: true }, { label: 'NO EXPIRY' }]}
+          code={'GIFT_CARDS'}
+          title={'Your\ngift cards.'}
+          intro="Redeem a code and the value lands in your Trendzo wallet, ready to spend."
+          chips={[{ label: `₹${Math.round(totalPaise / 100).toLocaleString()} AVAILABLE`, solid: true }]}
         />
 
-        {/* Signature black gift-card — live preview, faded wordmark */}
+        {/* Signature black card — now showing the REAL combined balance */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <FadeInUp>
-            <View style={{ backgroundColor: C.ink, overflow: 'hidden', minHeight: 200 }}>
+            <View style={{ backgroundColor: C.ink, overflow: 'hidden', minHeight: 170 }}>
               <Text numberOfLines={1} style={{ position: 'absolute', right: -10, bottom: -22, fontFamily: 'Inter_900Black', fontSize: rf(96), color: 'rgba(255,255,255,0.05)', letterSpacing: -4, textTransform: 'uppercase' }}>GIFT</Text>
               <View style={{ padding: SP.l }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.caption, { color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1 }]}>Trendzo Gift Card</Text>
+                  <Text style={[T.caption, { color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1 }]}>Total gift balance</Text>
                   <Feather name="gift" size={16} color="rgba(255,255,255,0.85)" />
                 </View>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(52), color: '#fff', letterSpacing: -2.5, marginTop: SP.l }}>₹{amount || '—'}</Text>
-                <View style={{ marginTop: SP.l, gap: 4 }}>
-                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>TO — {toEmail || '—'}</Text>
-                  <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)' }]} numberOfLines={1}>NOTE — {note || '—'}</Text>
-                </View>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(52), color: '#fff', letterSpacing: -2.5, marginTop: SP.l }}>
+                  {`₹${Math.round(totalPaise / 100).toLocaleString()}`}
+                </Text>
+                <Text style={[T.micro, { color: 'rgba(255,255,255,0.6)', marginTop: SP.s }]}>
+                  {cards.length ? `${cards.length} card${cards.length === 1 ? '' : 's'} on your account` : 'No cards yet'}
+                </Text>
               </View>
             </View>
           </FadeInUp>
         </View>
 
-        <SectionHead title="Select amount" />
-        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l }}>
-          {amounts.map(a => {
-            const on = amount === String(a);
-            return (
-              <Pressable key={a} onPress={() => setAmount(String(a))} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>₹{a}</Text>
-              </Pressable>
-            );
-          })}
+        <SectionHead title="Redeem a code" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <BrutalInput
+            value={code}
+            onChangeText={(v: string) => setCode(v.toUpperCase())}
+            placeholder="Enter gift card code"
+            label="Gift card code"
+            icon="gift"
+            autoCapitalize="characters"
+          />
+          <BrutalButton
+            label={redeeming ? 'Redeeming…' : 'Redeem to wallet'}
+            icon="check"
+            block
+            disabled={!code.trim() || redeeming}
+            onPress={redeem}
+            style={{ marginTop: SP.s }}
+          />
         </View>
 
-        <SectionHead title="Recipient" />
+        <SectionHead title="Your cards" right={`${cards.length}`} />
         <View style={{ paddingHorizontal: SP.l }}>
-          <BrutalInput value={toEmail} onChangeText={setToEmail} placeholder="friend@example.com" label="Send to (email)" icon="mail" />
-          <BrutalInput value={note} onChangeText={setNote} placeholder="You're the best. Go buy something good." label="Personal note" icon="message-square" />
-          <BrutalButton label={`Buy gift card — ₹${amount || '0'}`} icon="gift" block onPress={() => showToast('Gift Card', 'Purchase coming soon', 'gift')} style={{ marginTop: SP.l }} />
+          {!loading && cards.length === 0 && (
+            <View style={[{ padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+              <Feather name="gift" size={24} color={C.dim} />
+              <Text style={[T.h3, { marginTop: 10 }]}>{token ? 'No gift cards yet' : 'Sign in to see your cards'}</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>
+                Redeem a code above and it will appear here.
+              </Text>
+            </View>
+          )}
+          {cards.map((c, i) => (
+            <FadeInUp key={c.id} delay={i * 40}>
+              <View style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+                <IconTile icon="gift" size={40} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={[T.monoB]}>{c.code}</Text>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{`Expires ${c.expiresOn}`}</Text>
+                </View>
+                <Text style={[T.price]}>{`₹${Math.round(c.balancePaise / 100).toLocaleString()}`}</Text>
+              </View>
+            </FadeInUp>
+          ))}
+        </View>
+
+        {/* Honest about what is missing, rather than a form that does nothing. */}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+          <Text style={[T.micro, { color: C.dim }]}>
+            Buying gift cards in the app is not available yet.
+          </Text>
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
@@ -571,6 +804,33 @@ export function GiftCardScreen() {
 export function ReferralRewardsScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
+  // Real referral data from GET /consumer/referrals/me. The code was the constant
+  // 'TRENDZO42' — so two customers opening this screen were told to share the SAME
+  // code, and the stats (7 invited / ₹800 earned) were the same invented numbers
+  // for everyone. The genuine code is also already on the profile object.
+  const [ref, setRef] = useState<Referral | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getReferral()
+      .then((r) => { if (!cancelled) setRef(r); })
+      .catch(() => { /* signed out / offline — render the empty state, not fake stats */ });
+    return () => { cancelled = true; };
+  }, []);
+  const code = ref?.code ?? null;
+  const invited = ref?.referredCount ?? 0;
+  const earned = ref?.pointsEarned ?? 0;
+
+  const copyCode = () => {
+    if (!code) return;
+    Clipboard.setStringAsync(code)
+      .then(() => showToast('Copied', 'Code copied to clipboard', 'copy'))
+      .catch(() => {});
+  };
+  const shareCode = () => {
+    if (!code) return;
+    const link = ref?.shareLink;
+    Share.share({ message: link ? `Use my Trendzo code ${code} — ${link}` : `Use my Trendzo code ${code}` }).catch(() => {});
+  };
   return (
     <PageShell>
       <ScreenHeader title="Refer & Earn" onBack={() => nav.goBack()} />
@@ -579,7 +839,7 @@ export function ReferralRewardsScreen() {
           code={'REFERRAL · ₹200 EACH'}
           title={'Share the\ndrip.'}
           intro="Give ₹200, get ₹200 when your friend makes their first order."
-          chips={[{ label: '7 INVITED' }, { label: '4 JOINED' }, { label: '₹800 EARNED', solid: true }]}
+          chips={[{ label: `${invited} INVITED` }, { label: `${earned} PTS EARNED`, solid: true }]}
         />
 
         {/* Signature black referral-code card */}
@@ -589,22 +849,22 @@ export function ReferralRewardsScreen() {
               <Text numberOfLines={1} style={{ position: 'absolute', right: -8, top: -18, fontFamily: 'Inter_900Black', fontSize: rf(80), color: 'rgba(255,255,255,0.05)', letterSpacing: -3 }}>₹200</Text>
               <View style={{ padding: SP.xl, alignItems: 'center' }}>
                 <Text style={[T.caption, { color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: 1 }]}>Your referral code</Text>
-                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(42), color: '#fff', marginTop: 10, letterSpacing: 4 }}>TRENDZO42</Text>
+                <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(code && code.length > 8 ? 30 : 42), color: '#fff', marginTop: 10, letterSpacing: 4 }}>{code ?? '—'}</Text>
                 <Text style={[T.micro, { color: 'rgba(255,255,255,0.55)', marginTop: 8, textTransform: 'uppercase', letterSpacing: 1 }]}>Give ₹200 · Get ₹200</Text>
               </View>
             </View>
           </FadeInUp>
 
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s }}>
-            <BrutalButton label="Copy code" icon="copy" variant="outline" style={{ flex: 1 }} onPress={() => showToast('Copied', 'Code copied to clipboard', 'copy')} />
-            <BrutalButton label="Share" icon="share-2" style={{ flex: 1 }} onPress={() => showToast('Share', 'Share sheet coming soon', 'share-2')} />
+            <BrutalButton label="Copy code" icon="copy" variant="outline" disabled={!code} style={{ flex: 1 }} onPress={copyCode} />
+            <BrutalButton label="Share" icon="share-2" disabled={!code} style={{ flex: 1 }} onPress={shareCode} />
           </View>
         </View>
 
         <SectionHead title="Your stats" />
         <View style={{ paddingHorizontal: SP.l }}>
           <View style={[{ flexDirection: 'row', overflow: 'hidden' }, BORDER(1)]}>
-            {[{ label: 'INVITED', value: '7', green: false }, { label: 'JOINED', value: '4', green: false }, { label: 'EARNED', value: '₹800', green: true }].map((s, i) => (
+            {[{ label: 'INVITED', value: String(invited), green: false }, { label: 'JOINED', value: String(invited), green: false }, { label: 'POINTS EARNED', value: String(earned), green: true }].map((s, i) => (
               <View key={i} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white }, i > 0 && { borderLeftWidth: 1, borderColor: C.hairline }]}>
                 <Text style={[T.h1, s.green && { color: C.green }]}>{s.value}</Text>
                 <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{s.label}</Text>
@@ -616,7 +876,7 @@ export function ReferralRewardsScreen() {
         <SectionHead title="How it works" />
         <View style={{ paddingHorizontal: SP.l }}>
           {[
-            { i: 1, t: 'Share your code', sub: 'Send TRENDZO42 to your friends' },
+            { i: 1, t: 'Share your code', sub: code ? `Send ${code} to your friends` : 'Sign in to get your code' },
             { i: 2, t: 'Friend signs up', sub: 'They apply the code at checkout' },
             { i: 3, t: 'They order', sub: 'First order of ₹499 or more unlocks it' },
             { i: 4, t: 'You both get ₹200', sub: 'Instantly credited to your wallet' },
@@ -780,11 +1040,49 @@ export function LanguageScreen() {
 // ═══════════════════════════════════════════════════════════
 // CUSTOMER SUPPORT
 // ═══════════════════════════════════════════════════════════
-const SUPPORT_CONTACTS = [
-  { key: 'chat', label: 'Live chat', sub: 'Online now · avg 2 min', icon: 'message-circle', toast: ['Live chat', 'Connecting you to an agent', 'message-circle'] as const },
-  { key: 'call', label: 'Call us', sub: 'Mon–Sun · 9am–9pm', icon: 'phone', toast: ['Call support', '1800-266-0000', 'phone'] as const },
-  { key: 'email', label: 'Email', sub: 'care@trendzo.in · replies in 24h', icon: 'mail', toast: ['Email support', 'care@trendzo.in', 'mail'] as const },
-];
+/**
+ * Contact rows are built from GET /app-config, not hardcoded.
+ *
+ * The phone number, email and opening hours used to be string literals here, so
+ * changing any of them meant shipping a build — and a released app would keep
+ * sending customers to a dead line. Rows the server has no value for are omitted
+ * rather than rendered with a placeholder.
+ *
+ * They are also ACTIONS now: tapping Call opens the dialer and Email opens the
+ * mail client, instead of showing a toast of the number to copy by hand.
+ */
+type SupportRow = {
+  key: string;
+  label: string;
+  sub: string;
+  icon: string;
+  onPress: () => void;
+};
+
+function buildSupportRows(
+  cfg: AppConfig,
+  showToast: (t: string, m?: string, i?: string) => void,
+): SupportRow[] {
+  const rows: SupportRow[] = [
+    {
+      key: 'chat', label: 'Live chat', sub: 'Online now · avg 2 min', icon: 'message-circle',
+      onPress: () => showToast('Live chat', 'Connecting you to an agent', 'message-circle'),
+    },
+  ];
+  if (cfg.support.phone) {
+    rows.push({
+      key: 'call', label: 'Call us',
+      sub: cfg.support.hours ? `${cfg.support.phone} · ${cfg.support.hours}` : cfg.support.phone,
+      icon: 'phone',
+      onPress: () => Linking.openURL(`tel:${cfg.support.phone}`).catch(() => {}),
+    });
+  }
+  rows.push({
+    key: 'email', label: 'Email', sub: `${cfg.support.email} · replies in 24h`, icon: 'mail',
+    onPress: () => Linking.openURL(`mailto:${cfg.support.email}`).catch(() => {}),
+  });
+  return rows;
+}
 
 const SUPPORT_TOPICS = [
   { label: 'Track my order', icon: 'package' },
@@ -805,6 +1103,51 @@ export function CustomerSupportScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const cfg = useAppConfig();
+  const contacts = useMemo(() => buildSupportRows(cfg, showToast), [cfg, showToast]);
+
+  // Real support tickets. The topic tiles used to be inert: tapping one showed
+  // "Opening help article" and did nothing. /consumer/issues is a full ticket API
+  // (list, open, thread, reply) and nothing in the app used it.
+  // An issue is always ABOUT AN ORDER server-side, so opening one starts by
+  // picking the order it concerns.
+  const { token, requireAuth } = useApp();
+  const [issues, setIssues] = useState<IssueRow[]>([]);
+  const [supportOrders, setSupportOrders] = useState<OrderListRow[]>([]);
+  const [topic, setTopic] = useState<string | null>(null);
+  const [ticketOrderId, setTicketOrderId] = useState<string | null>(null);
+  const [ticketBody, setTicketBody] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadSupport = useCallback(() => {
+    if (!token) return;
+    listIssues().then(setIssues).catch(() => {});
+    listOrders().then(setSupportOrders).catch(() => {});
+  }, [token]);
+  useEffect(() => { loadSupport(); }, [loadSupport]);
+
+  const startTicket = (label: string) => {
+    if (!token) { requireAuth(); return; }
+    setTopic((cur) => (cur === label ? null : label));
+    setTicketOrderId((cur) => cur ?? supportOrders[0]?.id ?? null);
+  };
+
+  const submitTicket = () => {
+    if (!topic || !ticketOrderId || !ticketBody.trim() || submitting) return;
+    setSubmitting(true);
+    createIssue({
+      kind: 'query',
+      orderId: ticketOrderId,
+      subject: topic,
+      description: ticketBody.trim(),
+    })
+      .then(() => {
+        showToast('Ticket raised', 'Support will reply in this thread', 'check');
+        setTopic(null); setTicketBody(''); loadSupport();
+      })
+      .catch((e: any) => showToast('Could not raise ticket', e?.message || 'Try again', 'x'))
+      .finally(() => setSubmitting(false));
+  };
 
   return (
     <PageShell>
@@ -819,8 +1162,8 @@ export function CustomerSupportScreen() {
 
         <SectionHead title="Contact us" />
         <View style={{ paddingHorizontal: SP.l }}>
-          {SUPPORT_CONTACTS.map((c, i) => (
-            <Pressable key={c.key} onPress={() => showToast(c.toast[0], c.toast[1], c.toast[2])} style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
+          {contacts.map((c, i) => (
+            <Pressable key={c.key} onPress={c.onPress} style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
               <IconTile icon={c.icon} size={40} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={T.bodyB}>{c.label}</Text>
@@ -833,13 +1176,85 @@ export function CustomerSupportScreen() {
 
         <SectionHead title="Popular topics" />
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
-          {SUPPORT_TOPICS.map(t => (
-            <Pressable key={t.label} onPress={() => showToast(t.label, 'Opening help article', t.icon)} style={[{ width: '48.5%', padding: SP.m, backgroundColor: C.white, flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
-              <Feather name={t.icon as any} size={16} color={C.ink} />
-              <Text style={[T.caption, { color: C.ink, flex: 1 }]} numberOfLines={2}>{t.label}</Text>
-            </Pressable>
-          ))}
+          {SUPPORT_TOPICS.map(t => {
+            const on = topic === t.label;
+            return (
+              <Pressable key={t.label} onPress={() => startTicket(t.label)} style={[{ width: '48.5%', padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
+                <Feather name={t.icon as any} size={16} color={on ? C.white : C.ink} />
+                <Text style={[T.caption, { color: on ? C.white : C.ink, flex: 1 }]} numberOfLines={2}>{t.label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
+
+        {/* Ticket composer — appears under the tiles once a topic is chosen */}
+        {topic && (
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+            <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={[T.bodyB]}>{topic}</Text>
+              {supportOrders.length === 0 ? (
+                <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>
+                  Tickets are raised against an order, and you have none yet.
+                </Text>
+              ) : (
+                <>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 8, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Which order?</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, paddingVertical: SP.s }}>
+                    {supportOrders.slice(0, 10).map((o) => {
+                      const sel = o.id === ticketOrderId;
+                      return (
+                        <Pressable key={o.id} onPress={() => setTicketOrderId(o.id)} style={[{ paddingHorizontal: SP.m, paddingVertical: SP.s, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
+                          <Text style={[T.caption, { color: sel ? C.white : C.ink }]}>{`#${o.id.slice(-8).toUpperCase()}`}</Text>
+                          <Text style={[T.micro, { color: sel ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]} numberOfLines={1}>{o.storeName}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                  <TextInput
+                    value={ticketBody}
+                    onChangeText={setTicketBody}
+                    placeholder="Tell us what went wrong"
+                    placeholderTextColor={C.dim}
+                    multiline
+                    maxLength={1000}
+                    style={[{ marginTop: SP.s, minHeight: 84, padding: SP.m, backgroundColor: '#FFFFFF', textAlignVertical: 'top', color: C.ink }, BORDER(1)]}
+                  />
+                  <BrutalButton
+                    label={submitting ? 'Sending...' : 'Raise ticket'}
+                    icon="send"
+                    block
+                    disabled={!ticketBody.trim() || !ticketOrderId || submitting}
+                    onPress={submitTicket}
+                    style={{ marginTop: SP.s }}
+                  />
+                </>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Existing tickets */}
+        {issues.length > 0 && (
+          <>
+            <SectionHead title="Your tickets" right={`${issues.length}`} />
+            <View style={{ paddingHorizontal: SP.l }}>
+              {issues.map((it, i) => (
+                <View key={it.id} style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={[T.bodyB, { flex: 1 }]} numberOfLines={1}>{it.subject}</Text>
+                    <Text style={[T.micro, { color: it.status === 'decided' ? C.green : '#B0740A', textTransform: 'uppercase' }]}>
+                      {it.status.replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                  <Text style={[T.caption, { color: C.dim, marginTop: 4 }]} numberOfLines={2}>{it.description}</Text>
+                  {it.awaitingParty === 'consumer' && (
+                    <Text style={[T.micro, { color: '#B0740A', marginTop: 6 }]}>Support is waiting on your reply.</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          </>
+        )}
 
         <SectionHead title="FAQ" right={`${SUPPORT_FAQ.length} answers`} />
         <View style={{ paddingHorizontal: SP.l }}>
@@ -1136,243 +1551,66 @@ export function SustainabilityScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ORDER RETURN
-// ═══════════════════════════════════════════════════════════
-const RETURNABLE_ORDERS = [
-  {
-    id: 'CX10442', date: '02 APR 2026', daysLeft: 3,
-    items: [
-      { id: 'i1', name: 'Oversized Wool Coat', brand: 'NORTH.', price: 4990 },
-      { id: 'i2', name: 'Slim Fit Jeans', brand: 'YORK', price: 1500 },
-    ],
-  },
-  {
-    id: 'CX10388', date: '18 MAR 2026', daysLeft: 1,
-    items: [
-      { id: 'i3', name: 'Cotton Tee · Ecru', brand: 'AZUKI', price: 990 },
-    ],
-  },
-  {
-    id: 'CX10188', date: '25 JAN 2026', daysLeft: 0,
-    items: [
-      { id: 'i4', name: 'Leather Sneakers', brand: 'YORK', price: 4490 },
-    ],
-  },
-];
-
-type ReturnStep = 'order' | 'item' | 'reason';
-
-export function OrderReturnScreen() {
-  const nav = useNavigation<any>();
-  const { showToast } = useApp();
-  const [step, setStep] = useState<ReturnStep>('order');
-  const [orderId, setOrderId] = useState<string | null>(null);
-  const [itemId, setItemId] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-
-  const reasons = [
-    { label: 'Wrong size', icon: 'maximize' },
-    { label: 'Defective item', icon: 'alert-triangle' },
-    { label: 'Not as described', icon: 'x-circle' },
-    { label: 'Changed my mind', icon: 'rotate-ccw' },
-    { label: 'Better price elsewhere', icon: 'tag' },
-  ];
-
-  const selectedOrder = RETURNABLE_ORDERS.find(o => o.id === orderId);
-  const selectedItem = selectedOrder?.items.find(i => i.id === itemId);
-
-  const pickOrder = (id: string) => {
-    const o = RETURNABLE_ORDERS.find(x => x.id === id)!;
-    if (o.daysLeft <= 0) {
-      showToast('Return window closed', '7-day window has ended', 'alert-triangle');
-      return;
-    }
-    setOrderId(id);
-    setItemId(null);
-    setStep('item');
-  };
-
-  const pickItem = (id: string) => {
-    setItemId(id);
-    setStep('reason');
-  };
-
-  const back = () => {
-    if (step === 'reason') { setStep('item'); setReason(''); return; }
-    if (step === 'item') { setStep('order'); setItemId(null); return; }
-    nav.goBack();
-  };
-
-  const submit = () => {
-    showToast('Return initiated', 'Pickup scheduled for tomorrow', 'rotate-ccw');
-    nav.goBack();
-  };
-
-  // Progress bar — shows current step of 3
-  const stepIndex = step === 'order' ? 0 : step === 'item' ? 1 : 2;
-  const stepLabels = ['Order', 'Item', 'Reason'];
-
-  return (
-    <PageShell>
-      <ScreenHeader title="Returns" onBack={back} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
-        <Hero
-          code={'RETURN_FLOW · 7D'}
-          title={'Easy\nreturns.'}
-          intro="7-day hassle-free returns. Pickup from your door. Refund in 3-5 days."
-          chips={[{ label: `STEP ${stepIndex + 1}/3`, solid: true }, { label: 'FREE PICKUP' }]}
-        />
-
-        {/* Step progress — numbered nodes with a connecting track */}
-        <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.l }}>
-          {stepLabels.map((label, i) => {
-            const active = i === stepIndex;
-            const done = i < stepIndex;
-            const reached = active || done;
-            return (
-              <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                {i > 0 && <View style={{ position: 'absolute', top: 13, right: '50%', left: '-50%', height: 2, backgroundColor: reached ? C.ink : C.hairline }} />}
-                <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: reached ? C.ink : '#fff' }, BORDER(1)]}>
-                  {done ? <Feather name="check" size={13} color="#fff" /> : <Text style={[T.micro, { color: active ? '#fff' : C.dim }]}>{i + 1}</Text>}
-                </View>
-                <Text style={[T.micro, { color: reached ? C.ink : C.dim, fontFamily: active ? 'Inter_700Bold' : undefined, marginTop: 6, textTransform: 'uppercase' }]}>{label}</Text>
-              </View>
-            );
-          })}
-        </View>
-
-        {/* ── STEP 1: PICK ORDER ── */}
-        {step === 'order' && (
-          <View style={{ paddingHorizontal: SP.l }}>
-            <SectionHead title="Select order" right={`${RETURNABLE_ORDERS.length} eligible`} style={{ paddingHorizontal: 0 }} />
-            {RETURNABLE_ORDERS.map((o, i) => {
-              const expired = o.daysLeft <= 0;
-              return (
-                <FadeInUp key={o.id} delay={i * 40}>
-                  <Pressable
-                    onPress={() => pickOrder(o.id)}
-                    style={[
-                      { marginTop: SP.s, backgroundColor: expired ? C.white : C.white, opacity: expired ? 0.55 : 1 },
-                      BORDER(1),
-                    ]}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[T.caption, { color: C.ink }]}>{`#${o.id}`}</Text>
-                        <Text style={[T.micro, { marginTop: 2 }]}>{o.date} · {o.items.length} item{o.items.length !== 1 ? 's' : ''}</Text>
-                      </View>
-                      <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: expired ? C.white : C.ink }, BORDER(1)]}>
-                        <Text style={[T.caption, { color: expired ? C.ink : C.white }]}>
-                          {expired ? 'Window closed' : `${o.daysLeft}D LEFT`}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={{ padding: SP.m, gap: 6 }}>
-                      {o.items.map(it => (
-                        <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={[T.micro, { color: C.dim, width: 48 }]}>{it.brand}</Text>
-                          <Text style={[T.productName, { flex: 1 }]} numberOfLines={1}>{it.name}</Text>
-                          <Text style={[T.caption, { color: C.ink }]}>₹{it.price}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    {!expired && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', padding: SP.m, borderTopWidth: 1, borderColor: C.hairline, gap: 4 }}>
-                        <Text style={[T.caption, { color: C.ink }]}>Choose item</Text>
-                        <Feather name="chevron-right" size={14} color={C.ink} />
-                      </View>
-                    )}
-                  </Pressable>
-                </FadeInUp>
-              );
-            })}
-          </View>
-        )}
-
-        {/* ── STEP 2: PICK ITEM ── */}
-        {step === 'item' && selectedOrder && (
-          <View style={{ paddingHorizontal: SP.l }}>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
-              <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{'Selected order'}</Text>
-              <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{`#${selectedOrder.id}`}</Text>
-              <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedOrder.date} · {selectedOrder.daysLeft}D left in window</Text>
-            </View>
-
-            <SectionHead title="Select item to return" right={`${selectedOrder.items.length} items`} style={{ paddingHorizontal: 0 }} />
-            {selectedOrder.items.map((it, i) => {
-              const on = itemId === it.id;
-              return (
-                <FadeInUp key={it.id} delay={i * 40}>
-                  <Pressable onPress={() => pickItem(it.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <IconTile icon="shopping-bag" size={44} on={on} />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{it.brand}</Text>
-                      <Text style={[T.bodyB, { color: on ? C.white : C.ink, marginTop: 2 }]}>{it.name}</Text>
-                      <Text style={[T.caption, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 2 }]}>₹{it.price}</Text>
-                    </View>
-                    <Feather name={on ? 'check' : 'chevron-right'} size={16} color={on ? C.white : C.ink} />
-                  </Pressable>
-                </FadeInUp>
-              );
-            })}
-          </View>
-        )}
-
-        {/* ── STEP 3: PICK REASON ── */}
-        {step === 'reason' && selectedOrder && selectedItem && (
-          <View style={{ paddingHorizontal: SP.l }}>
-            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: TILE }, BORDER(1)]}>
-              <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{'Returning'}</Text>
-              <Text style={[T.h3, { color: C.ink, marginTop: 4 }]}>{selectedItem.name}</Text>
-              <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{selectedItem.brand} · ₹{selectedItem.price} · from #{selectedOrder.id}</Text>
-            </View>
-
-            <SectionHead title="Why are you returning?" style={{ paddingHorizontal: 0 }} />
-            {reasons.map((r, i) => {
-              const on = reason === r.label;
-              return (
-                <FadeInUp key={r.label} delay={i * 30}>
-                  <Pressable onPress={() => setReason(r.label)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center' }, BORDER(1)]}>
-                    <IconTile icon={r.icon} size={36} on={on} />
-                    <Text style={[T.body, { color: on ? C.white : C.ink, flex: 1, marginLeft: 12 }]}>{r.label}</Text>
-                    {on && <Feather name="check" size={16} color={C.white} />}
-                  </Pressable>
-                </FadeInUp>
-              );
-            })}
-
-            <BrutalButton label="Initiate return" icon="rotate-ccw" block disabled={!reason} onPress={submit} style={{ marginTop: SP.xl }} />
-          </View>
-        )}
-      </ScrollView>
-    </PageShell>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════
 // REVIEWS
 // ═══════════════════════════════════════════════════════════
-const MOCK_REVIEWS = [
-  { id: '1', product: 'Oversized Wool Coat', brand: 'NORTH.', rating: 5, text: 'Absolutely love the quality. Fits perfectly!', date: '2 days ago', likes: 12 },
-  { id: '2', product: 'Slim Fit Jeans', brand: 'YORK', rating: 4, text: 'Great denim, slightly long for my height.', date: '1 week ago', likes: 4 },
-  { id: '3', product: 'Cotton Tee', brand: 'AZUKI', rating: 5, text: 'Super soft fabric, true to size.', date: '2 weeks ago', likes: 8 },
-];
+/**
+ * All reviews for ONE product — this screen is only ever opened from the product
+ * page's "View all", which passes the product. It used to render three invented
+ * reviews of unrelated garments, identical for every product in the catalog.
+ */
+type ReviewRow = { id: string; author: string; rating: number; text: string; date: string };
+
+const fmtReviewAge = (iso: string): string => {
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const days = Math.floor(ms / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} week${days < 14 ? '' : 's'} ago`;
+  return `${Math.floor(days / 30)} month${days < 60 ? '' : 's'} ago`;
+};
 
 export function ReviewsScreen() {
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
+  const product = route.params?.product;
   const [filter, setFilter] = useState<'ALL' | '5' | '4' | '3'>('ALL');
-  const filtered = MOCK_REVIEWS.filter(r => filter === 'ALL' || r.rating === Number(filter));
-  const avg = (MOCK_REVIEWS.reduce((s, r) => s + r.rating, 0) / MOCK_REVIEWS.length).toFixed(1);
+  const [rows, setRows] = useState<ReviewRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const id = product?.id;
+    if (!id || !isBackendListingId(id)) { setLoading(false); return; }
+    let cancelled = false;
+    listReviews(id)
+      .then((rs) => {
+        if (cancelled) return;
+        setRows(rs.map((r) => ({
+          id: r.id,
+          author: r.author || 'Trendzo Shopper',
+          rating: r.rating,
+          text: r.body,
+          date: fmtReviewAge(r.createdAt),
+        })));
+      })
+      .catch(() => { /* leave empty — an invented review is worse than none */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [product?.id]);
+
+  const filtered = rows.filter(r => filter === 'ALL' || r.rating === Number(filter));
+  const avg = rows.length ? (rows.reduce((s, r) => s + r.rating, 0) / rows.length).toFixed(1) : '—';
 
   return (
     <PageShell>
       <ScreenHeader title="Reviews" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
-          code={'YOUR_REVIEWS'}
-          title={'Your\nfeedback.'}
-          intro="The reviews you've left. Brands listen — your words help others shop better."
-          chips={[{ label: `${MOCK_REVIEWS.length} POSTED`, solid: true }, { label: `AVG ${avg}★` }, { label: 'HELPFUL' }]}
+          code={'PRODUCT_REVIEWS'}
+          title={'What\nshoppers say.'}
+          intro={product?.name ? `Verified reviews for ${product.name}.` : 'Verified reviews from shoppers who bought this.'}
+          chips={[{ label: `${rows.length} REVIEWS`, solid: true }, { label: `AVG ${avg}★` }]}
         />
 
         {/* Summary strip */}
@@ -1383,7 +1621,7 @@ export function ReviewsScreen() {
               <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Avg rating</Text>
             </View>
             <View style={{ flex: 1, paddingVertical: SP.l, alignItems: 'center', backgroundColor: C.white, borderLeftWidth: 1, borderColor: C.hairline }}>
-              <Text style={T.h1}>{MOCK_REVIEWS.length}</Text>
+              <Text style={T.h1}>{rows.length}</Text>
               <Text style={[T.micro, { color: C.dim, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 }]}>Reviews</Text>
             </View>
           </View>
@@ -1396,15 +1634,21 @@ export function ReviewsScreen() {
           ))}
         </View>
 
-        <SectionHead title="Posted" right={`${filtered.length} results`} />
+        <SectionHead title="Reviews" right={`${filtered.length} shown`} />
         <View style={{ paddingHorizontal: SP.l }}>
+          {!loading && rows.length === 0 && (
+            <View style={[{ padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+              <Feather name="message-square" size={24} color={C.dim} />
+              <Text style={[T.h3, { marginTop: 10 }]}>No reviews yet</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>Be the first to review this product.</Text>
+            </View>
+          )}
           {filtered.map((r, i) => (
             <FadeInUp key={r.id} delay={i * 50}>
               <View style={[{ marginTop: i === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }]}>{r.brand}</Text>
-                    <Text style={[T.bodyB, { marginTop: 2 }]}>{r.product}</Text>
+                    <Text style={[T.bodyB]}>{r.author}</Text>
                   </View>
                   <Text style={[T.micro, { color: C.dim }]}>{r.date}</Text>
                 </View>
@@ -1414,16 +1658,9 @@ export function ReviewsScreen() {
                   ))}
                 </View>
                 <Text style={[T.body, { marginTop: 8 }]}>{r.text}</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: C.hairline, gap: 16 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <Feather name="thumbs-up" size={12} color={C.ink} />
-                    <Text style={[T.micro, { color: C.dim }]}>{r.likes} helpful</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <Feather name="edit-2" size={12} color={C.dim} />
-                    <Text style={[T.micro, { color: C.dim }]}>Edit</Text>
-                  </View>
-                </View>
+                {/* The "12 helpful" counter and Edit action were invented — there
+                    is no helpful-vote endpoint, and these are other people's
+                    reviews, not the customer's own. */}
               </View>
             </FadeInUp>
           ))}
@@ -1516,6 +1753,23 @@ export function StorePickupScreen() {
 // ═══════════════════════════════════════════════════════════
 export function TryAndBuyScreen() {
   const nav = useNavigation<any>();
+  const cfg = useAppConfig();
+  // Trial length comes from the server's `try_on_window_seconds`. The app used to
+  // state "15 min" in eight places while the backend falls back to 600 — so on any
+  // environment missing that config row the courier left after ten minutes against
+  // a fifteen-minute promise.
+  const windowLabel = formatWindow(cfg.tryAndBuy.windowSeconds);
+  const maxItems = cfg.tryAndBuy.maxItemsPerTrial;
+
+  // Caps are stated ONLY when the backend reports one. Nothing enforces an item
+  // cap or a monthly trial cap today — no table, no config key, no validation —
+  // so the old copy told customers rules that did not exist.
+  const goodToKnow = [
+    'Only get charged for what you keep',
+    'COD not available for Try & Buy orders',
+    ...(cfg.tryAndBuy.maxTrialsPerMonth ? [`Max trial slots per month: ${cfg.tryAndBuy.maxTrialsPerMonth}`] : []),
+    'Must be home when the courier arrives',
+  ];
   return (
     <PageShell>
       <ScreenHeader title="Try & Buy" onBack={() => nav.goBack()} />
@@ -1523,17 +1777,17 @@ export function TryAndBuyScreen() {
         <Hero
           code={'TRY_AT_HOME // FREE_RETURNS'}
           title={"Try it.\nKeep it.\nOr don't."}
-          intro="Order up to 5 items. Courier waits 15 min at your door. Keep what fits — return the rest on the spot."
-          chips={[{ label: '₹99', solid: true }, { label: '15 MIN TRIAL' }, { label: 'FREE RETURNS' }]}
+          intro={`Courier waits ${windowLabel} at your door. Keep what fits — return the rest on the spot.`}
+          chips={[{ label: '₹99', solid: true }, { label: `${windowLabel.toUpperCase()} TRIAL` }, { label: 'FREE RETURNS' }]}
           inverted
         />
 
         <SectionHead title="How it works" />
         <View style={{ paddingHorizontal: SP.l }}>
           {[
-            { i: 1, t: 'Add up to 5 items to your bag' },
+            { i: 1, t: maxItems ? `Add up to ${maxItems} items to your bag` : 'Add what you want to try to your bag' },
             { i: 2, t: 'Pick Try & Buy at checkout' },
-            { i: 3, t: 'Courier delivers next day, waits 15 min at your door' },
+            { i: 3, t: `Courier delivers next day, waits ${windowLabel} at your door` },
             { i: 4, t: 'Try everything on — keep what fits' },
             { i: 5, t: 'Return the rest on the spot · zero hassle, zero fee' },
           ].map((step, i) => (
@@ -1554,12 +1808,7 @@ export function TryAndBuyScreen() {
         <SectionHead title="Good to know" />
         <View style={{ paddingHorizontal: SP.l }}>
           <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-            {[
-              'Only get charged for what you keep',
-              'COD not available for Try & Buy orders',
-              'Max trial slots per month: 3',
-              'Must be home when the courier arrives',
-            ].map((t, i) => (
+            {goodToKnow.map((t, i) => (
               <View key={i} style={{ flexDirection: 'row', gap: 10, marginTop: i === 0 ? 0 : 10, alignItems: 'center' }}>
                 <Feather name="check" size={14} color={C.ink} />
                 <Text style={[T.body, { flex: 1 }]}>{t}</Text>

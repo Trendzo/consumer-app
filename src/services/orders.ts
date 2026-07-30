@@ -3,7 +3,9 @@
 //
 // IMPORTANT contract notes (from the backend):
 //  • One order PER STORE — the cart may span retailers, so place one order per store bucket.
-//  • paymentOutcome is a pre-gateway stopgap (client-declared). There is no real gateway yet.
+//  • Payment outcome is NOT ours to declare. Razorpay is live: a card/UPI placement
+//    comes back with a `payment` block and the order waits at 'pending' until the
+//    signed capture is verified server-side. The client cannot mark an order paid.
 //  • Reuse a STABLE idempotencyKey per placement attempt or retries create duplicate orders.
 //  • On success the order status is 'routing' (not 'confirmed').
 //  • Placement can 409 on TOCTOU (OrderPriceChanged / OrderStockUnavailable / CouponInvalid …)
@@ -27,7 +29,8 @@ export type QuoteInput = {
 };
 
 export type PlaceInput = QuoteInput & {
-  paymentOutcome?: 'succeeded' | 'failed' | 'pending';
+  // No paymentOutcome. The server decides whether a payment succeeded and ignores
+  // anything a client claims — see backend checkout.validators.ts.
   idempotencyKey?: string;
   pickupSlotId?: string;
   pickupSlotStart?: string;
@@ -51,7 +54,6 @@ export type GroupPlaceInput = {
   items: { variantId: string; qty: number }[];
   deliveryMethod: DeliveryMethod;
   paymentMethod: PaymentMethod;
-  paymentOutcome?: 'succeeded' | 'failed' | 'pending';
   addressId?: string;
   applyWallet?: boolean;
   couponCode?: string;
@@ -91,6 +93,10 @@ export type OrderListRow = {
   grandTotalPaise?: number;
   placedAt?: string;
   deliveredAt?: string | null;
+  /** Total units across every line — the "3 items" on a history card. */
+  itemCount?: number;
+  /** Line preview (name/brand/image/qty) so the list renders without an N+1 detail fetch. */
+  items?: { name: string; brand: string; image: string | null; qty: number }[];
 };
 
 /** A single line of a placed order (server-shaped: `id` IS the orderItemId used to open a return). */
@@ -124,6 +130,15 @@ export type OrderDetail = {
   paymentMethod?: string;
   paymentMethodLabel?: string;
   storeNameSnap?: string;
+  storeAddressSnap?: string;
+  /** Live store geo/phone (not snapshotted) — drives Directions / Call store on pickups. */
+  storeLat?: number | null;
+  storeLng?: number | null;
+  storePhone?: string | null;
+  addressLine1Snap?: string | null;
+  addressLine2Snap?: string | null;
+  addressCitySnap?: string | null;
+  addressPincodeSnap?: string | null;
   itemsSubtotalPaise?: number;
   couponPaise?: number;
   pointsRedeemedPaise?: number;
@@ -136,9 +151,31 @@ export type OrderDetail = {
   deliveryOtp?: string | null;
   /** Counter code for pickup orders — show at the store. */
   pickupCode?: string | null;
+  pickupSlotId?: string | null;
   pickupSlotStart?: string | null;
   pickupSlotEnd?: string | null;
   doorWindowExpiresAt?: string | null;
+  /** Server-computed return eligibility — deadline, reason, and per-item verdicts.
+   *  The app used to run its own 7-day counter, a second copy of a rule that
+   *  lives in open-return.ts and also depends on item outcome + final_sale. */
+  returnPolicy?: {
+    eligible: boolean;
+    windowDays: number;
+    deadline: string | null;
+    reason: string | null;
+    items: { orderItemId: string; eligible: boolean; reason: string | null }[];
+  };
+  /** Refunds raised against this order — including CANCELLATION refunds, which
+   *  previously appeared nowhere (only return-driven refunds were visible, via
+   *  /consumer/returns). */
+  refunds?: {
+    id: string;
+    amountPaise: number;
+    status: 'pending' | 'processing' | 'succeeded' | 'partially_disbursed' | 'failed' | string;
+    reason: string | null;
+    createdAt: string;
+    completedAt: string | null;
+  }[];
   placedAt?: string;
   acceptedAt?: string | null;
   packedAt?: string | null;
@@ -175,6 +212,23 @@ export const cancelOrder = (id: string, reason?: string) =>
     method: 'POST',
     body: reason ? { reason } : {},
   });
+
+/* ── Store pickup windows ────────────────────────────────────────────────── */
+
+/** One concrete, dated pickup window — hand `slotId` + both instants back at placement. */
+export type PickupSlot = { slotId: string; startsAt: string; endsAt: string; capacity: number };
+
+export type StorePickupSlots = {
+  store: { id: string; name: string; address: string; lat: number; lng: number; contactPhone: string | null };
+  slots: PickupSlot[];
+};
+
+/** Upcoming pickup windows for a store — the server expands its recurring weekly
+ *  template into dated windows in IST and drops any that have already ended. */
+export const listPickupSlots = (storeId: string, days = 7) =>
+  request<StorePickupSlots>(
+    `/catalog/stores/${encodeURIComponent(storeId)}/pickup-slots?days=${days}`,
+  );
 
 /* ── Razorpay two-phase checkout ─────────────────────────────────────────── */
 /** Checkout succeeded on-device: hand the signed triplet to the server to settle. */

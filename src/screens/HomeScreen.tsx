@@ -1,59 +1,79 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Vibration, Modal } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, useAnimatedReaction, cancelAnimation, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
 import { BrutalButton, CachedImage, CARD, Chip, FadeInUp, OptionSheet, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
 import { RealIcon, RealIconName, categoryIconName } from '../components/RealIcon';
 import {
-  PRODUCTS, CATEGORIES, GAMES, BRANDS, OCCASIONS, BUNDLES, COMMUNITY, REELS, HERO_IMG, HERO_IMG_2,
-  HER_PRODUCTS, HIM_PRODUCTS, HER_CATEGORIES, HIM_CATEGORIES,
-  HER_BUNDLES, HIM_BUNDLES, HER_OCCASIONS, HIM_OCCASIONS, HER_HERO, HIM_HERO,
+  GAMES, HERO_IMG, HERO_IMG_2,
+  HER_CATEGORIES, HIM_CATEGORIES, HER_HERO, HIM_HERO,
 } from '../data/mockData';
+import { ProductGridSkeleton, CatalogError, Shimmer } from '../components/CatalogState';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
 import { listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
 import { warmCatalog } from '../services/prefetch';
 import { useApp } from '../state/AppState';
+// ── Home CMS ──────────────────────────────────────────────────────────────────
+// Every banner, tile, label and link below used to be a module-level require()/string in this
+// file, so changing one meant shipping a build. They now come from `GET /cms/home`, falling
+// back to `content/home.content.json` (the same content, bundled) when the backend is
+// unreachable or has never been published to.
+//
+// The LAYOUT is deliberately unchanged: section order still lives in this file's JSX, and
+// every component below is the same one it always was. Only the data moved.
+import { useCmsSections } from '../hooks/useCmsContent';
+import type { CmsItem, CmsSection } from '../content/types';
+import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, str, num, color, type MediaSource } from '../content/media';
+import { openLink } from '../content/links';
+import { IMG } from '../services/images';
 
-const HOME_HERO = require('../../assets/home.jpeg');
-// Full-bleed campaign background for the "SHOP BY OCCASION" section.
-const OCC_HEAD_BG = require('../../assets/github-import/top/bg.png');
-// FLASH FIT tiles — swap these three requires with your own art when ready.
-const FLASH_TSHIRT_IMG = require('../../assets/github-import/men/tshirt.png');
-const FLASH_JEANS_IMG = require('../../assets/github-import/men/jeans.png');
-const FLASH_SHOES_IMG = require('../../assets/github-import/men/shoes.png');
-// Cutout models (bg removed) for the "TRY AND BUY" band above Explore More.
-const VR_TRY_ON = require('../../assets/vr-try-on.png');
+/** Every section this screen renders, fetched in one payload read. */
+const HOME_SECTION_KEYS = [
+  'home.hero',
+  'home.header',
+  'home.marquee',
+  'home.explore_grid',
+  'home.steals',
+  'home.top_stories',
+  'home.reels_features',
+  'home.reels_previews',
+  'home.reels_banner',
+  'home.occasion',
+  'home.flash_fit',
+  'home.try_on',
+  'home.footer',
+];
 
 // FEATURED CATEGORIES — the horizontal swipeable row only. Local cutout art
 // (not the pngimg.com hotlinks the grid below still uses), one set per gender.
 const HER_FEATURED_CATEGORIES = [
-  { id: 'feat-her-dress', label: 'Dresses',  img: require('../../assets/github-import/women/dress.png') },
-  { id: 'feat-her-ethnic', label: 'Ethnic',   img: require('../../assets/github-import/women/ethenic.png') },
-  { id: 'feat-her-glasses', label: 'Eyewear', img: require('../../assets/github-import/women/glasses.png') },
-  { id: 'feat-her-heels', label: 'Heels',     img: require('../../assets/github-import/women/heels.png') },
-  { id: 'feat-her-jwellery', label: 'Jewelry', img: require('../../assets/github-import/women/jwellery.png') },
-  { id: 'feat-her-pants', label: 'Pants',     img: require('../../assets/github-import/women/pants.png') },
-  { id: 'feat-her-skirts', label: 'Skirts',   img: require('../../assets/github-import/women/skirts.png') },
-  { id: 'feat-her-top', label: 'Tops',        img: require('../../assets/github-import/women/top.png') },
+  { id: 'feat-her-dress', label: 'Dresses',  img: require('../../assets/github-import/women/dress.webp') },
+  { id: 'feat-her-ethnic', label: 'Ethnic',   img: require('../../assets/github-import/women/ethenic.webp') },
+  { id: 'feat-her-glasses', label: 'Eyewear', img: require('../../assets/github-import/women/glasses.webp') },
+  { id: 'feat-her-heels', label: 'Heels',     img: require('../../assets/github-import/women/heels.webp') },
+  { id: 'feat-her-jwellery', label: 'Jewelry', img: require('../../assets/github-import/women/jwellery.webp') },
+  { id: 'feat-her-pants', label: 'Pants',     img: require('../../assets/github-import/women/pants.webp') },
+  { id: 'feat-her-skirts', label: 'Skirts',   img: require('../../assets/github-import/women/skirts.webp') },
+  { id: 'feat-her-top', label: 'Tops',        img: require('../../assets/github-import/women/top.webp') },
 ];
 const HIM_FEATURED_CATEGORIES = [
-  { id: 'feat-him-cap', label: 'Caps',       img: require('../../assets/github-import/men/cap.png') },
-  { id: 'feat-him-jackets', label: 'Jackets', img: require('../../assets/github-import/men/jackets.png') },
-  { id: 'feat-him-jeans', label: 'Jeans',     img: require('../../assets/github-import/men/jeans.png') },
-  { id: 'feat-him-shirt', label: 'Shirts',    img: require('../../assets/github-import/men/shirt.png') },
-  { id: 'feat-him-shoes', label: 'Shoes',     img: require('../../assets/github-import/men/shoes.png') },
-  { id: 'feat-him-short', label: 'Shorts',    img: require('../../assets/github-import/men/short.png') },
-  { id: 'feat-him-tshirt', label: 'Tees',     img: require('../../assets/github-import/men/tshirt.png') },
-  { id: 'feat-him-watchs', label: 'Watches',  img: require('../../assets/github-import/men/watchs.png') },
+  { id: 'feat-him-cap', label: 'Caps',       img: require('../../assets/github-import/men/cap.webp') },
+  { id: 'feat-him-jackets', label: 'Jackets', img: require('../../assets/github-import/men/jackets.webp') },
+  { id: 'feat-him-jeans', label: 'Jeans',     img: require('../../assets/github-import/men/jeans.webp') },
+  { id: 'feat-him-shirt', label: 'Shirts',    img: require('../../assets/github-import/men/shirt.webp') },
+  { id: 'feat-him-shoes', label: 'Shoes',     img: require('../../assets/github-import/men/shoes.webp') },
+  { id: 'feat-him-short', label: 'Shorts',    img: require('../../assets/github-import/men/short.webp') },
+  { id: 'feat-him-tshirt', label: 'Tees',     img: require('../../assets/github-import/men/tshirt.webp') },
+  { id: 'feat-him-watchs', label: 'Watches',  img: require('../../assets/github-import/men/watchs.webp') },
 ];
 // ALL = a genuine mix — interleave her/him (her, him, her, him…) so the ALL
 // tab looks distinct from WOMEN (which used to be the first half of a plain
@@ -68,88 +88,24 @@ const ALL_FEATURED_CATEGORIES = (() => {
   return out;
 })();
 
-// STEALS — bento grid of price-banded deals, one big hero tile + two smaller
-// tiles per gender, real catalog images/prices (no invented pricing).
-const HER_STEALS = [
-  { id: 'steal-her-1', label: 'Beauty',  priceLine: 'Under ₹999',  img: require('../../assets/steals/her/beauty.jpeg') },
-  { id: 'steal-her-2', label: 'Jewelry', priceLine: 'Under ₹1499', img: require('../../assets/steals/her/jewelry.jpeg') },
-  { id: 'steal-her-3', label: 'Tops',    priceLine: 'Under ₹1999', img: require('../../assets/steals/her/tops.jpeg') },
-];
-const HIM_STEALS = [
-  { id: 'steal-him-1', label: 'T-shirts', priceLine: 'Under ₹1499', img: require('../../assets/steals/him/tee.jpeg') },
-  { id: 'steal-him-2', label: 'Eyewear', priceLine: 'Under ₹1999', img: require('../../assets/steals/him/eyewear.jpeg') },
-  { id: 'steal-him-3', label: 'Jackets', priceLine: 'Under ₹2499', img: require('../../assets/steals/him/jacket.jpeg') },
-];
-
-// TOP STORIES OF THE WEEK — finished poster artwork, split by active gender.
-const HER_STORIES = [
-  { id: 'her-story-1', img: require('../../assets/story-posters/her-60-min.png') },
-  { id: 'her-story-2', img: require('../../assets/story-posters/her-friday.png') },
-  { id: 'her-story-3', img: require('../../assets/story-posters/her-roommate.png') },
-  { id: 'her-story-4', img: require('../../assets/story-posters/her-latest-drops.png') },
-  { id: 'her-story-5', img: require('../../assets/story-posters/her-casual-affair.png') },
-];
-const HIM_STORIES = [
-  { id: 'him-story-1', img: require('../../assets/story-posters/him-coffee.png') },
-  { id: 'him-story-2', img: require('../../assets/story-posters/him-60-min.png') },
-  { id: 'him-story-3', img: require('../../assets/story-posters/him-friday.png') },
-  { id: 'him-story-4', img: require('../../assets/story-posters/him-bros.png') },
-];
-
-// CATEGORIES TO EXPLORE — a 3-col bento grid, gender-driven. 7 model cards laid
-// out 3 / (1 + text block) / 3, with the "OUR FAVOURITE TRENDING CATEGORIES"
-// copy sitting in the middle-right. Uses the local numbered model photos.
-// NOTE: swap these requires for the real campaign images when available.
-const HER_EXPLORE = [
-  { id: 'exh-1', label: 'Wide Leg Denim', img: require('../../assets/github-import/numbered/1.png') },
-  { id: 'exh-2', label: 'Sun Dress',      img: require('../../assets/github-import/numbered/2.png') },
-  { id: 'exh-3', label: 'Bags',           img: require('../../assets/github-import/numbered/3.png') },
-  { id: 'exh-4', label: 'Matching Sets',  img: require('../../assets/github-import/numbered/4.png') },
-  { id: 'exh-5', label: 'Everyday Tanks', img: require('../../assets/github-import/numbered/5.png') },
-  { id: 'exh-6', label: 'Workwear',       img: require('../../assets/github-import/numbered/6.png') },
-  { id: 'exh-7', label: 'Mini Skirts',    img: require('../../assets/github-import/numbered/7.png') },
-];
-const HIM_EXPLORE = [
-  { id: 'exm-1', label: 'Baggy Denim',  img: require('../../assets/github-import/numbered-men/1.png') },
-  { id: 'exm-2', label: 'Graphic Tees', img: require('../../assets/github-import/numbered-men/2.png') },
-  { id: 'exm-3', label: 'Sneakers',     img: require('../../assets/github-import/numbered-men/3.png') },
-  { id: 'exm-4', label: 'Co-ord Sets',  img: require('../../assets/github-import/numbered-men/4.png') },
-  { id: 'exm-5', label: 'Overshirts',   img: require('../../assets/github-import/numbered-men/5.png') },
-  { id: 'exm-6', label: 'Workwear',     img: require('../../assets/github-import/numbered-men/6.png') },
-  { id: 'exm-7', label: 'Cargos',       img: require('../../assets/github-import/numbered-men/7.png') },
-];
-const EX_YELLOW = '#F2E63C'; // highlighter accent behind the headline words
+// STEALS, TOP STORIES, CATEGORIES TO EXPLORE and SHOP BY OCCASION were eight hardcoded arrays
+// here (HER_/HIM_ pairs of `{ id, label, img: require(...) }`). They are CMS sections now —
+// `home.steals`, `home.top_stories`, `home.explore_grid`, `home.occasion` — and the identical
+// content still ships in content/home.content.json as the offline fallback.
+const EX_YELLOW = '#F2E63C'; // highlighter accent behind the headline words (layout, not content)
 const EX_GAP = SP.s;
 
-// SHOP BY OCCASION — a seasonal hero banner + a swipeable row of white
-// occasion cards (product cutout + label), one set per gender. Hero uses a
-// local campaign banner — these already carry their own baked-in typography
-// (same art used in the top hero carousel), so the card adds ONLY a small
-// corner CTA badge rather than a second competing headline on top of it.
-// Cards reuse the local github-import cutouts so nothing hits a slow/
-// blocked CDN. `hero` is a require() (local asset).
-const HER_OCCASION = {
-  hero: require('../../assets/banners/her-friday.jpg'),
-  cards: [
-    { id: 'occ-her-brunch',  label: 'Brunch',  img: require('../../assets/github-import/women/dress.png') },
-    { id: 'occ-her-party',   label: 'Party',   img: require('../../assets/github-import/women/top.png') },
-    { id: 'occ-her-date',    label: 'Date',    img: require('../../assets/github-import/women/heels.png') },
-    { id: 'occ-her-wedding', label: 'Wedding', img: require('../../assets/github-import/women/ethenic.png') },
-    { id: 'occ-her-casual',  label: 'Casual',  img: require('../../assets/github-import/women/pants.png') },
-  ],
-};
-const HIM_OCCASION = {
-  hero: require('../../assets/banners/him-friday.jpg'),
-  cards: [
-    { id: 'occ-him-office',  label: 'Office',     img: require('../../assets/github-import/men/shirt.png') },
-    { id: 'occ-him-street',  label: 'Streetwear', img: require('../../assets/github-import/men/jackets.png') },
-    { id: 'occ-him-gym',     label: 'Gym',        img: require('../../assets/github-import/men/tshirt.png') },
-    { id: 'occ-him-travel',  label: 'Travel',     img: require('../../assets/github-import/men/jeans.png') },
-    { id: 'occ-him-weekend', label: 'Weekend',    img: require('../../assets/github-import/men/shoes.png') },
-  ],
-};
-
 const { width: W } = Dimensions.get('window');
+/** Rows fetched per Explore page. Also the end-of-data probe: a shorter response
+ *  than this means the catalog is exhausted for that gender. */
+const EXPLORE_PAGE_SIZE = 20;
+
+// Hoisted styles. Anything passed to a React.memo'd component (ProductCard,
+// StyleTile) MUST come from here rather than an inline object literal, or the
+// memo sees a new prop identity on every render and can never skip one.
+const styles = StyleSheet.create({
+  exploreCard: { width: CARD.w, marginBottom: SP.s },
+});
 // Featured Categories tile sizing — solved so exactly 4 tiles are fully
 // visible before scrolling, with a sliver of the 5th peeking at the edge as
 // a "swipe for more" affordance.
@@ -192,11 +148,6 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-// Expanded product list for the Explore More infinite feed — fake 24 items from PRODUCTS
-const EXPLORE_PRODUCTS = Array.from({ length: 24 }, (_, i) => ({
-  ...PRODUCTS[i % PRODUCTS.length],
-  id: `exp-${i}-${PRODUCTS[i % PRODUCTS.length].id}`,
-}));
 
 export default function HomeScreen() {
   const nav = useNavigation<any>();
@@ -207,6 +158,25 @@ export default function HomeScreen() {
   const openSearch = (_r?: React.RefObject<any>) => nav.navigate('Search');
   const insets = useSafeAreaInsets();
   const { gender, setGender, curveProgress, showConfirm, tabBarOffset } = useApp();
+  // All thirteen home sections from ONE cached payload read.
+  //
+  // `cmsStatus === 'loading'` means nothing has been confirmed yet — first launch, before any
+  // snapshot has ever been persisted. Every CMS-driven block below is gated on it, because the
+  // alternative (render the bundled copy, then swap) flashes a different banner a second into
+  // every cold start. The catalog-driven Explore More grid is NOT gated: it has its own fetch
+  // and its own loading state.
+  const { sections: cms, status: cmsStatus } = useCmsSections(HOME_SECTION_KEYS, gender);
+  const cmsLoading = cmsStatus === 'loading';
+  const heroSection = cms['home.hero']!;
+  const headerSection = cms['home.header']!;
+  const marqueeSection = cms['home.marquee']!;
+  const exploreSection = cms['home.explore_grid']!;
+  const stealsSection = cms['home.steals']!;
+  const storiesSection = cms['home.top_stories']!;
+  const occasionSection = cms['home.occasion']!;
+  const flashFitSection = cms['home.flash_fit']!;
+  const tryOnSection = cms['home.try_on']!;
+  const footerSection = cms['home.footer']!;
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // Live catalog from the backend, cached PER GENDER. A missing slice = not
@@ -215,7 +185,9 @@ export default function HomeScreen() {
   // cold-starts slowly). Caching both genders is what makes the HER↔HIM slide
   // swap content INSTANTLY — before, the old gender's API data stayed on
   // screen until a slow refetch landed, so the category boxes looked frozen.
-  type GenderSlice = { categories?: Category[]; products?: Product[]; bundles?: Bundle[]; occasions?: Occasion[] };
+  // `exhausted` = the backend has no more products for this gender. Without it the
+  // Explore feed looped the same page forever (see exploreVisible below).
+  type GenderSlice = { categories?: Category[]; products?: Product[]; bundles?: Bundle[]; occasions?: Occasion[]; exhausted?: boolean; productsFailed?: boolean };
   const [apiCache, setApiCache] = useState<{ her: GenderSlice; him: GenderSlice; brands?: Brand[] }>({ her: {}, him: {} });
   // Which set the featured-categories row shows — independent of the page's
   // gender slice. ALL merges women + men.
@@ -261,7 +233,10 @@ export default function HomeScreen() {
   // (<5 min) does ZERO network — a HER↔HIM↔HER round trip used to fire 15
   // requests for data already on screen. Pull-to-refresh always forces.
   const apiCacheRef = useRef(apiCache);
-  useEffect(() => { apiCacheRef.current = apiCache; }, [apiCache]);
+  // Assigned during RENDER, not in an effect: the Explore pager reads this ref to
+  // compute its next offset, and an effect-synced ref would still hold the
+  // pre-append value on the very next scroll tick — appending the same page twice.
+  apiCacheRef.current = apiCache;
   const fetchedAt = useRef<{ her?: number; him?: number }>({});
   const lastReloadKey = useRef(0);
   useEffect(() => {
@@ -278,11 +253,67 @@ export default function HomeScreen() {
     const put = (patch: GenderSlice) =>
       setApiCache((prev) => ({ ...prev, [g]: { ...prev[g], ...patch } }));
     void Promise.allSettled([
-      listProducts({ gender: g, limit: 50 }).then((v) => { if (!cancelled && v.length) put({ products: v }); }),
+      // First Explore page. MUST match EXPLORE_PAGE_SIZE — the pager uses
+      // products.length as its offset, so a different first page would skip or
+      // repeat rows at the seam.
+      listProducts({ gender: g, limit: EXPLORE_PAGE_SIZE }).then((v) => {
+        // Resets the pager: a refresh replaces the accumulated list with page 1,
+        // so a previously-set exhausted flag must clear or paging stays dead.
+        //
+        // Stores an EMPTY result too. It used to skip the write when `v.length`
+        // was 0, which was harmless while an empty slice fell back to the demo
+        // catalogue but now leaves the feed on its skeleton forever. Empty is a
+        // real answer and has to be recorded as one.
+        if (!cancelled) put({ products: v, exhausted: v.length < EXPLORE_PAGE_SIZE, productsFailed: false });
+      }).catch(() => {
+        // Offline / server error. Distinct from "no products": the feed offers a
+        // retry instead of claiming the store is empty.
+        if (!cancelled) put({ productsFailed: true });
+      }),
       listBrands().then((v) => { if (!cancelled && v.length) setApiCache((prev) => ({ ...prev, brands: v })); }),
       listBundles(g).then((v) => { if (!cancelled && v.length) put({ bundles: v }); }),
       listOccasions(g).then((v) => { if (!cancelled && v.length) put({ occasions: v }); }),
-    ]).then(() => { if (!cancelled) setRefreshing(false); });
+    ]).then(() => {
+      if (cancelled) return;
+      setRefreshing(false);
+
+      /**
+       * Warm the OTHER rail's first page.
+       *
+       * Without this the first HER↔HIM flip of a session finds no products cached, so the feed
+       * swaps a full grid for a 4-card skeleton — a large, sudden height drop that yanks the
+       * page under the user's thumb. The per-gender cache already exists to make the flip
+       * instant; it just was not being filled until the user asked for it.
+       *
+       * Only the first page: the pager fills the rest on demand, and `exhausted` is derived the
+       * same way as the visible rail so paging still terminates correctly. Writes to the other
+       * gender's slice cannot disturb what is on screen.
+       */
+      const other: 'her' | 'him' = g === 'her' ? 'him' : 'her';
+      if (apiCacheRef.current[other].products) return;
+      listProducts({ gender: other, limit: EXPLORE_PAGE_SIZE })
+        .then((v) => {
+          if (cancelled) return;
+          // Stamped so flipping does not immediately refetch what was just warmed.
+          fetchedAt.current[other] = Date.now();
+          setApiCache((prev) =>
+            prev[other].products
+              ? prev
+              : {
+                  ...prev,
+                  [other]: {
+                    ...prev[other],
+                    products: v,
+                    exhausted: v.length < EXPLORE_PAGE_SIZE,
+                    productsFailed: false,
+                  },
+                },
+          );
+        })
+        .catch(() => {
+          /* the flip will fetch it properly; this is only a head start */
+        });
+    });
     return () => { cancelled = true; };
   }, [gender, reloadKey, homeArmed]);
 
@@ -293,11 +324,23 @@ export default function HomeScreen() {
   const herCategories = HER_CATEGORIES;
   const himCategories = HIM_CATEGORIES;
   const activeSlice = apiCache[gender];
-  const activeProducts = activeSlice.products ?? (gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS);
-  const activeBundles = activeSlice.bundles ?? (gender === 'her' ? HER_BUNDLES : HIM_BUNDLES);
-  const activeOccasions = activeSlice.occasions ?? (gender === 'her' ? HER_OCCASIONS : HIM_OCCASIONS);
-  const activeBrands = apiCache.brands ?? BRANDS;
-  const exploreProducts = activeSlice.products ?? EXPLORE_PRODUCTS;
+  /**
+   * The Explore feed is whatever the backend returned — nothing else.
+   *
+   * It used to fall back to EXPLORE_PRODUCTS: 24 rows cloned from the eight
+   * bundled demo products, re-idded `exp-<i>-p3`. Those tiles opened a fully
+   * priced product page for an item with no listing behind it, which is also
+   * why try-on refused them. `undefined` here now means "still loading" and an
+   * empty array means "the store has nothing on this rail", and the render
+   * below tells those two apart.
+   *
+   * (activeProducts / activeBundles / activeOccasions / activeBrands lived here
+   * too, purely to hold the mock fallbacks. Nothing read them — the rails they
+   * were written for render from local editorial art — so they are gone.)
+   */
+  const exploreProducts = activeSlice.products;
+  const exploreFailed = !!activeSlice.productsFailed;
+  const exploreLoading = exploreProducts === undefined && !exploreFailed;
   const activeHero = gender === 'her' ? HER_HERO : HIM_HERO;
   const brandPage = useRef(0);
   const brandRef = useRef<FlatList>(null);
@@ -327,6 +370,10 @@ export default function HomeScreen() {
   const wasPinned = useSharedValue(false);
   const [catPinned, setCatPinned] = useState(false);
   const lastScrollY = useSharedValue(0);
+  // Home stays mounted when another tab is on screen (no freezeOnBlur), so
+  // anything holding a scarce resource — video decoders — must pause on blur
+  // itself. See ReelsForYouSection.
+  const homeFocused = useIsFocused();
   // Floating top search bar: hidden while scrolling, and revealed (sliding down
   // from the top) only once the user has scrolled PAST the hero/banner and comes
   // to a stop. 0 = hidden, 1 = shown.
@@ -379,7 +426,6 @@ export default function HomeScreen() {
   // can't lag the native scroll by a frame — which is what made the old
   // transform-collapse jitter on Android until it clamped. See the JSX below.
   // Fades out brutalist ASCII corner marks when curves are active
-  const fadeBrutalStyle = useAnimatedStyle(() => ({ opacity: 1 - curveProgress.value }));
   // Gap / spacing for connected tile groups — tiles separate slightly in HER mode.
   // These are LAYOUT properties: animating them per-frame off the live drag forces a
   // full Yoga relayout every frame and makes the drag jitter. The spacing delta is
@@ -396,9 +442,6 @@ export default function HomeScreen() {
   // shows); at 1 it has slid fully across the box and covers it. The box already
   // has overflow:hidden, so the off-screen part is clipped.
   const HERO_W = W - SP.l * 2;
-  const herHeroStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: (curveProgress.value - 1) * HERO_W }],
-  }));
   // Shared hero headline style — identical for the HIM and HER posters so the text
   // sits in the same spot on each. The HIM headline lives on the base layer; the HER
   // headline lives INSIDE the sliding HER poster, so it rides in with the image and
@@ -425,19 +468,78 @@ export default function HomeScreen() {
 
   // ─── EXPLORE MORE state — infinite scroll + filters ───
   const [exploreFilter, setExploreFilter] = useState<'ALL' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
-  const [explorePage, setExplorePage] = useState(1);
   const [exploreSort, setExploreSort] = useState<'Popular' | 'Price: Low to High' | 'Price: High to Low' | 'Rating' | 'Biggest Discount'>('Popular');
   const [filterSheet, setFilterSheet] = useState(false);
   const [sortSheet, setSortSheet] = useState(false);
-  // Infinite feed — bump the page whenever a scroll gesture ends near the
-  // bottom (once per gesture, so it can't runaway). The list loops, so the
-  // feed never actually ends.
+
+  // Filter → sort → page, computed once per real input change instead of on
+  // every render of a 2,300-line screen.
+  const exploreSorted = useMemo(() => {
+    const list = (exploreProducts ?? []).filter((p) => exploreFilter === 'ALL' || p.category === exploreFilter);
+    const arr = [...list]; // 'Popular' keeps the natural order
+    if (exploreSort === 'Price: Low to High') arr.sort((a, b) => a.price - b.price);
+    else if (exploreSort === 'Price: High to Low') arr.sort((a, b) => b.price - a.price);
+    else if (exploreSort === 'Rating') arr.sort((a, b) => b.rating - a.rating);
+    else if (exploreSort === 'Biggest Discount') arr.sort((a, b) => (1 - b.price / b.original) - (1 - a.price / a.original));
+    return arr;
+  }, [exploreProducts, exploreFilter, exploreSort]);
+  const exploreMatchCount = exploreSorted.length;
+  // Everything fetched so far, in order. No repetition, no artificial cap — the
+  // list simply ends when the catalog does.
+  const exploreVisible = exploreSorted;
+  const exploreExhausted = !!activeSlice.exhausted || !activeSlice.products;
+  // Paged feed — bump the page when a scroll gesture ends near the bottom.
+  //
+  // Two things were wrong here. It was wired to BOTH onScrollEndDrag and
+  // onMomentumScrollEnd, so one flick added two pages. And it had no ceiling:
+  // nothing here is virtualised and nothing is ever unmounted, so page 20 meant
+  // 120 permanently-mounted cards — and since the source array holds only 24
+  // items and is repeated modulo, every one of them past the first 24 was a
+  // duplicate. Memory grew and never came back down.
   const maybeLoadMoreExplore = (e: any) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    if (contentSize.height - (contentOffset.y + layoutMeasurement.height) < 800) {
-      setExplorePage(p => p + 1);
-    }
+    if (contentSize.height - (contentOffset.y + layoutMeasurement.height) >= 800) return;
+    loadMoreExplore();
   };
+
+  /**
+   * Fetch the NEXT page of products and append.
+   *
+   * The feed used to be `Array.from({length: page*6}, (_, i) => sorted[i % sorted.length])`
+   * — an explicit modulo repeat over a single 20-item fetch, so scrolling past
+   * the first screen showed the same products again and again and the list never
+   * ended. Now it pages against the backend and stops when a short page comes
+   * back, which is the only reliable end-of-data signal offset paging gives.
+   */
+  const loadingMoreRef = useRef(false);
+  const loadMoreExplore = useCallback(() => {
+    const g = gender;
+    const slice = apiCacheRef.current[g];
+    // Nothing loaded yet (offline / still fetching), or we already hit the end.
+    if (!slice.products || slice.exhausted || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    const offset = slice.products.length;
+    listProducts({ gender: g, limit: EXPLORE_PAGE_SIZE, offset })
+      .then((next) => {
+        setApiCache((prev) => {
+          const cur = prev[g].products ?? [];
+          // De-dup by id: a concurrent refresh can overlap the window.
+          const seen = new Set(cur.map((x) => x.id));
+          const fresh = next.filter((x) => !seen.has(x.id));
+          return {
+            ...prev,
+            [g]: {
+              ...prev[g],
+              products: fresh.length ? [...cur, ...fresh] : cur,
+              // A short page means the catalog is done for this gender.
+              exhausted: next.length < EXPLORE_PAGE_SIZE,
+            },
+          };
+        });
+      })
+      .catch(() => { /* leave what we have; the user can pull to refresh */ })
+      .finally(() => { loadingMoreRef.current = false; });
+  }, [gender]);
 
   // PERF: while the page is actively scrolling, background animations (the
   // brand banner's auto-rotate) hold still so they don't compete for frames.
@@ -516,10 +618,7 @@ export default function HomeScreen() {
   // ── Adaptive header tint (Amazon/Blinkit-style) ──
   // The campaign banner reports its slide's dominant colour; the header wears it
   // as a light top fade, crossfading old → new as the carousel rotates.
-  const [bannerTint, setBannerTint] = useState(() => {
-    const t = gender === 'her' ? HER_CAMPAIGN_TINTS[0] : HIM_CAMPAIGN_TINTS[0];
-    return { prev: t, curr: t };
-  });
+  const [bannerTint, setBannerTint] = useState(() => ({ prev: DEFAULT_TINT, curr: DEFAULT_TINT }));
   const tintRef = useRef(bannerTint);
   const tintFade = useSharedValue(1);
   const onBannerTint = useCallback((hex: string) => {
@@ -578,7 +677,9 @@ export default function HomeScreen() {
           // of the page (was stickyHeaderIndices={[2]}).
           onScrollBeginDrag={markScrollStart}
           onMomentumScrollBegin={markScrollStart}
-          onScrollEndDrag={(e) => { markScrollStop(1200); maybeLoadMoreExplore(e); }}
+          onScrollEndDrag={() => markScrollStop(1200)}
+          // Load-more fires from THIS event only. It used to be on both, so a
+          // single flick (which emits endDrag then momentumEnd) added two pages.
           onMomentumScrollEnd={(e) => { markScrollStop(150); maybeLoadMoreExplore(e); }}
           // No removeClippedSubviews — sections hold transformed/absolute children and
           // Android's subview clipping mis-tracks that combo, blanking detached sections.
@@ -589,7 +690,15 @@ export default function HomeScreen() {
               header + search float transparently on top of it, per redesign. ═══ */}
           <View>
             {/* ═══════════ BRAND BANNER — swipeable, auto-rotating brand posters ═══════════ */}
-            <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={gender} />
+            {/* Hero. While the published content is unconfirmed this is a dark block of the
+                exact banner height — same colour BannerSlide paints behind its art — so the
+                page does not jump when the real poster arrives, and no un-confirmed poster is
+                ever shown. */}
+            {cmsLoading ? (
+              <View style={{ width: BANNER_W, height: BANNER_H, backgroundColor: '#0e0e0e' }} />
+            ) : (
+              <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={gender} section={heroSection} />
+            )}
 
             {/* Scrim so the header/search stay legible over whichever banner art is
                 showing — the new campaign photos have bright sky/wall backgrounds
@@ -618,12 +727,27 @@ export default function HomeScreen() {
             <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>TRENDZO</Text>
-                  {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line */}
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                    <Text numberOfLines={1} style={[T.h1, { color: '#fff', flexShrink: 0, ...HERO_SHADOW }]}>60 minutes</Text>
-                    <Text numberOfLines={1} style={[T.micro, { color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>3 stores nearby</Text>
-                  </View>
+                  {/* The wordmark and delivery-ETA lines are CONTENT, so they wait; the search
+                      bar, address chip and profile icon below are navigation and always render,
+                      because a launch that cannot be interacted with is worse than one with
+                      three lines still resolving. */}
+                  {cmsLoading ? (
+                    <>
+                      <Shimmer w={72} h={9} style={{ backgroundColor: 'rgba(255,255,255,0.28)' }} />
+                      <Shimmer w={172} h={26} style={{ marginTop: 6, backgroundColor: 'rgba(255,255,255,0.28)' }} />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>{headerSection.title ?? 'TRENDZO'}</Text>
+                      {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line.
+                          Still editorial copy, not a live estimate: nothing measures it. Making it
+                          CMS-editable at least means ops can correct it without a release. */}
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+                        <Text numberOfLines={1} style={[T.h1, { color: '#fff', flexShrink: 0, ...HERO_SHADOW }]}>{headerSection.subtitle ?? '60 minutes'}</Text>
+                        <Text numberOfLines={1} style={[T.micro, { color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>{headerSection.kicker ?? ''}</Text>
+                      </View>
+                    </>
+                  )}
                   {/* Delivery location — tap to change (Myntra-style) */}
                   <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
                     <RealIcon name="marker" size={13} color="#fff" />
@@ -639,7 +763,11 @@ export default function HomeScreen() {
               {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
               <AnimatedPressable ref={heroSearchRef} onPress={() => openSearch(heroSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
                 <RealIcon name="search" size={22} color="#FFFFFF" />
-                <Text style={[T.body, { flex: 1, color: '#fff' }]}>Search 60-min drops...</Text>
+                {/* No placeholder text until it is confirmed — the magnifier already says what
+                    this control is, so an empty label reads as "loading", not as broken. */}
+                <Text style={[T.body, { flex: 1, color: '#fff' }]}>
+                  {cmsLoading ? '' : str(headerSection.config, 'searchPlaceholder', 'Search 60-min drops...')}
+                </Text>
                 <RealIcon name="mic" size={16} color="#fff" />
                 <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
                   <RealIcon name="camera" size={16} color="#fff" />
@@ -675,7 +803,9 @@ export default function HomeScreen() {
           </View>
 
         {/* ═══ MARQUEE — sticks directly to the bottom of the banner, no gap ═══ */}
-        <Marquee text="New styles everyday  //  120+ stores across India  //  60-min delivery  //  Hassle-free returns " />
+        {cmsLoading ? null : (
+          <Marquee text={str(marqueeSection.config, 'text', 'New styles everyday  //  120+ stores across India  //  60-min delivery  //  Hassle-free returns ')} />
+        )}
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -695,7 +825,9 @@ export default function HomeScreen() {
           onLayout={(e) => { catSectionY.value = e.nativeEvent.layout.y; }}
         >
           {/* Bento grid of explore categories — gender-driven (him / her). */}
-          <ExploreGrid nav={nav} gender={gender} setGender={setGender} />
+          {cmsLoading ? null : (
+            <ExploreGrid nav={nav} gender={gender} setGender={setGender} section={exploreSection} />
+          )}
         </View>
 
         {/*
@@ -704,33 +836,44 @@ export default function HomeScreen() {
         ║  1 tall hero tile + 2 stacked tiles beside it ║
         ╚══════════════════════════════════════════════╝
         */}
-        <SectionHead title="STEALS" action="ALL" onAction={() => nav.navigate('Steals')} hideCaret hideBottomDivider />
+        {cmsLoading ? null : (
+        <SectionHead title={stealsSection.title ?? 'STEALS'} action={stealsSection.ctaLabel ?? 'ALL'} onAction={() => nav.navigate('Steals')} hideCaret hideBottomDivider />
+        )}
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
           {(() => {
-            const steals = gender === 'her' ? HER_STEALS : HIM_STEALS;
+            // First item is the tall tile; the next two stack beside it. That is the layout,
+            // so ordering the section in admin is what chooses the hero.
+            const steals = stealsSection.items
+              .map((item) => ({ item, source: resolveMedia(item, IMG.card) }))
+              .filter(withSource)
+              .slice(0, 3);
+            const goSteals = (item: CmsItem) => () => { if (!openLink(nav, item.link)) nav.navigate('Steals'); };
+            if (steals.length === 0) return null;
             return (
               <>
-                <StealTile
-                  label={steals[0].label}
-                  priceLine={steals[0].priceLine}
-                  qualifier="Starting at"
-                  img={steals[0].img}
-                  width={STEAL_COL_W}
-                  height={STEAL_BIG_H}
-                  curveSmStyle={curveSmStyle}
-                  onPress={() => nav.navigate('Steals')}
-                />
+                {steals[0] ? (
+                  <StealTile
+                    label={str(steals[0].item.content, 'label')}
+                    priceLine={str(steals[0].item.content, 'priceLine')}
+                    qualifier={str(steals[0].item.content, 'qualifier', 'Starting at')}
+                    img={steals[0].source}
+                    width={STEAL_COL_W}
+                    height={STEAL_BIG_H}
+                    curveSmStyle={curveSmStyle}
+                    onPress={goSteals(steals[0].item)}
+                  />
+                ) : null}
                 <View style={{ gap: STEAL_GAP }}>
                   {steals.slice(1, 3).map((s) => (
                     <StealTile
-                      key={s.id}
-                      label={s.label}
-                      priceLine={s.priceLine}
-                      img={s.img}
+                      key={s.item.key}
+                      label={str(s.item.content, 'label')}
+                      priceLine={str(s.item.content, 'priceLine')}
+                      img={s.source}
                       width={STEAL_COL_W}
                       height={STEAL_SMALL_H}
                       curveSmStyle={curveSmStyle}
-                      onPress={() => nav.navigate('Steals')}
+                      onPress={goSteals(s.item)}
                     />
                   ))}
                 </View>
@@ -744,9 +887,21 @@ export default function HomeScreen() {
         ║  TOP STORIES OF THE WEEK — editorial carousel ║
         ╚══════════════════════════════════════════════╝
         */}
-        <TopStories key={gender} nav={nav} gender={gender} />
+        {/* Both self-hide when they have no items, so they need no extra gate — an unconfirmed
+            payload yields empty sections and they render nothing. */}
+        <TopStories key={gender} nav={nav} gender={gender} section={storiesSection} />
 
-        <ReelsForYouSection nav={nav} gender={gender} />
+        {cmsLoading ? null : (
+          <ReelsForYouSection
+            nav={nav}
+            gender={gender}
+            scrollY={lastScrollY}
+            focused={homeFocused}
+            features={cms['home.reels_features']!}
+            previews={cms['home.reels_previews']!}
+            banner={cms['home.reels_banner']!}
+          />
+        )}
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -755,18 +910,21 @@ export default function HomeScreen() {
         */}
         <View style={{ marginTop: SP.xl }}>
           {(() => {
-            const occ = gender === 'her' ? HER_OCCASION : HIM_OCCASION;
+            const bg = resolveConfigMedia(occasionSection.config, 'backgroundAssetKey', 'backgroundImageUrl', IMG.hero);
+            const cards = occasionSection.items
+              .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
+              .filter(withSource);
+            if (cards.length === 0) return null;
             return (
-              // Full-bleed campaign background (bg.png). The centered heading sits
-              // near the top over the models, and the product cards sit ON the
-              // image's empty lower area.
+              // Full-bleed campaign background. The centered heading sits near the top over the
+              // models, and the product cards sit ON the image's empty lower area.
               <View style={{ height: OCC_SECTION_H, overflow: 'hidden' }}>
-                <CachedImage source={OCC_HEAD_BG} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+                {bg ? <CachedImage source={bg} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" /> : null}
 
                 {/* Centered heading. */}
                 <Pressable onPress={() => nav.navigate('ShopByOccasion')} style={{ alignItems: 'center', paddingTop: SP.l }}>
                   <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
-                    Shop by Occasion
+                    {occasionSection.title ?? 'Shop by Occasion'}
                   </Text>
                 </Pressable>
 
@@ -777,13 +935,17 @@ export default function HomeScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: OCC_CARD_PAD, gap: OCC_CARD_GAP }}
                   >
-                    {occ.cards.map((c) => (
+                    {cards.map((c) => (
                       <OccasionCard
-                        key={c.id}
+                        key={c.item.key}
                         label={c.label}
-                        img={c.img}
+                        img={c.source}
                         curveSmStyle={curveSmStyle}
-                        onPress={() => nav.navigate('ShopByOccasion', { occasion: c.label.toLowerCase() })}
+                        onPress={() => {
+                          if (!openLink(nav, c.item.link)) {
+                            nav.navigate('ShopByOccasion', { occasion: c.label.toLowerCase() });
+                          }
+                        }}
                       />
                     ))}
                   </ScrollView>
@@ -798,7 +960,7 @@ export default function HomeScreen() {
         ║  FLASH FIT OF THE DAY — bundle grid (fit)     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <FlashFitBundle onOpen={() => nav.navigate('FlashFit')} />
+        <FlashFitBundle section={flashFitSection} onOpen={() => nav.navigate('FlashFit')} />
 
         {/* ═══════════ SHOP BY VIBE — commented out for now (redesign request).
             Kept intact below so it can be restored later; not deleted.
@@ -829,27 +991,35 @@ export default function HomeScreen() {
         ║  TRY AND BUY — cutout models over wordmark    ║
         ╚══════════════════════════════════════════════╝
         */}
+        {cmsLoading ? null : (
         <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
           {/* centred section heading (like Shop by Occasion) */}
           <View style={{ alignItems: 'center', marginBottom: SP.m }}>
-            <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>See It On You</Text>
-            <Text style={[T.caption, { color: C.dim, marginTop: 8, textAlign: 'center' }]}>Tap a look and try it on yourself</Text>
+            <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>{tryOnSection.title ?? 'See It On You'}</Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 8, textAlign: 'center' }]}>{tryOnSection.subtitle ?? ''}</Text>
           </View>
           {/* BIG BOX */}
           <View style={[{ height: rf(430), overflow: 'hidden' }, BORDER(1)]}>
             {/* soft grey gradient backdrop */}
             <LinearGradient colors={['#C9C9C9', '#ECECEC']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
             {/* big wordmark near the TOP — sits behind the models' heads, where the cutout is transparent */}
-            <Text adjustsFontSizeToFit numberOfLines={1} style={{ position: 'absolute', top: rf(8), left: SP.m, right: SP.m, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(84), letterSpacing: -1, color: '#A6A6A6', textTransform: 'uppercase' }}>Try & Buy</Text>
+            <Text adjustsFontSizeToFit numberOfLines={1} style={{ position: 'absolute', top: rf(8), left: SP.m, right: SP.m, textAlign: 'center', fontFamily: 'Inter_900Black', fontSize: rf(84), letterSpacing: -1, color: '#A6A6A6', textTransform: 'uppercase' }}>{str(tryOnSection.config, 'wordmark', 'Try & Buy')}</Text>
             {/* cutout models on top — transparent bg lets the wordmark show through */}
-            <CachedImage source={VR_TRY_ON} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            {(() => {
+              const cutout = resolveMedia(tryOnSection.items[0], IMG.hero);
+              return cutout ? <CachedImage source={cutout} style={{ width: '100%', height: '100%' }} resizeMode="contain" /> : null;
+            })()}
             {/* plain "Explore" text link, pinned to the bottom (no box/bg) */}
-            <Pressable onPress={() => nav.navigate('TryOnPicker')} style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-              <Text style={[T.button, { color: C.ink }]}>View</Text>
+            <Pressable
+              onPress={() => { if (!openLink(nav, tryOnSection.items[0]?.link)) nav.navigate('TryOnPicker'); }}
+              style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+            >
+              <Text style={[T.button, { color: C.ink }]}>{tryOnSection.ctaLabel ?? 'View'}</Text>
               <Feather name="arrow-right" size={16} color={C.ink} />
             </Pressable>
           </View>
         </View>
+        )}
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -880,49 +1050,70 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {(() => {
-            const list = exploreProducts.filter(p => exploreFilter === 'ALL' || p.category === exploreFilter);
-            // Sort a copy — 'Popular' keeps the natural order.
-            const sorted = [...list];
-            if (exploreSort === 'Price: Low to High') sorted.sort((a, b) => a.price - b.price);
-            else if (exploreSort === 'Price: High to Low') sorted.sort((a, b) => b.price - a.price);
-            else if (exploreSort === 'Rating') sorted.sort((a, b) => b.rating - a.rating);
-            else if (exploreSort === 'Biggest Discount') sorted.sort((a, b) => (1 - b.price / b.original) - (1 - a.price / a.original));
-            // Loop the list so the feed is endless — page grows on scroll.
-            const count = explorePage * 6;
-            const visible = sorted.length ? Array.from({ length: count }, (_, i) => sorted[i % sorted.length]) : [];
-            return (
-              <View>
-                <View style={{ paddingHorizontal: SP.l, marginBottom: SP.s }}>
-                  <Text style={[T.micro]}>{`${list.length} results · ${exploreFilter} · ${exploreSort}`}</Text>
-                </View>
+          {/* The filter + copy + sort + Array.from used to run in an IIFE inside the
+              render body, so all of it re-ran on EVERY Home render — including
+              once per second from the flash countdown. Memoised on its real inputs. */}
+          <View>
+            <View style={{ paddingHorizontal: SP.l, marginBottom: SP.s }}>
+              <Text style={[T.micro]}>
+                {exploreLoading ? 'Loading…' : `${exploreMatchCount} results · ${exploreFilter} · ${exploreSort}`}
+              </Text>
+            </View>
 
-                {/* 2-col grid — use the shared ProductCard so every tile opens
-                    the product with the same smooth zoom morph as elsewhere. */}
-                <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
-                  {visible.map((p, i) => (
-                    <ProductCard key={p.id + '-' + i} p={p} style={{ width: CARD.w, marginBottom: SP.s }} />
-                  ))}
-                </View>
-
-                {/* infinite feed — auto-loads on scroll; only the empty state shows */}
-                {list.length === 0 && (
-                  <View style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                    <RealIcon name="search" size={32} color={C.dim} />
-                    <Text style={[T.h3, { marginTop: 8 }]}>No matches</Text>
-                    <Text style={[T.caption, { marginTop: 4, textAlign: 'center' }]}>Try a different filter or search term</Text>
-                  </View>
-                )}
+            {/* 2-col grid — use the shared ProductCard so every tile opens
+                the product with the same smooth zoom morph as elsewhere. */}
+            {exploreLoading ? (
+              <View style={{ paddingHorizontal: SP.l }}>
+                <ProductGridSkeleton count={4} />
               </View>
-            );
-          })()}
+            ) : (
+              <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+                {exploreVisible.map((p, i) => (
+                  // styles.exploreCard, NOT an inline object: ProductCard is
+                  // React.memo'd and a fresh `style={{...}}` each render gave it a
+                  // new prop identity every time, so the memo never once held.
+                  <ProductCard key={p.id + '-' + i} p={p} style={styles.exploreCard} />
+                ))}
+              </View>
+            )}
+
+            {exploreMatchCount > 0 && exploreExhausted && (
+              <View style={{ paddingVertical: SP.xl, alignItems: 'center' }}>
+                <Text style={[T.caption, { color: C.dim }]}>
+                  {`That's all ${exploreMatchCount} ${exploreFilter === 'ALL' ? 'products' : exploreFilter.toLowerCase()}`}
+                </Text>
+              </View>
+            )}
+
+            {exploreFailed && (
+              <CatalogError onRetry={() => setReloadKey((k) => k + 1)} />
+            )}
+
+            {/* Two different nothings: the filter excluded everything the store
+                has, or the store has nothing on this rail at all. */}
+            {!exploreLoading && !exploreFailed && exploreMatchCount === 0 && (
+              <View style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                <RealIcon name="search" size={32} color={C.dim} />
+                <Text style={[T.h3, { marginTop: 8 }]}>
+                  {(exploreProducts?.length ?? 0) > 0 ? 'No matches' : 'Nothing here yet'}
+                </Text>
+                <Text style={[T.caption, { marginTop: 4, textAlign: 'center' }]}>
+                  {(exploreProducts?.length ?? 0) > 0
+                    ? 'Try a different filter or search term'
+                    : 'New drops land here as stores go live. Pull to refresh.'}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* ═══════════ FOOTER ═══════════ */}
-        <View style={{ paddingHorizontal: SP.l, marginTop: SP.huge }}>
-          <Text style={[T.micro, { textAlign: 'center', marginTop: 8 }]}>End.Stream · Trendzo</Text>
-          <Text style={[T.micro, { textAlign: 'center', marginTop: 4 }]}>From your block · in 60 minutes</Text>
-        </View>
+        {cmsLoading ? null : (
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.huge }}>
+            <Text style={[T.micro, { textAlign: 'center', marginTop: 8 }]}>{footerSection.title ?? 'End.Stream · Trendzo'}</Text>
+            <Text style={[T.micro, { textAlign: 'center', marginTop: 4 }]}>{footerSection.subtitle ?? ''}</Text>
+          </View>
+        )}
         </>)}
         </Animated.View>
         </AnimatedScrollView>
@@ -964,7 +1155,7 @@ export default function HomeScreen() {
         title="Filter"
         options={['ALL', 'Tops', 'Bottomwear', 'Footwear', 'Accessories', 'Dresses']}
         selected={exploreFilter}
-        onSelect={(v) => { setExploreFilter(v as typeof exploreFilter); setExplorePage(1); setFilterSheet(false); }}
+        onSelect={(v) => { setExploreFilter(v as typeof exploreFilter); setFilterSheet(false); }}
         onClose={() => setFilterSheet(false)}
       />
       {/* EXPLORE MORE — Sort bottom sheet */}
@@ -973,7 +1164,7 @@ export default function HomeScreen() {
         title="Sort by"
         options={['Popular', 'Price: Low to High', 'Price: High to Low', 'Rating', 'Biggest Discount']}
         selected={exploreSort}
-        onSelect={(v) => { setExploreSort(v as typeof exploreSort); setExplorePage(1); setSortSheet(false); }}
+        onSelect={(v) => { setExploreSort(v as typeof exploreSort); setSortSheet(false); }}
         onClose={() => setSortSheet(false)}
       />
     </View>
@@ -1010,21 +1201,14 @@ function FlashTimer({ curveSmStyle }: { curveSmStyle: any }) {
 }
 
 // ─── CAMPAIGN BANNER — swipeable, auto-rotating Trendzo campaign posters ───
-// Gender-matched pairs of the same campaigns (Desktop/trendzo art). The art is
-// 1080×1440 (3:4) and the banner box matches, so posters show uncropped.
-const HER_CAMPAIGNS = [
-  require('../../assets/banners/her-new1.png'),
-  require('../../assets/banners/her-new2.png'),
-];
-const HIM_CAMPAIGNS = [
-  require('../../assets/banners/him-new1.png'),
-  require('../../assets/banners/him-traditional.jpg'),
-];
-// LIGHT pastel of each poster's dominant colour (sampled from the actual art,
-// lifted to high lightness) — drives the Amazon/Blinkit-style adaptive top
-// gradient. Order matches the campaign arrays above.
-export const HER_CAMPAIGN_TINTS = ['#f4e6c3', '#efcdc8'];
-export const HIM_CAMPAIGN_TINTS = ['#ebe5cb', '#f2ddc4'];
+// Posters and their tints are the `home.hero` CMS section now. The art is 1080×1440 (3:4) and
+// the banner box matches, so posters show uncropped — that constraint is on whoever uploads,
+// and the admin picker states it.
+//
+// The tint is a LIGHT pastel of each poster's dominant colour, sampled from the art, driving
+// the Amazon/Blinkit-style adaptive top gradient. It rides on the item so a new poster brings
+// its own; there is no longer a parallel array to keep in step with the images.
+const DEFAULT_TINT = '#f4e6c3';
 const hexA = (hex: string, a: number) => {
   const h = hex.replace('#', '');
   return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
@@ -1140,7 +1324,7 @@ function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
         {/* fixed width — the HER↔HIM label swap must not relayout mid-bounce */}
         <View style={{ width: 96, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.ink, paddingVertical: 10, paddingLeft: 10, paddingRight: SP.l + 4 }}>
           <Feather name="chevrons-left" size={14} color={C.white} />
-          <Text style={[T.caption, { color: C.white, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 0.5 }]} numberOfLines={1}>{him ? 'HER' : 'HIM'}</Text>
+          <Text style={[T.caption, { color: C.white, fontFamily: HELV, fontWeight: '700', letterSpacing: 0.5 }]} numberOfLines={1}>{him ? 'HER' : 'HIM'}</Text>
         </View>
       </Animated.View>
     </GestureDetector>
@@ -1151,44 +1335,76 @@ function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
 // the reference art, then a rotation so neighbouring tiles differ.
 const ZOOM_TINTS = ['#E8A79A', '#A9BFE6', '#BDE3C3', '#E6D3A9', '#D9B8E6', '#A9DEDA', '#E6B8C4'];
 
-function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'him'; setGender: (g: 'her' | 'him') => void }) {
-  const cats = gender === 'her' ? HER_EXPLORE : HIM_EXPLORE;
-  const go = (label: string) => nav.navigate('Categories', { label });
+function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'her' | 'him'; setGender: (g: 'her' | 'him') => void; section: CmsSection }) {
+  // The grid's shape is fixed at 3 / (1 + headline) / 3, so it needs exactly seven cards.
+  // Anything unresolvable is dropped, and the layout below reads defensively rather than
+  // indexing blind — a section short of seven now renders a shorter grid instead of crashing.
+  const cats = useMemo(
+    () =>
+      section.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
+        .filter(withSource),
+    [section.items],
+  );
+  const go = (item: CmsItem, label: string) => {
+    if (!openLink(nav, item.link)) nav.navigate('Categories', { label });
+  };
   // Tap → hero-morph: measure the tapped tile's on-screen frame and hand it to
-  // CategoryZoom so the dome/circle takes off from exactly that card.
-  const goZoom = (c: { label: string; img: any }, i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
-    nav.navigate('CategoryZoom', { label: c.label, img: c.img, tint: ZOOM_TINTS[i % ZOOM_TINTS.length], _frame: frame });
+  // CategoryZoom so the dome/circle takes off from exactly that card. The tint rides on the
+  // item when set, so a new card brings its own instead of inheriting whatever ZOOM_TINTS
+  // happened to sit at its index.
+  const goZoom = (c: (typeof cats)[number], i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
+    nav.navigate('CategoryZoom', {
+      label: c.label,
+      img: c.source,
+      tint: color(c.item.content, 'tint', ZOOM_TINTS[i % ZOOM_TINTS.length]!),
+      _frame: frame,
+    });
   const EX_CW = (W - SP.l * 2 - EX_GAP * 2) / 3; // 3 columns
   const EX_H = Math.round(EX_CW * 1.32);         // every card uses the same image height
   const him = gender === 'him';
+  // Headline is authored as one string with newlines; each line keeps its own hand-tuned
+  // highlighter geometry below, which is layout rather than content.
+  const headlineLines = (section.title ?? '').split('\n').filter(Boolean);
+  const highlight = color(section.config, 'highlightColor', EX_YELLOW);
+  const HL_GEOMETRY = [
+    { left: 12, right: -3 },
+    { left: 0, right: -8 },
+    { left: 10, right: -10 },
+  ];
   return (
     <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
       {/* Row 1 — three cards (static, always mounted → no reload on open) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP }}>
         {cats.slice(0, 3).map((c, i) => (
-          <ExploreCard key={i} label={c.label} img={c.img} w={EX_CW} h={EX_H} onPress={() => go(c.label)} onZoom={goZoom(c, i)} />
+          <ExploreCard key={c.item.key} label={c.label} img={c.source} w={EX_CW} h={EX_H} onPress={() => go(c.item, c.label)} onZoom={goZoom(c, i)} />
         ))}
       </View>
 
       {/* Row 2 — card left, headline right (same layout for both genders).
           The "View <other>" button switches gender. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: EX_GAP, marginTop: SP.l }}>
-        <ExploreCard label={cats[3].label} img={cats[3].img} w={EX_CW} h={EX_H} onPress={() => go(cats[3].label)} onZoom={goZoom(cats[3], 3)} />
+        {cats[3] ? (
+          <ExploreCard label={cats[3].label} img={cats[3].source} w={EX_CW} h={EX_H} onPress={() => go(cats[3]!.item, cats[3]!.label)} onZoom={goZoom(cats[3], 3)} />
+        ) : (
+          <View style={{ width: EX_CW, height: EX_H }} />
+        )}
         <View style={{ flex: 1, alignSelf: 'stretch', justifyContent: 'center', paddingLeft: SP.s }}>
           <View style={{ alignSelf: 'flex-start' }}>
-            <View style={{ alignSelf: 'flex-start' }}>
-              <View style={{ position: 'absolute', left: 12, right: -3, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
-              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Our Favourite</Text>
-            </View>
-            <View style={{ alignSelf: 'flex-start', marginTop: -2 }}>
-              <View style={{ position: 'absolute', left: 0, right: -8, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
-              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Trending</Text>
-            </View>
-            <View style={{ alignSelf: 'flex-start', marginTop: -2 }}>
-              <View style={{ position: 'absolute', left: 10, right: -10, bottom: 3, height: 10, backgroundColor: EX_YELLOW }} />
-              <Text style={[T.h2, { textTransform: 'uppercase' }]}>Categories</Text>
-              <View style={{ position: 'absolute', right: -23, bottom: 1, width: 18, height: 18, borderRadius: 9, backgroundColor: EX_YELLOW }} />
-            </View>
+            {headlineLines.map((line, i) => {
+              const geo = HL_GEOMETRY[Math.min(i, HL_GEOMETRY.length - 1)]!;
+              const isLast = i === headlineLines.length - 1;
+              return (
+                <View key={line} style={{ alignSelf: 'flex-start', marginTop: i === 0 ? 0 : -2 }}>
+                  <View style={{ position: 'absolute', left: geo.left, right: geo.right, bottom: 3, height: 10, backgroundColor: highlight }} />
+                  <Text style={[T.h2, { textTransform: 'uppercase' }]}>{line}</Text>
+                  {/* The dot only ever sat beside the final line. */}
+                  {isLast ? (
+                    <View style={{ position: 'absolute', right: -23, bottom: 1, width: 18, height: 18, borderRadius: 9, backgroundColor: highlight }} />
+                  ) : null}
+                </View>
+              );
+            })}
           </View>
           {/* Elastic pull-tab stuck to the right edge — drag & release to flip gender. */}
           <GenderPullTab him={him} onFlip={() => setGender(him ? 'her' : 'him')} />
@@ -1198,7 +1414,7 @@ function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'hi
       {/* Row 3 — three cards (static) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP, marginTop: SP.m }}>
         {cats.slice(4, 7).map((c, i) => (
-          <ExploreCard key={i + 4} label={c.label} img={c.img} w={EX_CW} h={EX_H} onPress={() => go(c.label)} onZoom={goZoom(c, i + 4)} />
+          <ExploreCard key={c.item.key} label={c.label} img={c.source} w={EX_CW} h={EX_H} onPress={() => go(c.item, c.label)} onZoom={goZoom(c, i + 4)} />
         ))}
       </View>
     </View>
@@ -1208,7 +1424,7 @@ function ExploreGrid({ nav, gender, setGender }: { nav: any; gender: 'her' | 'hi
 // One campaign poster inside the banner carousel — plain full-bleed slide,
 // no scale/fade (that left gaps around the shrinking art). The dots below
 // carry the "changing" feedback instead.
-function BannerSlide({ item, onPress }: { item: any; onPress: () => void }) {
+function BannerSlide({ item, onPress }: { item: { source: any }; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={{ width: W }}>
       {/* Campaign art — full-bleed edge-to-edge 3:4, no overlay/border (the poster IS the design).
@@ -1216,16 +1432,31 @@ function BannerSlide({ item, onPress }: { item: any; onPress: () => void }) {
           overlay lifts on close — blends with the banner's dark scrim instead of
           flashing bright white. */}
       <View style={{ width: BANNER_W, height: BANNER_H, overflow: 'hidden', backgroundColor: '#0e0e0e' }}>
-        <CachedImage source={item.campaign} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+        <CachedImage source={item.source} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
       </View>
     </Pressable>
   );
 }
 
-function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any; curveStyle: any; pausedRef?: React.MutableRefObject<boolean>; gender: 'her' | 'him'; onTint?: (hex: string) => void }) {
+type BannerSlideData = { id: string; source: any; tint: string; item: CmsItem };
+
+function BrandBanner({ nav, curveStyle, pausedRef, gender, section, onTint }: { nav: any; curveStyle: any; pausedRef?: React.MutableRefObject<boolean>; gender: 'her' | 'him'; section: CmsSection; onTint?: (hex: string) => void }) {
   // Campaign art only — full-bleed, the art carries its own typography.
-  const tints = gender === 'her' ? HER_CAMPAIGN_TINTS : HIM_CAMPAIGN_TINTS;
-  const data = (gender === 'her' ? HER_CAMPAIGNS : HIM_CAMPAIGNS).map((img, i) => ({ id: `camp-${gender}-${i}`, campaign: img, tint: tints[i] }));
+  // Slides whose art this build cannot resolve (an asset key added after it shipped, with no
+  // uploaded URL) are dropped rather than rendered as a black rectangle.
+  const data = useMemo<BannerSlideData[]>(
+    () =>
+      section.items
+        .map((item) => {
+          const source = resolveMedia(item, IMG.hero);
+          return source === null
+            ? null
+            : { id: item.key, source, tint: color(item.content, 'tint', DEFAULT_TINT), item };
+        })
+        .filter((x): x is BannerSlideData => x !== null),
+    [section.items],
+  );
+  const autoplayMs = num(section.config, 'autoplayMs', 3500);
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
   // Drives the per-slide crossfade/scale below — the outgoing poster shrinks
@@ -1234,7 +1465,7 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
   const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
 
   // Tell the header which colour the visible poster is (adaptive top gradient).
-  useEffect(() => { onTint?.(tints[index] ?? tints[0]); }, [index, gender]);
+  useEffect(() => { onTint?.(data[index]?.tint ?? data[0]?.tint ?? DEFAULT_TINT); }, [index, gender, data]);
 
   // Gender flip swaps the campaign set — restart the carousel from slide 1 so
   // the fresh gender's art is what the user sees.
@@ -1264,11 +1495,15 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
         listRef.current?.scrollToOffset({ offset: next * W, animated: true });
         return next;
       });
-    }, 3500);
+    }, autoplayMs);
   };
   // Only auto-rotate while the Home screen is focused — when the user navigates away the
   // timer (and its animated scrolling) stops, so it doesn't burn GPU / cause lag off-screen.
-  useFocusEffect(useCallback(() => { start(); return stop; }, [data.length]));
+  useFocusEffect(useCallback(() => { if (data.length > 1) start(); return stop; }, [data.length, autoplayMs]));
+
+  // Nothing to show — the section is empty or every slide's art is unresolvable. Render
+  // nothing rather than an empty full-height black box where the hero should be.
+  if (data.length === 0) return null;
 
   return (
     // Keyed by gender so switching the ALL/MEN/WOMEN tab crossfades the banner
@@ -1290,7 +1525,7 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
         alwaysBounceHorizontal={false}
         overScrollMode="never"
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(b: any) => b.id}
+        keyExtractor={(b: any) => b.id as string}
         getItemLayout={(_: any, i: number) => ({ length: W, offset: W * i, index: i })}
         // Android defaults list clipping ON — with the parent scroll translated it
         // blanks the posters after scrolling away and back. 3-4 slides; keep attached.
@@ -1301,7 +1536,16 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, onTint }: { nav: any;
         onScrollEndDrag={clearSwipeSoon}
         onMomentumScrollEnd={(e: any) => { setIndex(Math.round(e.nativeEvent.contentOffset.x / W)); start(); clearSwipeSoon(); }}
         renderItem={({ item }: { item: any }) => (
-          <BannerSlide item={item} onPress={() => { if (swipingRef.current) return; nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim'); }} />
+          <BannerSlide
+            item={item as BannerSlideData}
+            onPress={() => {
+              if (swipingRef.current) return;
+              // The slide's own link, falling back to the gender's edit page — which is what
+              // every poster pointed at before the content moved into the CMS.
+              const slide = item as BannerSlideData;
+              if (!openLink(nav, slide.item.link)) nav.navigate(gender === 'her' ? 'ForHer' : 'ForHim');
+            }}
+          />
         )}
       />
     </MotiView>
@@ -1315,9 +1559,9 @@ const STORY_CARD_W = Math.round(W - 104);          // narrower so both neighbour
 const STORY_IMG_H = Math.round(STORY_CARD_W * 1.32);
 const STORY_SNAP = STORY_CARD_W + STEAL_GAP; // same gutter as the STEALS bento grid
 
-type StoryPoster = (typeof HER_STORIES)[number] | (typeof HIM_STORIES)[number];
+type StoryPoster = { id: string; source: any; item: CmsItem };
 
-function StoryCard({ s, i, scrollX, nav }: { s: StoryPoster; i: number; scrollX: SharedValue<number>; nav: any }) {
+function StoryCard({ s, i, scrollX, nav, label }: { s: StoryPoster; i: number; scrollX: SharedValue<number>; nav: any; label: string }) {
   // Smoothly grow the card as it reaches the centre and shrink the neighbours —
   // driven off the live scroll offset, so it eases continuously (never a jump).
   // No opacity change — side cards stay fully visible, just smaller.
@@ -1334,22 +1578,32 @@ function StoryCard({ s, i, scrollX, nav }: { s: StoryPoster; i: number; scrollX:
   return (
     <Animated.View style={[{ width: STORY_CARD_W }, aStyle]}>
       <Pressable
-        onPress={() => nav.navigate('TopStories')}
+        onPress={() => { if (!openLink(nav, s.item.link)) nav.navigate('TopStories'); }}
         style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
       >
         <Text style={[T.caption, { textAlign: 'center', paddingVertical: 12 }]}>
-          Trending Now
+          {label}
         </Text>
         <View style={{ width: '100%', height: STORY_IMG_H }}>
-          <CachedImage source={s.img} style={{ width: '100%', height: '100%' } as any} resizeMode="cover" />
+          <CachedImage source={s.source} style={{ width: '100%', height: '100%' } as any} resizeMode="cover" />
         </View>
       </Pressable>
     </Animated.View>
   );
 }
 
-function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
-  const stories = gender === 'her' ? HER_STORIES : HIM_STORIES;
+function TopStories({ nav, gender, section }: { nav: any; gender: 'her' | 'him'; section: CmsSection }) {
+  const stories = useMemo<StoryPoster[]>(
+    () =>
+      section.items
+        .map((item) => {
+          const source = resolveMedia(item, IMG.hero);
+          return source === null ? null : { id: item.key, source, item };
+        })
+        .filter((s): s is StoryPoster => s !== null),
+    [section.items],
+  );
+  const cardLabel = str(section.config, 'cardLabel', 'Trending Now');
   const storyN = stories.length;
   // Three copies make the row loop seamlessly; the gender key remounts this
   // section at the correct middle-copy offset whenever HER/HIM changes.
@@ -1364,6 +1618,7 @@ function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
   const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
 
   const onSettle = (x: number) => {
+    if (storyN === 0) return;
     const abs = Math.round(x / STORY_SNAP);
     setIndex(((abs % storyN) + storyN) % storyN);
     // Recenter into the middle copy so there's always room to swipe both ways.
@@ -1373,14 +1628,18 @@ function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
     }
   };
 
+  // Every poster is out of window, unresolvable, or the section is off. Drop the whole block
+  // rather than render a heading over an empty rail.
+  if (storyN === 0) return null;
+
   return (
     <View style={{ marginTop: SP.xl }}>
       <Pressable onPress={() => nav.navigate('TopStories')}>
         <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>
-          Top Stories of the Week
+          {section.title ?? 'Top Stories of the Week'}
         </Text>
         <Text style={[T.body, { color: C.dim, textAlign: 'center', marginTop: 3 }]}>
-          In the spotlight
+          {section.ctaLabel ?? 'In the spotlight'}
         </Text>
       </Pressable>
 
@@ -1398,7 +1657,7 @@ function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
         onMomentumScrollEnd={(e) => onSettle(e.nativeEvent.contentOffset.x)}
       >
         {storyLoop.map((s, i) => (
-          <StoryCard key={`${s.id}-${i}`} s={s} i={i} scrollX={scrollX} nav={nav} />
+          <StoryCard key={`${s.id}-${i}`} s={s} i={i} scrollX={scrollX} nav={nav} label={cardLabel} />
         ))}
       </Animated.ScrollView>
 
@@ -1422,11 +1681,15 @@ function TopStories({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
 function Marquee({ text }: { text: string }) {
   const [segW, setSegW] = useState(0);
   const tx = useSharedValue(0);
-  useEffect(() => {
+  // `withRepeat(..., -1)` has no stop condition, and Home stays mounted behind
+  // the other tabs — so this marquee used to keep animating on Reels, Category
+  // and the Bag. Cancel it on blur.
+  useFocusEffect(useCallback(() => {
     if (!segW) return;
     tx.value = 0;
     tx.value = withRepeat(withTiming(-segW, { duration: segW * 22, easing: Easing.linear }), -1, false);
-  }, [segW]);
+    return () => { cancelAnimation(tx); };
+  }, [segW, tx]));
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
   const seg = (
     <Text numberOfLines={1} style={[T.caption, { color: C.white }]}>
@@ -1876,7 +2139,9 @@ function StealTile({ label, priceLine, qualifier = 'Under', img, height, width, 
   label: string;
   priceLine: string;
   qualifier?: string;
-  img: string | number;
+  // A bundled require() id or an uploaded `{ uri }` — CachedImage takes either, which is what
+  // makes the CMS's bundled-or-uploaded media model transparent to every tile on this screen.
+  img: MediaSource;
   height: number;
   width: number;
   curveSmStyle: any;
@@ -1916,23 +2181,14 @@ const REEL_PORTRAIT_W = (REEL_SECTION_W - REEL_PORTRAIT_GAP) / 2; // 2-up row
 const REEL_PORTRAIT_H = Math.round(REEL_PORTRAIT_W * 1.6); // portrait cards, 2-up
 const REEL_FEATURE_IMAGE_W = STEAL_COL_W;
 const REEL_FEATURE_H = Math.round(STEAL_COL_W * 1.25); // top-2 editorial cards bumped up
-const REEL_FEATURE_SHEER = require('../../assets/reel-features/sheer-confidence.png');
-const REEL_FEATURE_EVENING = require('../../assets/reel-features/evening-edit.png');
-const REEL_FEATURE_HIM_CITY = require('../../assets/reel-features/him-city.png');
-const REEL_FEATURE_HIM_DARK = require('../../assets/reel-features/him-after-dark.jpeg');
-const HIM_REEL_PREVIEWS = [
-  require('../../assets/reels/men1.mp4'),
-  require('../../assets/reels/men2.mp4'),
-  require('../../assets/reels/men3.mp4'),
-];
-const HER_REEL_PREVIEWS = [
-  require('../../assets/reels/female1.mp4'),
-  require('../../assets/reels/female2.mp4'),
-  require('../../assets/reels/female3.mp4'),
-];
+// The four editorial images and the four preview clips are CMS sections now
+// (`home.reels_features`, `home.reels_previews`). Exactly two preview tiles render, so exactly
+// two clips ship per gender — a third entry once sat in each array with no render site and no
+// nav path able to reach it, costing 11 MB of APK (female3.mp4 alone was 9.1 MB) for nothing.
+// Uploading a clip through the CMS avoids that trade entirely: it is not in the binary at all.
 
 function EditorialReelFeature({ img, reverse, label, title, copy, cta, accent, panelColors, onPress }: {
-  img: string | number;
+  img: MediaSource;
   reverse?: boolean;
   label: string;
   title: string;
@@ -1978,38 +2234,69 @@ function EditorialReelFeature({ img, reverse, label, title, copy, cta, accent, p
   );
 }
 
-function LocalReelPreview({ source }: { source: number }) {
+/**
+ * A muted looping preview tile.
+ *
+ * `active` is the whole point. Budget SoCs expose only one or two concurrent
+ * hardware video decoders; past that Android silently drops to software decoding
+ * and burns the same cores the JS thread needs. These two tiles used to call
+ * `p.play()` in the initialiser with no pause condition anywhere, so both
+ * decoders ran from the moment Home mounted — while scrolled far off-screen, and
+ * while the user was over in Reels, Category or the Bag. Nobody ever saw them
+ * playing, which is exactly why it went unnoticed.
+ */
+// `source` is a bundled require() id or `{ uri }` for a clip an admin uploaded — expo-video
+// accepts both, so the CMS's hybrid media model needs nothing special here.
+function LocalReelPreview({ source, active }: { source: number | { uri: string }; active: boolean }) {
   const player = useVideoPlayer(source, p => {
     p.loop = true;
     p.muted = true;
-    p.play();
   });
+  useEffect(() => {
+    // The player is a native object; guard so a teardown race can't throw.
+    try { active ? player.play() : player.pause(); } catch {}
+  }, [active, player]);
   return <VideoView player={player} nativeControls={false} contentFit="cover" style={StyleSheet.absoluteFillObject} />;
 }
 
-function PortraitReelCard({ img, video, onPress }: {
-  img?: string;
-  video?: number;
+function PortraitReelCard({ img, video, active, label, onPress }: {
+  img?: number | { uri: string } | null;
+  video?: number | { uri: string } | null;
+  active?: boolean;
+  label?: string;
   onPress: () => void;
 }) {
   return (
     <Pressable onPress={onPress} style={{ width: REEL_PORTRAIT_W, height: REEL_PORTRAIT_H, overflow: 'hidden', backgroundColor: '#111' }}>
       {video ? (
-        <LocalReelPreview source={video} />
-      ) : (
-        <CachedImage source={{ uri: img! }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
-      )}
+        <LocalReelPreview source={video} active={!!active} />
+      ) : img ? (
+        <CachedImage source={img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+      ) : null}
       <LinearGradient colors={['transparent', 'rgba(0,0,0,0.22)']} start={{ x: 0, y: 0.66 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject as any} />
       <View style={{ position: 'absolute', left: 7, bottom: 7 }}>
-        <Text style={[T.micro, { color: '#fff', textTransform: 'uppercase', borderBottomWidth: 1, borderBottomColor: '#fff', paddingBottom: 2 }]}>View</Text>
+        <Text style={[T.micro, { color: '#fff', textTransform: 'uppercase', borderBottomWidth: 1, borderBottomColor: '#fff', paddingBottom: 2 }]}>{label ?? 'View'}</Text>
       </View>
     </Pressable>
   );
 }
 
-function ReelDeliveryBanner({ her, onPress }: { her: boolean; onPress: () => void }) {
+/** Icons for the delivery banner's chips, matched by position. Visual language, not content. */
+const REEL_CHIP_ICONS = ['heart', 'zap', 'rotate-ccw'] as const;
+
+/** Two hexes from a "#aaa,#bbb" config string, falling back when it is missing or malformed. */
+function gradientPair(raw: string, fallback: readonly [string, string]): readonly [string, string] {
+  const parts = raw.split(',').map((s) => s.trim());
+  const [a, b] = parts;
+  const ok = (v: string | undefined): v is string => !!v && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v);
+  return ok(a) && ok(b) ? [a, b] : fallback;
+}
+
+function ReelDeliveryBanner({ her, section, onPress }: { her: boolean; section: CmsSection; onPress: () => void }) {
   // Light pastel gradients (no dark tones) — dark ink text for legibility.
-  const gradient = her ? ['#FBDCE9', '#F6C6D9'] as const : ['#DCE9FB', '#C6D9F6'] as const;
+  const gradient = her
+    ? gradientPair(str(section.config, 'gradientHer'), ['#FBDCE9', '#F6C6D9'])
+    : gradientPair(str(section.config, 'gradientHim'), ['#DCE9FB', '#C6D9F6']);
   const fg = '#111';
   const divider = 'rgba(0,0,0,0.15)';
   return (
@@ -2020,24 +2307,22 @@ function ReelDeliveryBanner({ her, onPress }: { her: boolean; onPress: () => voi
             <MaterialCommunityIcons name="timer-outline" size={27} color={fg} />
           </View>
           <View style={{ flex: 1, height: 42, marginLeft: SP.s, justifyContent: 'center' }}>
-            <Text style={[T.h3, { fontFamily: 'Inter_900Black', color: fg }]}>60-Minute Delivery</Text>
-            <Text numberOfLines={1} style={[T.micro, { color: 'rgba(0,0,0,0.6)', marginTop: 1 }]}>Your style. Now, not later.</Text>
+            <Text style={[T.h3, { fontFamily: 'Inter_900Black', color: fg }]}>{section.title ?? '60-Minute Delivery'}</Text>
+            <Text numberOfLines={1} style={[T.micro, { color: 'rgba(0,0,0,0.6)', marginTop: 1 }]}>{section.subtitle ?? ''}</Text>
           </View>
           <View style={{ height: 42, backgroundColor: '#111', paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Text style={[T.caption, { color: '#fff' }]}>SHOP NOW</Text>
+            <Text style={[T.caption, { color: '#fff' }]}>{section.ctaLabel ?? 'SHOP NOW'}</Text>
             <Feather name="arrow-right" size={14} color="#fff" />
           </View>
         </View>
 
+        {/* Chips are CMS items; the icons stay in code, matched by position, because they are
+            part of the visual language rather than something worth authoring. */}
         <View style={{ flex: 1, flexDirection: 'row', marginTop: 6, paddingVertical: 4 }}>
-          {[
-            ['heart', 'Trendy Styles'],
-            ['zap', 'Lightning Fast'],
-            ['rotate-ccw', 'Easy Returns'],
-          ].map(([icon, text], i) => (
-            <View key={text} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: divider }}>
-              <Feather name={icon as any} size={10} color={fg} />
-              <Text numberOfLines={1} style={{ fontFamily: 'Helvetica Neue', fontWeight: '400', fontSize: rf(10), color: fg }}>{text}</Text>
+          {section.items.map((chip, i) => (
+            <View key={chip.key} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: divider }}>
+              <Feather name={(REEL_CHIP_ICONS[i % REEL_CHIP_ICONS.length] ?? 'check') as any} size={10} color={fg} />
+              <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '400', fontSize: rf(10), color: fg }}>{str(chip.content, 'label')}</Text>
             </View>
           ))}
         </View>
@@ -2046,55 +2331,114 @@ function ReelDeliveryBanner({ her, onPress }: { her: boolean; onPress: () => voi
   );
 }
 
-function ReelsForYouSection({ nav, gender }: { nav: any; gender: 'her' | 'him' }) {
+function ReelsForYouSection({ nav, gender, scrollY, focused, features, previews, banner }: {
+  nav: any;
+  gender: 'her' | 'him';
+  scrollY: SharedValue<number>;
+  focused: boolean;
+  features: CmsSection;
+  previews: CmsSection;
+  banner: CmsSection;
+}) {
   const openReels = () => nav.navigate('ReelsTab');
   const her = gender === 'her';
-  const activeReels = her ? HER_REEL_PREVIEWS : HIM_REEL_PREVIEWS;
-  const openSelectedReel = (index: number) => nav.navigate('ReelsTab', {
-    selectedVideo: activeReels[index],
-    selectedIndex: index,
-    selectedGender: gender,
-    selectionToken: Date.now(),
-  });
+  // Only two tiles render, so only the first two clips are resolved — the section allows at
+  // most two anyway, and pulling more would mount video decoders nothing displays.
+  const activeReels = useMemo(
+    () => previews.items.slice(0, 2).map((item) => ({ item, source: resolveVideo(item) })),
+    [previews.items],
+  );
+  const featureItems = features.items.slice(0, 2);
+
+  // Viewport gate. The section's own Y is captured on layout, then compared to
+  // Home's scroll offset on the UI thread; `runOnJS` fires only on a crossing,
+  // not on every scroll frame, so this costs nothing while scrolling past.
+  const [inView, setInView] = useState(false);
+  const rowY = useSharedValue(Number.MAX_SAFE_INTEGER);
+  const rowH = useSharedValue(0);
+  useAnimatedReaction(
+    () => {
+      const top = rowY.value;
+      const bottom = top + rowH.value;
+      // One screen of slack on each side so playback starts a beat before the
+      // tiles slide in rather than popping the first frame at the boundary.
+      return bottom > scrollY.value - SCREEN_H && top < scrollY.value + SCREEN_H * 2;
+    },
+    (visible, prev) => { if (visible !== prev) runOnJS(setInView)(visible); },
+    [],
+  );
+  const playing = focused && inView;
+
+  // The section root is a DIRECT child of Home's ScrollView content, so its
+  // onLayout y is already in content coordinates — no measure() round trip.
+  const onSectionLayout = (e: any) => {
+    rowY.value = e.nativeEvent.layout.y;
+    rowH.value = e.nativeEvent.layout.height;
+  };
+  const openSelectedReel = (index: number) => {
+    const picked = activeReels[index];
+    if (!picked) return;
+    nav.navigate('ReelsTab', {
+      selectedVideo: picked.source,
+      selectedIndex: index,
+      selectedGender: gender,
+      selectionToken: Date.now(),
+    });
+  };
+
+  // The second editorial card's panel gradient is a per-gender pastel; it is presentation
+  // rather than authored content, so it stays here while the card's copy and accent come
+  // from the item.
+  const secondPanel = her ? (['#FFF8FC', '#F5E5F1'] as const) : (['#F7FAFF', '#DFEAF7'] as const);
+
   return (
-    <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
+    <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }} onLayout={onSectionLayout}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP.m }}>
-        <Text style={[T.h2, { textTransform: 'uppercase' }]}>Reels For You</Text>
+        <Text style={[T.h2, { textTransform: 'uppercase' }]}>{features.title ?? 'Reels For You'}</Text>
         <Pressable onPress={openReels} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-          <Text style={[T.caption, { color: C.ink }]}>View all</Text>
+          <Text style={[T.caption, { color: C.ink }]}>{features.ctaLabel ?? 'View all'}</Text>
           <Feather name="chevron-right" size={15} color={C.ink} />
         </Pressable>
       </View>
 
       <View style={{ gap: STEAL_GAP }}>
-        <EditorialReelFeature
-          img={her ? REEL_FEATURE_SHEER : REEL_FEATURE_HIM_CITY}
-          label="Up to 50% Off"
-          title="Stay"
-          copy=""
-          cta=""
-          accent="#111111"
-          panelColors={['#FFFFFF', '#FFFFFF']}
-          onPress={openReels}
-        />
-        <EditorialReelFeature
-          img={her ? REEL_FEATURE_EVENING : REEL_FEATURE_HIM_DARK}
-          reverse
-          label="Hot on the Gram"
-          title="Fresh"
-          copy=""
-          cta=""
-          accent={her ? '#C84F87' : '#245A9B'}
-          panelColors={her ? ['#FFF8FC', '#F5E5F1'] : ['#F7FAFF', '#DFEAF7']}
-          onPress={openReels}
-        />
+        {featureItems.map((item, i) => {
+          const source = resolveMedia(item, IMG.card);
+          if (source === null) return null;
+          return (
+            <EditorialReelFeature
+              key={item.key}
+              img={source}
+              reverse={i === 1}
+              label={str(item.content, 'label')}
+              title={str(item.content, 'title')}
+              copy={str(item.content, 'copy')}
+              cta={str(item.content, 'cta')}
+              accent={color(item.content, 'accent', '#111111')}
+              panelColors={i === 1 ? secondPanel : (['#FFFFFF', '#FFFFFF'] as const)}
+              onPress={() => { if (!openLink(nav, item.link)) openReels(); }}
+            />
+          );
+        })}
 
-        <View style={{ flexDirection: 'row', gap: REEL_PORTRAIT_GAP }}>
-          <PortraitReelCard video={activeReels[0]} onPress={() => openSelectedReel(0)} />
-          <PortraitReelCard video={activeReels[1]} onPress={() => openSelectedReel(1)} />
-        </View>
+        {activeReels.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: REEL_PORTRAIT_GAP }}>
+            {activeReels.map((reel, i) => (
+              <PortraitReelCard
+                key={reel.item.key}
+                video={reel.source}
+                active={playing}
+                onPress={() => openSelectedReel(i)}
+              />
+            ))}
+          </View>
+        ) : null}
 
-        <ReelDeliveryBanner her={her} onPress={() => nav.navigate('Categories')} />
+        <ReelDeliveryBanner
+          her={her}
+          section={banner}
+          onPress={() => { if (!openLink(nav, banner.items[0]?.link)) nav.navigate('Categories'); }}
+        />
       </View>
     </View>
   );
@@ -2105,7 +2449,7 @@ function ReelsForYouSection({ nav, gender }: { nav: any; gender: 'her' | 'him' }
 // radius ride the shared gender curve like every other card on Home.
 function OccasionCard({ label, img, curveSmStyle, onPress }: {
   label: string;
-  img: string | number;
+  img: MediaSource;
   curveSmStyle?: any;
   onPress: () => void;
 }) {
@@ -2135,15 +2479,20 @@ function OccasionCard({ label, img, curveSmStyle, onPress }: {
 // proper bento grid: the two tall tiles sit diagonally (top-left + bottom-right)
 // so the sizes read as intentional, not lopsided. Clean white — a black eyebrow
 // chip and gold full-star tiles carry the interest instead of a bg colour.
-function FlashFitBundle({ onOpen }: { onOpen?: (label: string) => void }) {
-  // Right tile = full column height; left-top (t-shirt) is taller than
-  // left-bottom (shoe) so the two left tiles are intentionally uneven.
-  const GRID_H = Math.round(W * 0.95);             // full height → right (jeans) tile
-  const topH = Math.round(GRID_H * 0.56);          // left-top (t-shirt) — the taller one
-  const bottomH = GRID_H - topH - SP.s;            // left-bottom (shoe) — the shorter one
-
-  const Tile = ({ label, img, h }: { label: string; img: any; h: number }) => (
-    <Pressable onPress={() => onOpen?.(label)} style={[{ backgroundColor: '#F4F4F4', height: h, overflow: 'hidden' }, BORDER(1)]}>
+/**
+ * MODULE SCOPE, deliberately. This was declared INSIDE FlashFitBundle, which
+ * gave it a new function identity on every render — React compares component
+ * types by identity, so it treated each render as a different component and
+ * unmounted/remounted all three tiles and their images instead of updating them.
+ * FlashFitBundle re-renders on every Home render (its only prop is an inline
+ * arrow), so that was three image remounts per Home render.
+ */
+const FlashTile = React.memo(function FlashTile({ label, img, h, onOpen }: {
+  label: string; img: any; h: number; onOpen?: (label: string) => void;
+}) {
+  const press = useCallback(() => onOpen?.(label), [onOpen, label]);
+  return (
+    <Pressable onPress={press} style={[{ backgroundColor: '#F4F4F4', height: h, overflow: 'hidden' }, BORDER(1)]}>
       {/* centred heading-style label, no stars */}
       <Text style={[T.h3, { color: C.ink, textAlign: 'center', textTransform: 'uppercase', paddingTop: 12, paddingHorizontal: 8 }]} numberOfLines={1}>{label}</Text>
       {/* image fills the rest of the grey tile — no inner spacing */}
@@ -2152,26 +2501,47 @@ function FlashFitBundle({ onOpen }: { onOpen?: (label: string) => void }) {
       </View>
     </Pressable>
   );
+});
+
+function FlashFitBundle({ section, onOpen }: { section: CmsSection; onOpen?: (label: string) => void }) {
+  // Right tile = full column height; left-top (t-shirt) is taller than
+  // left-bottom (shoe) so the two left tiles are intentionally uneven.
+  const GRID_H = Math.round(W * 0.95);             // full height → right (jeans) tile
+  const topH = Math.round(GRID_H * 0.56);          // left-top (t-shirt) — the taller one
+  const bottomH = GRID_H - topH - SP.s;            // left-bottom (shoe) — the shorter one
+
+  // The grid has three fixed slots, so the first three resolvable items fill them in order:
+  // left-top, left-bottom, right. Fewer than three simply leaves a slot empty rather than
+  // reflowing into a layout nobody designed.
+  const tiles = useMemo(
+    () =>
+      section.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
+        .filter(withSource)
+        .slice(0, 3),
+    [section.items],
+  );
+  if (tiles.length === 0) return null;
 
   return (
     <View style={{ marginTop: SP.xl, backgroundColor: C.white }}>
       {/* header */}
       <Pressable onPress={() => onOpen?.('Flash Fit')} style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-        <Text style={[T.h2, { color: C.ink, textTransform: 'uppercase' }]} numberOfLines={1} adjustsFontSizeToFit>Flash Fit of the Day</Text>
+        <Text style={[T.h2, { color: C.ink, textTransform: 'uppercase' }]} numberOfLines={1} adjustsFontSizeToFit>{section.title ?? 'Flash Fit of the Day'}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
-          <Text style={[T.caption, { color: C.dim }]}>Fresh looks served hot!</Text>
-          <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Under ₹999</Text>
+          <Text style={[T.caption, { color: C.dim }]}>{section.subtitle ?? ''}</Text>
+          <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>{section.ctaLabel ?? ''}</Text>
           <Feather name="chevron-right" size={14} color={C.ink} />
         </View>
       </Pressable>
       {/* bento grid — tall tiles on the diagonal */}
       <View style={{ flexDirection: 'row', gap: SP.s, padding: SP.l }}>
         <View style={{ flex: 1, gap: SP.s }}>
-          <Tile label="T-Shirt" img={FLASH_TSHIRT_IMG} h={topH} />
-          <Tile label="Shoes" img={FLASH_SHOES_IMG} h={bottomH} />
+          {tiles[0] ? <FlashTile label={tiles[0].label} img={tiles[0].source} h={topH} onOpen={onOpen} /> : null}
+          {tiles[1] ? <FlashTile label={tiles[1].label} img={tiles[1].source} h={bottomH} onOpen={onOpen} /> : null}
         </View>
         <View style={{ flex: 1.35 }}>
-          <Tile label="Jeans" img={FLASH_JEANS_IMG} h={GRID_H} />
+          {tiles[2] ? <FlashTile label={tiles[2].label} img={tiles[2].source} h={GRID_H} onOpen={onOpen} /> : null}
         </View>
       </View>
     </View>

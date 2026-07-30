@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, StatusBar } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, SP, BORDER } from '../theme/brutal';
 import { useApp } from '../state/AppState';
+import { getLoyalty } from '../services/loyalty';
 
 const APP_VERSION = '1.0.0';
 const BAND = '#F4F4F4';       // light grey separator band
@@ -33,9 +34,20 @@ const PROFILE_TIERS: Array<{ name: string; min: number }> = [
 ];
 
 export default function ProfileScreen() {
+  // Real points from GET /consumer/loyalty — this chip showed the literal 1,240
+  // to every customer, including signed-out ones.
+  const [points, setPoints] = useState(0);
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { user, signOut, showToast, showConfirm, requireAuth } = useApp();
+  useEffect(() => {
+    if (!user) { setPoints(0); return; }
+    let cancelled = false;
+    getLoyalty({ limit: 1 })
+      .then((l) => { if (!cancelled) setPoints(l.balancePoints); })
+      .catch(() => { /* offline — show 0 rather than a fabricated balance */ });
+    return () => { cancelled = true; };
+  }, [user]);
 
   const go = (screen?: string, label?: string) =>
     screen ? nav.navigate(screen) : showToast(label || 'Coming soon', 'Coming soon');
@@ -62,7 +74,7 @@ export default function ProfileScreen() {
             style={[{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, marginRight: SP.s }, BORDER(1), { borderRadius: 0 }]}
           >
             <Feather name="star" size={13} color={GOLD} />
-            <Text style={H(13, '700', C.ink)}>1,240</Text>
+            <Text style={H(13, '700', C.ink)}>{points.toLocaleString()}</Text>
           </Pressable>
         )}
       </View>
@@ -97,7 +109,9 @@ export default function ProfileScreen() {
 
             {/* ─── Feature list rows — the app's real features ─── */}
             <View style={{ marginTop: SP.l }}>
-              <ListRow icon="rotate-ccw" title="Returns & Exchanges" sub="7-day easy returns" onPress={() => go('OrderReturn')} />
+              {/* Exchanges are NOT a backend concept — there is no endpoint or order
+                  state for one. Returning for a refund is the whole of it. */}
+              <ListRow icon="rotate-ccw" title="Returns & Refunds" sub="7-day window, free pickup" onPress={() => go('OrderReturn')} />
               <ListRow icon="map-pin" title="Saved Addresses" sub="Home, office & more" onPress={() => go('SavedAddresses')} />
               <ListRow icon="credit-card" title="Payment Methods" sub="UPI, cards, wallet & COD" onPress={() => go('PaymentMethods')} />
               <ListRow icon="gift" title="Refer & Earn" sub="Invite friends, get shopping credit" onPress={() => go('ReferralRewards')} />

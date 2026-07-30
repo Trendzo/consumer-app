@@ -19,7 +19,7 @@ const ZOOM_MS = 440;
 type Frame = { x: number; y: number; w: number; h: number };
 
 type ZoomApi = {
-  openZoom: (ref: React.RefObject<any> | any, uri: string, product: any, params?: any) => void;
+  openZoom: (ref: React.RefObject<any> | any, uri: string | number, product: any, params?: any) => void;
   closeZoom: (frame?: Frame, uri?: string) => void;
 };
 
@@ -29,7 +29,7 @@ export const useZoom = () => useContext(ZoomCtx);
 export function useZoomCard() {
   const { openZoom } = useZoom();
   const ref = useRef<any>(null);
-  const open = useCallback((uri: string, product: any, params?: any) => openZoom(ref, uri, product, params), [openZoom]);
+  const open = useCallback((uri: string | number, product: any, params?: any) => openZoom(ref, uri, product, params), [openZoom]);
   return { ref, open };
 }
 
@@ -40,7 +40,7 @@ export function ZoomProvider({ navRef, children }: { navRef: any; children: Reac
   const bgOp = useRef(new Animated.Value(0)).current;
   const closePending = useRef(false);
 
-  const openZoom = useCallback((ref: any, uri: string, product: any, params?: any) => {
+  const openZoom = useCallback((ref: any, uri: string | number, product: any, params?: any) => {
     if (!navRef?.isReady?.()) return;
     const go = (frame?: Frame) => {
       const payload = { product, _zoom: !!frame, _cardFrame: frame, ...(params || {}) };
@@ -114,7 +114,7 @@ export function ZoomProvider({ navRef, children }: { navRef: any; children: Reac
                 ],
               }}
             >
-              <ExpoImage source={{ uri: sess!.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" cachePolicy="memory-disk" transition={0} />
+              <ExpoImage source={typeof sess!.uri === 'number' ? sess!.uri : { uri: sess!.uri }} style={{ width: '100%', height: '100%' }} contentFit="contain" cachePolicy="memory-disk" transition={0} />
             </Animated.View>
           </View>
         )}

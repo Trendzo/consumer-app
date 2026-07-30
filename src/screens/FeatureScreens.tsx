@@ -1,7 +1,7 @@
 // Feature screens — Image Search, Coupon Wallet, Community Feed, Mood Board,
 // Lucky Draw, Invite Friends, App Challenges, New Arrivals, Discover Brands,
 // For Her, For Him, Occasion Shopping, Flash Sale, Trending
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Alert, Animated, Easing, Modal, Share, TextInput } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,21 +9,39 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead, CachedImage, OptionSheet } from '../components/Brutal';
+import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, ProductCard, Chip, SectionHead, CachedImage, OptionSheet, CARD_STYLES} from '../components/Brutal';
 import { PRODUCTS, BRANDS, OCCASIONS, COMMUNITY, BUNDLES, CATEGORIES } from '../data/mockData';
+import { useCatalogProducts } from '../hooks/useCatalogProducts';
+import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 import { useApp } from '../state/AppState';
 import { useZoom } from '../navigation/ZoomTransition';
-import { listCoupons } from '../services/promotions';
+import * as Clipboard from 'expo-clipboard';
+import { listCoupons, type Coupon } from '../services/promotions';
+import { listRewards, type Reward } from '../services/spin';
+import { getReferral, type Referral } from '../services/referrals';
 
 // ─── IMAGE SEARCH ──────────────────────────────────────────
-// Stubbed but feels real: the user picks a source, watches a fake scan on a
-// stand-in product image, and lands on a grid of "similar" PRODUCTS.
-const FAKE_SCAN_IMAGES = PRODUCTS.slice(0, 6).map(p => p.img);
+/**
+ * There is no visual-search backend, and this screen no longer pretends there is.
+ *
+ * It used to run a fake scan animation over a bundled demo product photo, then
+ * announce "12 matches found" and render eight demo products each stamped with a
+ * descending "98% match / 95% match / …" badge computed from the array index.
+ * Nothing was matched, nothing was for sale, and the confidence scores were
+ * `98 - i * 3`.
+ *
+ * The picker and the scan animation stay — they are the entry point for the real
+ * feature when it lands — but the results are now live catalog products under an
+ * honest heading, with no match percentages.
+ */
 
 export function ImageSearchScreen() {
   const nav = useNavigation<any>();
   const { openZoom } = useZoom();
+  const { gender } = useApp();
   const zoomRefs = useRef<{ [k: string]: any }>({});
+  // Honest stand-in for the results grid until visual search exists.
+  const scanFallback = useCatalogProducts({ gender, sort: 'newest', limit: 8 });
   const [pickerOpen, setPickerOpen] = useState(true);
   const [stage, setStage] = useState<'idle' | 'camera' | 'scanning' | 'results'>('idle');
   const [pickedImg, setPickedImg] = useState<string | null>(null);
@@ -89,10 +107,11 @@ export function ImageSearchScreen() {
   const snapPhoto = async () => {
     try {
       const photo = await cameraRef.current?.takePictureAsync({ quality: 0.6, skipProcessing: true });
-      const uri = photo?.uri || FAKE_SCAN_IMAGES[0];
+      // Only a real camera URI is a usable string here.
+      const uri = photo?.uri || '';
       beginScan(uri);
     } catch {
-      beginScan(FAKE_SCAN_IMAGES[0]);
+      beginScan('');
     }
   };
 
@@ -182,21 +201,30 @@ export function ImageSearchScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[T.micro]}>{'Your image'}</Text>
-              <Text style={[T.h3, { marginTop: 2 }]}>12 matches found</Text>
+              <Text style={[T.h3, { marginTop: 2 }]}>Visual match isn't live yet</Text>
               <Pressable onPress={reset} style={[{ marginTop: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
                 <Text style={[T.caption, { color: C.ink }]}>Try another</Text>
               </Pressable>
             </View>
-          </View>          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: SP.m }}>
-            {PRODUCTS.slice(0, 8).map((p, i) => (
-              <FadeInUp key={p.id} delay={i * 40}>
-                <ProductCard p={p} style={{ marginBottom: SP.m }}>
-                  <View style={{ position: 'absolute', top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: C.ink }}>
-                    <Text style={[T.micro, { color: C.white }]}>{`${98 - i * 3}% match`}</Text>
-                  </View>
-                </ProductCard>
-              </FadeInUp>
-            ))}
+          </View>
+          <Text style={[T.caption, { color: C.dim, marginTop: SP.m }]}>
+            {"We can't search by photo yet — here's what's new in store."}
+          </Text>
+          <View style={{ marginTop: SP.m }}>
+            <CatalogSection
+              status={scanFallback.status}
+              count={scanFallback.products.length}
+              onRetry={scanFallback.reload}
+              empty={<CatalogEmpty title="Nothing live yet" sub="New drops land here as stores go live." />}
+            >
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                {scanFallback.products.map((p, i) => (
+                  <FadeInUp key={p.id} delay={i * 40}>
+                    <ProductCard p={p} style={CARD_STYLES.mb_m} />
+                  </FadeInUp>
+                ))}
+              </View>
+            </CatalogSection>
           </View>
         </ScrollView>
       )}
@@ -237,25 +265,44 @@ export function ImageSearchScreen() {
 }
 
 // ─── COUPON WALLET ─────────────────────────────────────────
-const COUPONS = [
-  { id: '1', code: 'NEWVIBE', discount: '₹500 OFF', min: 'Min ₹999', expires: '30 Apr', active: true },
-  { id: '2', code: 'FLASH50', discount: '50% OFF', min: 'Min ₹1,499', expires: '15 Apr', active: true },
-  { id: '3', code: 'FREESHIP', discount: 'FREE DELIVERY', min: 'No minimum', expires: '31 May', active: true },
-  { id: '4', code: 'LOYALTY10', discount: '10% OFF', min: 'Min ₹599', expires: '20 Apr', active: true },
-  { id: '5', code: 'SUMMER25', discount: '25% OFF', min: 'Min ₹2,000', expires: '1 Jun', active: false },
-];
+// No mock fallback here on purpose. These five codes (with invented expiry
+// dates) used to seed the wallet and remained on screen whenever the API
+// returned nothing — so the app advertised codes the backend had never heard of,
+// and every one of them was rejected at checkout. An empty wallet is honest; a
+// full one made of fiction is not.
 
 export function CouponWalletScreen() {
   const nav = useNavigation<any>();
-  const { showToast } = useApp();
-  // Live coupons from the public /promotions/active; mock as the initial/fallback set.
-  const [coupons, setCoupons] = useState(COUPONS);
+  const { showToast, token } = useApp();
+  // Live coupons from the public /promotions/active. Starts empty and stays empty
+  // if nothing is running or the request fails.
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [couponsLoading, setCouponsLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    listCoupons().then((c) => { if (!cancelled && c.length) setCoupons(c); }).catch(() => {});
+    listCoupons()
+      .then((c) => { if (!cancelled) setCoupons(c); })
+      .catch(() => { /* leave the wallet empty rather than showing invented codes */ })
+      .finally(() => { if (!cancelled) setCouponsLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  const activeCount = coupons.filter((c) => c.active).length;
+  // Codes issued to THIS account — wheel prizes and support grants. They are not in
+  // /promotions/active, which by design lists only what everyone can use, so before
+  // this a won prize was invisible between the toast and the checkout field.
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  useEffect(() => {
+    if (!token) { setRewards([]); return; }
+    let cancelled = false;
+    listRewards()
+      .then((r) => { if (!cancelled) setRewards(r); })
+      .catch(() => { /* a missing personal list should not blank the public one */ });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const activeCount = useMemo(
+    () => coupons.filter((c) => c.active).length + rewards.filter((r) => r.state === 'available').length,
+    [coupons, rewards],
+  );
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
@@ -276,8 +323,57 @@ export function CouponWalletScreen() {
           </View>
         </View>
 
+        {/* ─── WON BY YOU — personal single-use codes, above the public offers
+                because they are the ones that can quietly expire. ─── */}
+        {rewards.length > 0 && (
+          <>
+            <Text style={[T.h3, { textTransform: 'uppercase', paddingHorizontal: SP.l, marginBottom: SP.s }]}>Won by you</Text>
+            <View style={{ paddingHorizontal: SP.l, gap: SP.s, marginBottom: SP.l }}>
+              {rewards.map((r, i) => (
+                <FadeInUp key={r.id} delay={i * 40}>
+                  <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), r.state !== 'available' && { opacity: 0.5 }]}>
+                    <View style={{ width: 96, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2E63C', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline, borderStyle: 'dashed' }}>
+                      <Feather name="gift" size={18} color={C.ink} />
+                      <Text style={[T.micro, { color: C.ink, marginTop: 4, letterSpacing: 1 }]}>YOURS</Text>
+                    </View>
+                    <View style={{ flex: 1, padding: SP.m }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                          <Text style={[T.monoB, { color: C.ink }]}>{r.code}</Text>
+                        </View>
+                        <Pressable
+                          onPress={() => showToast('Copied', `${r.code} copied to clipboard`, 'copy')}
+                          hitSlop={8}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                        >
+                          <Feather name="copy" size={13} color={C.ink} />
+                          <Text style={[T.caption, { color: C.ink, fontFamily: 'Inter_600SemiBold' }]}>
+                            {r.state === 'available' ? 'Copy' : r.state === 'used' ? 'Used' : 'Expired'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>
+                        {`${r.name} · Expires ${new Date(r.validUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`}
+                      </Text>
+                    </View>
+                  </View>
+                </FadeInUp>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* ─── coupon tickets ─── */}
         <View style={{ paddingHorizontal: SP.l, gap: SP.s }}>
+          {!couponsLoading && coupons.length === 0 && rewards.length === 0 && (
+            <View style={[{ padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
+              <Feather name="tag" size={24} color={C.dim} />
+              <Text style={[T.h3, { marginTop: 10 }]}>No coupons right now</Text>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4, textAlign: 'center' }]}>
+                New offers land here as soon as they go live.
+              </Text>
+            </View>
+          )}
           {coupons.map((c, i) => (
             <FadeInUp key={c.id} delay={i * 40}>
               <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
@@ -330,7 +426,10 @@ export function CommunityFeedScreen() {
   const [filter, setFilter] = useState('all');
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
-  const visiblePosts = filter === 'all' ? FEED_POSTS : FEED_POSTS.filter(p => p.tags.includes(filter));
+  const visiblePosts = useMemo(
+    () => (filter === 'all' ? FEED_POSTS : FEED_POSTS.filter(p => p.tags.includes(filter))),
+    [filter],
+  );
   const lead = visiblePosts[0] || FEED_POSTS[0];
   const rest = visiblePosts.slice(1);
   const toggleLike = (id: string) => setLiked(prev => ({ ...prev, [id]: !prev[id] }));
@@ -563,8 +662,15 @@ export function MoodBoardScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [newBoardName, setNewBoardName] = useState('');
   const activeBoard = boards.find(b => b.id === activeId) || boards[0];
-  const activePins = activeBoard.pins.map(id => MOOD_PINS.find(p => p.id === id)).filter(Boolean) as typeof MOOD_PINS;
-  const suggestions = MOOD_PINS.filter(p => !activeBoard.pins.includes(p.id)).slice(0, 8);
+  // Two passes over MOOD_PINS per pin, on every render of the board.
+  const activePins = useMemo(
+    () => activeBoard.pins.map(id => MOOD_PINS.find(p => p.id === id)).filter(Boolean) as typeof MOOD_PINS,
+    [activeBoard.pins],
+  );
+  const suggestions = useMemo(
+    () => MOOD_PINS.filter(p => !activeBoard.pins.includes(p.id)).slice(0, 8),
+    [activeBoard.pins],
+  );
   const isSaved = (pinId: string) => activeBoard.pins.includes(pinId);
   const updateActivePins = (nextPins: string[]) => {
     setBoards(prev => prev.map(b => b.id === activeBoard.id ? { ...b, pins: nextPins } : b));
@@ -901,19 +1007,35 @@ const INVITED = [
 export function InviteFriendsScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
-  const joined = INVITED.filter(i => i.status === 'JOINED').length;
+  const joined = useMemo(() => INVITED.filter(i => i.status === 'JOINED').length, []);
   const currentTier = INVITE_TIERS.findIndex(t => joined < t.need);
   const activeTier = currentTier === -1 ? INVITE_TIERS.length - 1 : Math.max(0, currentTier - 1);
   const nextTier = INVITE_TIERS[currentTier] || INVITE_TIERS[INVITE_TIERS.length - 1];
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  const shareLink = 'https://trendzo.app/invite/TRENDZO42';
-  const shareMessage = `Join me on TRENDZO. Use my code TRENDZO42 and we both get ₹200. ${shareLink}`;
+  // The real code + share link come from GET /consumer/referrals/me. This screen
+  // hardcoded 'TRENDZO42', so every customer was told to share one identical code
+  // and no referral could ever be attributed to them.
+  const [ref, setRef] = useState<Referral | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getReferral()
+      .then((r) => { if (!cancelled) setRef(r); })
+      .catch(() => { /* guest / offline — the code block renders its empty state */ });
+    return () => { cancelled = true; };
+  }, []);
+  const code = ref?.code ?? null;
+  const shareLink = ref?.shareLink ?? null;
+  const shareMessage = code
+    ? `Join me on TRENDZO. Use my code ${code} and we both get ₹200.${shareLink ? ` ${shareLink}` : ''}`
+    : 'Join me on TRENDZO.';
 
   const copyCode = () => {
+    if (!code) return;
     setCopied(true);
-    showToast('Copied', 'TRENDZO42 copied to clipboard', 'copy');
+    Clipboard.setStringAsync(code).catch(() => {});
+    showToast('Copied', `${code} copied to clipboard`, 'copy');
     setTimeout(() => setCopied(false), 1800);
   };
 
@@ -925,7 +1047,7 @@ export function InviteFriendsScreen() {
   const openNativeShare = async () => {
     setShareOpen(false);
     try {
-      await Share.share({ message: shareMessage, url: shareLink });
+      await Share.share({ message: shareMessage, ...(shareLink ? { url: shareLink } : {}) });
     } catch {}
   };
 
@@ -957,9 +1079,9 @@ export function InviteFriendsScreen() {
           <View style={[{ marginTop: SP.s, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ padding: SP.l, backgroundColor: '#F4F4F4', alignItems: 'center' }}>
               <Text style={[T.micro, { color: C.dim }]}>{'Tap to copy'}</Text>
-              <Text style={[T.monoB, { color: C.ink, fontSize: rf(22), letterSpacing: 5, marginTop: 8 }]}>TRENDZO42</Text>
+              <Text style={[T.monoB, { color: C.ink, fontSize: rf(22), letterSpacing: 5, marginTop: 8 }]}>{code ?? '—'}</Text>
               <View style={{ flexDirection: 'row', gap: 4, marginTop: 10 }}>
-                {'TRENDZO42'.split('').map((ch, i) => (
+                {(code ?? '').split('').map((ch, i) => (
                   <View key={i} style={{ width: 6, height: 2, backgroundColor: C.ink }} />
                 ))}
               </View>
@@ -1099,7 +1221,11 @@ export function AppChallengesScreen() {
   const [tab, setTab] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [claimed, setClaimed] = useState<Record<string, boolean>>({});
   const quests = QUESTS[tab];
-  const totalXP = Object.values(QUESTS).flat().filter(q => q.done || claimed[q.id]).reduce((s, q) => s + q.xp, 0) + 1240;
+  // flat() + filter + reduce over every quest, rebuilt on each render.
+  const totalXP = useMemo(
+    () => Object.values(QUESTS).flat().filter(q => q.done || claimed[q.id]).reduce((s, q) => s + q.xp, 0) + 1240,
+    [claimed],
+  );
   const level = Math.floor(totalXP / 500) + 1;
   const levelProg = (totalXP % 500) / 500;
 
@@ -1210,8 +1336,13 @@ export function AppChallengesScreen() {
 export function NewArrivalsScreen() {
   const nav = useNavigation<any>();
   const { openZoom } = useZoom();
+  const { gender } = useApp();
   const zoomRefs = useRef<{ [k: string]: any }>({});
-  const goToProduct = (p: any) => nav.navigate('ProductDetail', { product: p });
+  // "Latest drops" was the bundled demo array in file order — the same eight
+  // items forever, none of them new and none of them real.
+  const { products, status, reload } = useCatalogProducts({ gender, sort: 'newest', limit: 24 });
+  // Stable across renders so the ProductCard memo below can hold.
+  const goToProduct = useCallback((p: any) => nav.navigate('ProductDetail', { product: p }), [nav]);
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
@@ -1221,16 +1352,25 @@ export function NewArrivalsScreen() {
           <Text style={[T.caption, { color: C.dim }]}>{'Just dropped'}</Text>
           <Text style={[T.h1, { marginTop: 4, textTransform: 'uppercase' }]}>Latest drops.</Text>
         </FadeInUp>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, marginTop: SP.l }}>
-          {PRODUCTS.map((p, i) => (
-            <FadeInUp key={p.id} delay={i * 40}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }}>
-                <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Text style={[T.micro, { color: C.white }]}>New</Text>
-                </View>
-              </ProductCard>
-            </FadeInUp>
-          ))}
+        <View style={{ marginTop: SP.l }}>
+          <CatalogSection
+            status={status}
+            count={products.length}
+            onRetry={reload}
+            empty={<CatalogEmpty title="No new arrivals" sub="Nothing has dropped here yet. Check back soon." />}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+              {products.map((p, i) => (
+                <FadeInUp key={p.id} delay={i * 40}>
+                  <ProductCard p={p} onPress={goToProduct} style={CARD_STYLES.mb_s}>
+                    <View style={{ position: 'absolute', top: 0, right: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={[T.micro, { color: C.white }]}>New</Text>
+                    </View>
+                  </ProductCard>
+                </FadeInUp>
+              ))}
+            </View>
+          </CatalogSection>
         </View>
       </ScrollView>
     </View>
@@ -1289,7 +1429,8 @@ const HER_PRODUCTS = [
 
 export function ForHerScreen() {
   const nav = useNavigation<any>();
-  const goToProduct = (p: any) => nav.navigate('ProductDetail', { product: p });
+  // Stable across renders so the ProductCard memo below can hold.
+  const goToProduct = useCallback((p: any) => nav.navigate('ProductDetail', { product: p }), [nav]);
   const herCategories = [
     { id: 'dresses', label: 'DRESSES', icon: 'gift' },
     { id: 'skirts', label: 'SKIRTS', icon: 'scissors' },
@@ -1348,7 +1489,7 @@ export function ForHerScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
           {HER_PRODUCTS.filter(p => p.category === 'Dresses').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} />
+              <ProductCard p={p} onPress={goToProduct} />
             </FadeInUp>
           ))}
         </ScrollView>
@@ -1388,7 +1529,7 @@ export function ForHerScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
           {HER_PRODUCTS.filter(p => p.category === 'Shoes' || p.category === 'Jewelry').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} />
+              <ProductCard p={p} onPress={goToProduct} />
             </FadeInUp>
           ))}
         </ScrollView>
@@ -1398,7 +1539,7 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.m }}>
           {HER_PRODUCTS.filter(p => p.tag === 'NEW').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }} />
+              <ProductCard p={p} onPress={goToProduct} style={CARD_STYLES.mb_s} />
             </FadeInUp>
           ))}
         </View>
@@ -1424,7 +1565,8 @@ const HIM_PRODUCTS = [
 
 export function ForHimScreen() {
   const nav = useNavigation<any>();
-  const goToProduct = (p: any) => nav.navigate('ProductDetail', { product: p });
+  // Stable across renders so the ProductCard memo below can hold.
+  const goToProduct = useCallback((p: any) => nav.navigate('ProductDetail', { product: p }), [nav]);
   const himCategories = [
     { id: 'tees', label: 'TEES', icon: 'square' },
     { id: 'jeans', label: 'JEANS', icon: 'minus' },
@@ -1483,7 +1625,7 @@ export function ForHimScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
           {HIM_PRODUCTS.filter(p => p.category === 'Jeans' || p.category === 'Jackets' || p.category === 'Coats').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} />
+              <ProductCard p={p} onPress={goToProduct} />
             </FadeInUp>
           ))}
         </ScrollView>
@@ -1523,7 +1665,7 @@ export function ForHimScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.m }}>
           {HIM_PRODUCTS.filter(p => p.category === 'Watches' || p.category === 'Accessories' || p.category === 'Caps').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 30}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} />
+              <ProductCard p={p} onPress={goToProduct} />
             </FadeInUp>
           ))}
         </ScrollView>
@@ -1533,7 +1675,7 @@ export function ForHimScreen() {
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.m }}>
           {HIM_PRODUCTS.filter(p => p.tag === 'NEW').map((p, i) => (
             <FadeInUp key={p.id} delay={i * 40}>
-              <ProductCard p={p} onPress={() => goToProduct(p)} style={{ marginBottom: SP.s }} />
+              <ProductCard p={p} onPress={goToProduct} style={CARD_STYLES.mb_s} />
             </FadeInUp>
           ))}
         </View>

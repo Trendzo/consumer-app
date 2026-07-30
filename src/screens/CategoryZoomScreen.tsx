@@ -20,9 +20,11 @@ import Animated, {
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { C, T, SP } from '../theme/brutal';
-import { CachedImage, ProductCard, CARD } from '../components/Brutal';
-import { PRODUCTS } from '../data/mockData';
+import { CachedImage, ProductCard, CARD, CARD_STYLES} from '../components/Brutal';
+import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 import type { Product } from '../data/mockData';
+import { listProducts } from '../services/catalog';
+import { useApp } from '../state/AppState';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -42,23 +44,13 @@ const IMG_Y = Math.round(H * 0.07);
 const MS = 520;
 const EASE = Easing.inOut(Easing.cubic);
 
-// Loose keyword → catalog-category mapping so every tile shows relevant items.
-const matcherFor = (label: string): ((p: Product) => boolean) => {
-  const l = label.toLowerCase();
-  if (/(denim|cargo|skirt|trouser|pant|jean)/.test(l)) return (p) => p.category === 'Bottomwear';
-  if (/(sneaker|shoe|heel|boot)/.test(l)) return (p) => p.category === 'Footwear';
-  if (/(bag|watch|accessor|jewel)/.test(l)) return (p) => p.category === 'Accessories';
-  if (/dress/.test(l)) return (p) => p.category === 'Dresses';
-  if (/(tee|tank|shirt|top|set|workwear|jacket|coat|hoodie)/.test(l)) return (p) => p.category === 'Topwear';
-  return () => true;
-};
-
 type Frame = { x: number; y: number; w: number; h: number };
 
 export default function CategoryZoomScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { label = 'Category', img, tint = '#E8A79A' } = route.params ?? {};
+  const { gender } = useApp();
   const frame: Frame = route.params?._frame ?? { x: W / 2 - 60, y: H / 2 - 90, w: 120, h: 158 };
 
   // One progress value drives the whole choreography.
@@ -171,10 +163,34 @@ export default function CategoryZoomScreen() {
     transform: [{ translateY: interpolate(p.value, [0.55, 1], [36, 0]) }],
   }));
 
-  const products = useMemo(() => {
-    const list = PRODUCTS.filter(matcherFor(label));
-    return list.length ? list : PRODUCTS;
-  }, [label]);
+  /**
+   * Real products for this category.
+   *
+   * This screen never called the backend at all — it filtered the bundled demo
+   * catalog and showed that, which is why it displayed demo brands and (once
+   * pngimg.com went down) blank tiles. The label is a category name, so it goes
+   * through the same free-text search the rest of browse uses.
+   *
+   * The demo filter that used to back this up is gone, along with its final
+   * `return list.length ? list : PRODUCTS` — a category that matched nothing
+   * fell through to showing the ENTIRE demo catalogue under its heading.
+   */
+  const [products, setProducts] = useState<Product[]>([]);
+  const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  const [retryKey, setRetryKey] = useState(0);
+  useEffect(() => {
+    if (!ready) return; // wait for the morph so the fetch never competes with it
+    const ac = new AbortController();
+    setStatus('loading');
+    listProducts({ gender, search: label, limit: 30, signal: ac.signal })
+      .then((list) => { setProducts(list); setStatus('ready'); })
+      .catch((e) => {
+        if (e?.name === 'AbortError') return;
+        setProducts([]);
+        setStatus('error');
+      });
+    return () => ac.abort();
+  }, [label, gender, ready, retryKey]);
 
   return (
     <View style={{ flex: 1, backgroundColor: 'transparent' }}>
@@ -193,14 +209,21 @@ export default function CategoryZoomScreen() {
         >
           <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: SP.m }}>
             <Text style={[T.h2, { textTransform: 'uppercase', flex: 1 }]} numberOfLines={1}>{label}</Text>
-            <Text style={[T.caption, { color: C.dim }]}>{products.length} styles</Text>
+            {status === 'ready' && <Text style={[T.caption, { color: C.dim }]}>{products.length} styles</Text>}
           </View>
           {ready && (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
-              {products.map((prod) => (
-                <ProductCard key={prod.id} p={prod} style={{ marginBottom: SP.s, width: CARD.w }} />
-              ))}
-            </View>
+            <CatalogSection
+              status={status}
+              count={products.length}
+              onRetry={() => setRetryKey((k) => k + 1)}
+              empty={<CatalogEmpty title="Nothing in this category" sub={`No live listings matching "${label}" right now.`} />}
+            >
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+                {products.map((prod) => (
+                  <ProductCard key={prod.id} p={prod} style={CARD_STYLES.gridCell} />
+                ))}
+              </View>
+            </CatalogSection>
           )}
         </Animated.ScrollView>
       </Animated.View>

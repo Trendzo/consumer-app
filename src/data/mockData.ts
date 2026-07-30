@@ -7,7 +7,60 @@ const u = (id: string, w = 600) => `https://images.unsplash.com/${id}?w=${w}&q=7
 // Real product PNGs (transparent backgrounds) from pngimg.com — direct CDN
 // URLs that hotlink reliably. Format: `png('dress', 197)` →
 // https://pngimg.com/uploads/dress/dress_PNG197.png
-const png = (cat: string, n: number | string) => `https://pngimg.com/uploads/${cat}/${cat}_PNG${n}.png`;
+/**
+ * Mock catalog art, served from the BUNDLE.
+ *
+ * This used to build pngimg.com URLs. That host is now unreachable — all 54
+ * generated URLs fail to connect — so every screen that falls back to the mock
+ * catalog rendered blank tiles. Offline/fallback data must not depend on a third
+ * party at all: these are the product cutouts the app already ships, so the mock
+ * catalog now renders with zero network and cannot break again.
+ *
+ * `n` is kept in the signature (unused) so the 54 call sites below stay as they
+ * are and still read as "variant n of this category".
+ */
+const ART = {
+  cap: require('../../assets/github-import/men/cap.webp'),
+  jacket: require('../../assets/github-import/men/jackets.webp'),
+  jeans: require('../../assets/github-import/men/jeans.webp'),
+  shirt: require('../../assets/github-import/men/shirt.webp'),
+  shoes: require('../../assets/github-import/men/shoes.webp'),
+  short: require('../../assets/github-import/men/short.webp'),
+  tshirt: require('../../assets/github-import/men/tshirt.webp'),
+  watch: require('../../assets/github-import/men/watchs.webp'),
+  dress: require('../../assets/github-import/women/dress.webp'),
+  ethnic: require('../../assets/github-import/women/ethenic.webp'),
+  glasses: require('../../assets/github-import/women/glasses.webp'),
+  heels: require('../../assets/github-import/women/heels.webp'),
+  jewellery: require('../../assets/github-import/women/jwellery.webp'),
+  pants: require('../../assets/github-import/women/pants.webp'),
+  skirt: require('../../assets/github-import/women/skirts.webp'),
+  top: require('../../assets/github-import/women/top.webp'),
+  bag: require('../../assets/github-import/extra/1.webp'),
+  hoodie: require('../../assets/github-import/top/hoodie_sorry_iam_not.webp'),
+} as const;
+
+/** Mock category name -> the closest bundled cutout. */
+const ART_BY_CAT: Record<string, number> = {
+  coat: ART.jacket,
+  jacket: ART.jacket,
+  hoodie: ART.hoodie,
+  sweater: ART.hoodie,
+  kimono: ART.ethnic,
+  dress: ART.dress,
+  jeans: ART.jeans,
+  tshirt: ART.tshirt,
+  scarf: ART.ethnic,
+  sunglasses: ART.glasses,
+  watches: ART.watch,
+  necklace: ART.jewellery,
+  ring: ART.jewellery,
+  lipstick: ART.jewellery,
+  women_bag: ART.bag,
+  women_shoes: ART.heels,
+};
+
+const png = (cat: string, _n: number | string): number => ART_BY_CAT[cat] ?? ART.top;
 
 export type Product = {
   id: string;
@@ -16,19 +69,27 @@ export type Product = {
   price: number;
   original: number;
   rating: number;
+  /** How many ratings that average is built from. Absent when the backend
+   *  projection predates it; never invented client-side. */
+  ratingCount?: number;
   colors: [string, string]; // fallback gradient colors
-  img: string;
+  /** Remote URL, or a bundled require() id for the mock catalog. */
+  img: string | number;
   category: string;
   tag?: string;
+  /** Cheapest shoppable variant, when the row came from the backend card
+   *  projection. Lets a grid tile add to the bag without a detail fetch.
+   *  Absent on the bundled mock catalog. */
+  variantId?: string;
 };
 
 export type Category = { id: string; label: string; icon: string; tint: string; img: string | number };
 export type Brand = { id: string; name: string; tint: string; logo: string; domain: string };
-export type Reel = { id: string; user: string; title: string; colors: [string, string]; img: string };
-export type Bundle = { id: string; title: string; price: number; pieces: number; colors: [string, string, string]; img: string };
-export type CommunityPost = { id: string; user: string; likes: number; colors: [string, string]; img: string };
+export type Reel = { id: string; user: string; title: string; colors: [string, string]; img: string | number };
+export type Bundle = { id: string; title: string; price: number; pieces: number; colors: [string, string, string]; img: string | number };
+export type CommunityPost = { id: string; user: string; likes: number; colors: [string, string]; img: string | number };
 export type GameCard = { id: string; title: string; subtitle: string; cta: string; icon: string };
-export type Occasion = { id: string; label: string; colors: [string, string]; img: string };
+export type Occasion = { id: string; label: string; colors: [string, string]; img: string | number };
 
 export const HERO_IMG = u('photo-1490481651871-ab68de25d43d', 900);
 export const HERO_IMG_2 = u('photo-1469334031218-e382a71b716b', 900);
@@ -192,7 +253,7 @@ export const HIM_CATEGORIES: Category[] = [
 // product shot instead of the backend's lifestyle category photo — matching
 // the original look. Keyword-matched; specific terms (polo, heel, mini) win
 // before broad ones (shirt, shoe, dress).
-export function categoryPng(label: string): string {
+export function categoryPng(label: string): number {
   const l = (label || '').toLowerCase();
   const has = (...k: string[]) => k.some((s) => l.includes(s));
   if (has('polo')) return png('tshirt', 5453);

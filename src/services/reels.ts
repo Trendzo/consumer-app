@@ -1,23 +1,40 @@
-// Reels — consumer short product videos + social layer (likes / saves / comments / views).
+// Reels — consumer short videos + social layer (likes / saves / comments / views).
 // Mirrors backend /consumer/reels/* (see backend src/modules/consumer/reels). Two-step
 // create: POST /consumer/reels/media (multipart video → Cloudinary) returns URLs, then
-// POST /consumer/reels with those URLs + the purchased productId.
+// POST /consumer/reels with those URLs.
 //
 // Contract notes from the backend:
+//  • READING IS PUBLIC. The feed, one reel, its comments and the view counter all serve
+//    signed-out visitors; a token only adds this viewer's liked/saved flags. Writing
+//    (post, like, save, comment, delete) needs a consumer token — so the app must gate
+//    those on auth itself rather than letting them 401 in the background.
 //  • Feed is keyset-paginated: pass the previous page's `nextCursor` (ISO createdAt) to page.
-//  • A reel MUST tag a product the consumer purchased — create 403s otherwise.
-//  • Videos are hard-capped at 30s (rejected at upload against Cloudinary's duration).
+//  • Tagging a product is OPTIONAL and open to any live listing, bought or not. An
+//    optional `variantId` narrows it to one colour/size and must belong to that listing.
+//  • Videos are hard-capped at 30s (rejected at upload against the measured duration).
 //  • like/save are idempotent; the counts come back on every toggle.
 
 import { request, getAuthToken, ApiError } from './api';
 import { API_BASE } from '../config/env';
 
 export type ReelAuthor = { id: string; name: string; avatarUrl: string | null };
+/** The variant the creator featured, when they picked one. */
+export type ReelVariant = {
+  id: string;
+  /** The retailer's own rendering, e.g. "M / Black". */
+  label: string;
+  size: string | null;
+  color: string | null;
+  pricePaise: number;
+};
+
 export type ReelProduct = {
   id: string;
   name: string;
+  /** The featured variant's photo when there is one, else the listing's. */
   image: string | null;
   status: string;
+  variant: ReelVariant | null;
 } | null;
 
 export type Reel = {
@@ -116,7 +133,7 @@ export function deleteComment(id: string, commentId: string): Promise<{ deleted:
   return request(`/consumer/reels/${id}/comments/${commentId}`, { method: 'DELETE' });
 }
 
-// ── create (used by the record/upload flow, wired later) ──
+// ── create (used by CreateReelScreen) ──
 
 export type UploadedReelMedia = {
   videoUrl: string;
@@ -152,7 +169,10 @@ export type CreateReelInput = {
   videoUrl: string;
   videoPublicId: string;
   thumbnailUrl: string;
-  productId: string;
+  /** Optional — a reel does not have to be about anything for sale. */
+  productId?: string;
+  /** Only alongside `productId`; the backend 422s on a variant with no product. */
+  variantId?: string;
   durationSec?: number;
   width?: number;
   height?: number;

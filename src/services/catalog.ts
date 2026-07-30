@@ -10,7 +10,7 @@
 // the backend shape onto the existing mock type. Screens keep consuming the
 // same `Product`/`Category`/`Brand`/`Bundle`/`Occasion` shapes they always have.
 
-import { request } from './api';
+import { request, cachedGet } from './api';
 import { sizedImage, IMG } from './images';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
 
@@ -22,12 +22,21 @@ interface ApiCategory {
   id: string;
   slug: string;
   label: string;
+  /** HIM-rail wording for a shared node: "Shoes" on HER, "Footwear" on HIM. */
+  labelHim: string | null;
+  parentId: string | null;
   iconName: string | null;
   tintColor: string | null;
   imageUrl: string | null;
   gender: Gender;
   sortOrder: number;
+  /** HIM-rail position for a shared node; null when both rails order it alike. */
+  sortOrderHim: number | null;
   isActive: boolean;
+  /** Computed server-side: true when nothing sits under it. */
+  isLeaf: boolean;
+  /** Descendant-inclusive; only present when the request asked for counts. */
+  listingCount?: number;
 }
 
 interface ApiVariant {
@@ -54,6 +63,8 @@ interface ApiProduct {
   name: string;
   description: string | null;
   gender: Gender;
+  /** How the retailer sells it: one SKU, colour/size, or custom option axes. */
+  variantMode?: 'single' | 'color_size' | 'custom' | null;
   galleryUrls: string[];
   occasion: string[] | null;
   brand: { id: string; name: string } | null;
@@ -114,6 +125,52 @@ function productColors(p: ApiProduct, v?: ApiVariant): [string, string] {
   return hex ? [hex, hex] : FALLBACK_COLORS;
 }
 
+/** The slim grid projection returned by `/catalog/products?view=card`. */
+export type ApiCard = {
+  id: string;
+  name: string;
+  brandName: string;
+  categoryLabel: string;
+  ratingAvg: number;
+  ratingCount: number;
+  image: string | null;
+  pricePaise: number;
+  compareAtPricePaise: number | null;
+  discountPct: number;
+  colors: string[];
+  occasion: string | null;
+  defaultVariantId: string;
+};
+
+/** Only the card projection carries a top-level numeric `pricePaise`. */
+function isCard(row: ApiCard | ApiProduct): row is ApiCard {
+  return typeof (row as ApiCard).pricePaise === 'number';
+}
+
+/** Card payload → the app's Product shape. Same output as `toProduct`, a tenth the input. */
+export function cardToProduct(c: ApiCard): Product {
+  const price = rupees(c.pricePaise);
+  return {
+    id: c.id,
+    brand: c.brandName || 'TRENDZO',
+    name: c.name,
+    price,
+    original: c.compareAtPricePaise ? rupees(c.compareAtPricePaise) : price,
+    rating: c.ratingAvg ?? 0,
+    ratingCount: c.ratingCount ?? 0,
+    colors: c.colors.length ? (c.colors.length === 1 ? [c.colors[0]!, c.colors[0]!] : [c.colors[0]!, c.colors[1]!]) : FALLBACK_COLORS,
+    // Card-sized rendition — the raw Cloudinary originals are ~1.5 MB each.
+    img: sizedImage(c.image ?? undefined, IMG.card),
+    category: c.categoryLabel ?? '',
+    // `occasion` is a plain string in this projection, but be tolerant — a
+    // mismatched backend version must degrade to "no tag", never throw.
+    tag: c.discountPct > 0
+      ? `${c.discountPct}% OFF`
+      : (typeof c.occasion === 'string' ? c.occasion.toUpperCase() : undefined),
+    variantId: c.defaultVariantId,
+  };
+}
+
 export function toProduct(p: ApiProduct): Product {
   const v = pickVariant(p);
   const price = v ? rupees(v.pricePaise) : 0;
@@ -126,6 +183,7 @@ export function toProduct(p: ApiProduct): Product {
     price,
     original,
     rating: p.ratingAvg ?? 0,
+    ratingCount: p.ratingCount ?? 0,
     colors: productColors(p, v),
     // Card-sized rendition — the raw Cloudinary originals are ~1.5 MB each.
     img: sizedImage(v?.imageUrls?.[0] ?? p.galleryUrls?.[0], IMG.card),
@@ -143,6 +201,25 @@ export function toCategory(c: ApiCategory): Category {
     img: sizedImage(c.imageUrl, IMG.card),
   };
 }
+
+/** A category as the browse rail needs it: identity, sub-tiles, and how full it is. */
+export type CategoryNode = Category & {
+  slug: string;
+  parentId: string | null;
+  isLeaf: boolean;
+  listingCount: number;
+  children: CategoryNode[];
+};
+
+/**
+ * The tree is stored once and rendered per rail. A node shared by both rails (Tops, Denim)
+ * is `unisex` and can carry HIM-specific wording and position; a node only one rail has
+ * (Dresses, Ethnic Wear) is gendered. `rail` picks which of the two readings applies.
+ */
+const railLabel = (c: ApiCategory, rail: Gender) =>
+  rail === 'him' ? (c.labelHim ?? c.label) : c.label;
+const railSort = (c: ApiCategory, rail: Gender) =>
+  rail === 'him' ? (c.sortOrderHim ?? c.sortOrder) : c.sortOrder;
 
 export function toBrand(b: ApiBrand): Brand {
   return {
@@ -176,31 +253,97 @@ export function toOccasion(c: ApiCollection): Occasion {
 // ── Fetchers (already mapped to app types) ────────────────────────────────────
 
 export async function listCategories(gender?: Gender): Promise<Category[]> {
-  const data = await request<ApiCategory[]>(
+  // Cached: the rail is re-requested on every gender flip and every remount.
+  const data = await cachedGet<ApiCategory[]>(
     `/catalog/categories${qs({ gender, activeOnly: true })}`,
-    { auth: false },
+    { auth: false, ttlMs: 5 * 60_000 },
   );
   return data.map(toCategory);
+}
+
+/**
+ * The browse taxonomy for one rail: top-level categories, each with its sub-categories,
+ * ordered the way that rail is designed and carrying product counts so the screen can
+ * skip anything empty. The backend returns the tree flat with `parentId`; assembling it
+ * here keeps the endpoint cacheable and matches what the admin dashboard already does.
+ */
+export async function listCategoryTree(gender: Gender, signal?: AbortSignal): Promise<CategoryNode[]> {
+  // withCounts is the expensive aggregate variant, and HER→HIM→HER used to
+  // fire it three times for data already on the device. Cached + de-duplicated.
+  const data = await cachedGet<ApiCategory[]>(
+    `/catalog/categories${qs({ gender, activeOnly: true, withCounts: true })}`,
+    { auth: false, ttlMs: 5 * 60_000, ...(signal ? { signal } : {}) },
+  );
+
+  const toNode = (c: ApiCategory): CategoryNode => ({
+    ...toCategory(c),
+    label: railLabel(c, gender),
+    slug: c.slug,
+    parentId: c.parentId,
+    isLeaf: c.isLeaf,
+    listingCount: c.listingCount ?? 0,
+    children: [],
+  });
+
+  const byId = new Map(data.map((c) => [c.id, toNode(c)]));
+  const roots: CategoryNode[] = [];
+  for (const c of data) {
+    const node = byId.get(c.id)!;
+    // A child whose parent was filtered out by gender would otherwise vanish; there are
+    // none today (a gendered leaf always sits under a shared or same-gender parent), but
+    // promoting it to a root beats dropping it silently.
+    const parent = c.parentId ? byId.get(c.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+
+  const order = new Map(data.map((c) => [c.id, railSort(c, gender)]));
+  const bySort = (a: CategoryNode, b: CategoryNode) =>
+    (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
+  roots.sort(bySort);
+  for (const r of roots) r.children.sort(bySort);
+  return roots;
 }
 
 export async function listProducts(opts: {
   gender?: Gender;
   categoryId?: string;
+  /** Slug of a category; a parent returns everything in its sub-categories. */
+  categorySlug?: string;
   search?: string;
+  sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating';
   limit?: number;
   offset?: number;
+  /** Abort when the screen unmounts or its parameters change. */
+  signal?: AbortSignal;
 } = {}): Promise<Product[]> {
-  const data = await request<ApiProduct[]>(
+  // view=card asks the backend for the ~9 fields a grid tile draws instead of the
+  // full detail shape. The list endpoint used to return the SAME payload as
+  // product detail, so a 60-item grid downloaded every variant of every product
+  // (24 variant objects for a 4-colour x 6-size item) and JSON.parsed the lot on
+  // the JS thread to show one price.
+  const data = await cachedGet<(ApiCard | ApiProduct)[]>(
     `/catalog/products${qs({
       gender: opts.gender,
       categoryId: opts.categoryId,
+      categorySlug: opts.categorySlug,
       search: opts.search,
+      sort: opts.sort,
+      view: 'card',
       limit: opts.limit ?? 50,
       offset: opts.offset,
     })}`,
-    { auth: false },
+    // Short TTL: a sort tap re-queries the same category, and going back to a
+    // listing should not refetch 60 products.
+    { auth: false, ttlMs: 60_000, ...(opts.signal ? { signal: opts.signal } : {}) },
   );
-  return data.map(toProduct);
+  // Shape-detect instead of assuming. `view=card` is a NEWER backend parameter,
+  // and zod silently drops query params it does not know — so an older deployment
+  // accepts the request and answers with the FULL listing shape. Mapping that
+  // with cardToProduct produced undefined prices and images, and threw on
+  // `occasion` (a string[] there, a string here), which surfaced as the whole
+  // screen falling back to mock products.
+  return data.map((row) => (isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct)));
 }
 
 export async function getProduct(id: string): Promise<Product> {
@@ -220,19 +363,67 @@ export type ProductVariant = {
   discountPct: number;
   available: number;
   img: string;
+  /**
+   * True when `img` came from THIS variant rather than the listing gallery.
+   *
+   * `img` always resolves to something so cards never render a hole, which means
+   * its presence says nothing about whether the variant has a picture of its own.
+   * Try-on needs that distinction: offering a "variant" whose thumbnail is really
+   * the default image would show the shopper two identical choices that produce
+   * the same result.
+   */
+  hasOwnImage: boolean;
 };
 
 export type ProductDetailData = Product & {
   listingId: string;
+  /** Drives the size-scale lookup when the variants carry no size attribute. */
+  categoryId: string | null;
   description: string;
   gallery: string[];
+  /**
+   * The listing's own default image (galleryUrls[0]), NOT gallery[0].
+   *
+   * `gallery` is deliberately variant-first — its head is the cheapest/in-stock
+   * variant's picture so the card→detail zoom lands on the same image the
+   * shopper tapped. That makes gallery[0] the wrong thing to show anywhere the
+   * *listing default* is meant, most importantly try-on: the backend resolves a
+   * request with no variantId to galleryUrls[0], so previewing gallery[0] would
+   * show one photo and generate from another — while that variant ALSO appears
+   * as its own option, giving two identical-looking buttons with different
+   * results. Empty string when the listing has no gallery image at all.
+   */
+  defaultImage: string;
   sizes: string[];
   swatches: { groupId: string; name: string; hex: string | null }[];
+  /** 'single' means there is no colour or size axis to offer at all. */
+  variantMode: 'single' | 'color_size' | 'custom';
   variants: ProductVariant[];
   ratingCount: number;
 };
 
 export type Review = { id: string; author: string; rating: number; body: string; createdAt: string };
+
+export type SizeScale = {
+  id: string;
+  name: string;
+  values: string[];
+  categorySlugs: string[];
+  sortOrder: number;
+  isActive: boolean;
+};
+
+/**
+ * Size options for a category — footwear gets UK numbers, belts get inches,
+ * apparel gets letters. Only needed as a FALLBACK: a product whose variants
+ * carry size attributes already tells us its real sizes. Without this the
+ * fallback was a hardcoded ['XS','S','M','L','XL'] shown even on shoes.
+ */
+export const listSizeScales = (categoryId?: string) =>
+  cachedGet<SizeScale[]>(`/catalog/size-scales${qs({ categoryId })}`, {
+    auth: false,
+    ttlMs: 60 * 60_000,
+  });
 
 /** Full product page data — variants, distinct sizes, colour swatches, gallery. */
 export async function getProductDetail(id: string): Promise<ProductDetailData> {
@@ -250,6 +441,7 @@ export async function getProductDetail(id: string): Promise<ProductDetailData> {
     discountPct: v.discountPct ?? 0,
     available: v.available,
     img: sizedImage(v.imageUrls?.[0] ?? p.galleryUrls?.[0], IMG.hero),
+    hasOwnImage: Boolean(v.imageUrls?.[0]),
   }));
   const sizes = Array.from(new Set(variants.map((v) => v.size).filter(Boolean)));
   const swatches = p.groups
@@ -266,10 +458,26 @@ export async function getProductDetail(id: string): Promise<ProductDetailData> {
   return {
     ...base,
     listingId: p.id,
+    categoryId: p.category?.id ?? null,
     description: p.description ?? '',
-    gallery: merged.length ? merged.slice(0, 6) : [base.img],
+    gallery: merged.length ? merged.slice(0, 6) : (typeof base.img === 'string' ? [base.img] : []),
+    // Mirrors the backend's own default resolution (galleryUrls[0]); '' when the
+    // listing has none, which is the same condition that makes try-on 422.
+    defaultImage: p.galleryUrls?.[0] ? sizedImage(p.galleryUrls[0], IMG.hero) : '',
     sizes,
     swatches,
+    /**
+     * The retailer's declared mode, or inferred when the backend has not shipped
+     * `variantMode` yet (a rolling deploy guarantees the app is sometimes newer).
+     *
+     * Do NOT blanket-default to 'single' — that would strip the size and colour
+     * pickers off genuinely multi-variant products the moment the field is
+     * missing. Infer instead: a product is a single only when it truly presents
+     * one variant with nothing to choose between.
+     */
+    variantMode:
+      p.variantMode ??
+      (variants.length <= 1 && swatches.length === 0 && sizes.length <= 1 ? 'single' : 'color_size'),
     variants,
     ratingCount: p.ratingCount ?? 0,
   };
@@ -315,8 +523,33 @@ export async function listOccasions(gender?: Gender): Promise<Occasion[]> {
   return data.map(toOccasion);
 }
 
+/**
+ * The products inside one collection, by slug.
+ *
+ * `GET /catalog/collections/:slug` returns the collection plus its `listings`,
+ * shaped exactly like `/catalog/products` — occasion and brand collections
+ * auto-resolve from the live catalog server-side, so this is a real answer to
+ * "what can I actually wear to a wedding", not a curated guess.
+ *
+ * Returns an empty array when no such collection exists (404), so a caller can
+ * fall back to a plain browse instead of surfacing an error the shopper cannot
+ * act on.
+ */
+export async function listCollectionProducts(slug: string): Promise<Product[]> {
+  try {
+    const data = await cachedGet<{ listings?: (ApiCard | ApiProduct)[] }>(
+      `/catalog/collections/${encodeURIComponent(slug)}`,
+      { auth: false, ttlMs: 60_000 },
+    );
+    const rows = data?.listings ?? [];
+    return rows.map((row) => (isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct)));
+  } catch {
+    return [];
+  }
+}
+
 export async function listBrands(): Promise<Brand[]> {
-  const data = await request<ApiBrand[]>(`/catalog/brands`, { auth: false });
+  const data = await cachedGet<ApiBrand[]>(`/catalog/brands`, { auth: false, ttlMs: 10 * 60_000 });
   return data.map(toBrand);
 }
 

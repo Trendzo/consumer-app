@@ -1,14 +1,23 @@
-// SPIN & WIN POPUP — the welcome-gift wheel shown right after the splash,
-// every launch. Built exactly in the app's language: a white sharp-cornered
-// card with a black header strip (same shell as BrutalConfirm), ink type,
-// hairline dividers, and the Home highlighter-yellow as the single accent —
-// one yellow slice, a yellow win bar, pixel-square confetti. No gradients.
+// SPIN & WIN POPUP — the welcome-gift wheel shown after the splash.
+//
+// Built exactly in the app's language: a white sharp-cornered card with a black
+// header strip (same shell as BrutalConfirm), ink type, hairline dividers, and the
+// Home highlighter-yellow as the single accent — pixel-square confetti, no
+// gradients. None of that changed.
+//
+// What changed is who decides the outcome. This component used to own a hardcoded
+// prize table, its own weights, and a `Math.random()` draw — so the odds shipped
+// inside the bundle, the "win" was a toast, and the footer's promise that it was
+// "applied at checkout" was not implemented anywhere. Now the slices come from the
+// server, the server draws, and this animates the pointer to the index it is told.
+// A guest keeps a claim token and signs in to collect.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, Modal, Animated, Easing, Dimensions, Vibration } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HELV } from '../theme/brutal';
 import { useApp } from '../state/AppState';
+import { claim as claimPrize, play, setPendingClaim, type SpinResult, type SpinWheel } from '../services/spin';
 
 const { width: W } = Dimensions.get('window');
 
@@ -16,31 +25,28 @@ const YELLOW = '#F2E63C'; // Home headline highlighter — the one accent
 const CARD_W = Math.min(W - 36, 380);
 const WHEEL = CARD_W - SP.l * 2 - 26;
 const R = WHEEL / 2;
-const N = 5;
-const SLICE_DEG = 360 / N;
 
-// Slice content — index-aligned with colors/weights. 20% OFF is the rare
-// yellow slice; everything else alternates white / grey (100% win).
-const PRIZES = [
-  { title: 'WELCOME', sub: 'GIFT', icon: 'gift-outline', toast: 'Welcome gift unlocked' },
-  { title: 'FREE', sub: 'SHIPPING', icon: 'truck-fast', toast: 'Free shipping on your next order' },
-  { title: '20%', sub: 'OFF', icon: 'fire', toast: '20% OFF coupon added' },
-  { title: '15% OFF', sub: 'COUPON', icon: 'tag', toast: '15% OFF coupon added' },
-  { title: '₹100', sub: 'COUPON', icon: 'ticket-percent', toast: '₹100 coupon added' },
-];
-const SLICE_BG = [C.white, '#F2F2F2', YELLOW, C.white, '#F2F2F2'];
-const WEIGHTS = [3, 3, 1, 2, 3];
+/** Alternating slice fill when the admin has not chosen a colour for a slice. */
+const DEFAULT_BG = [C.white, '#F2F2F2'];
 
-export function SpinWinPopup({ visible, onClose, onShop }: {
+export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
   visible: boolean;
+  /** The live wheel, already fetched by the caller. The popup never renders without one. */
+  wheel: SpinWheel;
   onClose: () => void;
   onShop: () => void;
 }) {
-  const { showToast } = useApp();
+  const { showToast, requireAuth } = useApp();
   const rotation = useRef(new Animated.Value(0)).current;
   const hubPulse = useRef(new Animated.Value(0)).current;
   const [spinning, setSpinning] = useState(false);
-  const [won, setWon] = useState<number | null>(null);
+  const [result, setResult] = useState<SpinResult | null>(null);
+  const [claimed, setClaimed] = useState<{ code: string | null; points: number | null } | null>(null);
+  const [claiming, setClaiming] = useState(false);
+
+  const segments = wheel.segments;
+  const N = Math.max(segments.length, 1);
+  const SLICE_DEG = 360 / N;
 
   // The hub breathes gently until the first spin.
   useEffect(() => {
@@ -53,14 +59,28 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
     return () => p.stop();
   }, [visible]);
 
-  const spin = () => {
-    if (spinning || won !== null) return;
+  const spin = async () => {
+    if (spinning || result !== null) return;
     setSpinning(true);
-    const bag: number[] = [];
-    WEIGHTS.forEach((w, i) => { for (let k = 0; k < w; k++) bag.push(i); });
-    const idx = bag[Math.floor(Math.random() * bag.length)];
+    let outcome: SpinResult;
+    try {
+      // Ask FIRST, animate second. The wheel is a presentation of the server's
+      // answer, not a way of producing one.
+      outcome = await play('popup');
+    } catch (e: any) {
+      setSpinning(false);
+      showToast(
+        e?.code === 'already_spun' ? 'No spins left' : "Couldn't spin",
+        e?.code === 'already_spun' ? 'Come back tomorrow for another go.' : 'Check your connection and try again.',
+        'x',
+      );
+      return;
+    }
+
+    // Land inside the winning slice, with a little jitter so it never looks
+    // mechanically centred.
     const jitter = (Math.random() - 0.5) * SLICE_DEG * 0.5;
-    const target = 360 * 6 + (360 - idx * SLICE_DEG) + jitter;
+    const target = 360 * 6 + (360 - outcome.segmentIndex * SLICE_DEG) + jitter;
     rotation.setValue(0);
     Animated.timing(rotation, {
       toValue: target,
@@ -69,19 +89,54 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
       useNativeDriver: true,
     }).start(() => {
       setSpinning(false);
-      setWon(idx);
+      setResult(outcome);
+      if (outcome.prize) setClaimed({ code: outcome.prize.code, points: outcome.prize.points });
       Vibration.vibrate([0, 40, 60, 40]);
     });
   };
 
-  const claim = () => {
-    if (won === null) return;
-    showToast('You won!', PRIZES[won].toast, 'gift');
-    onClose();
+  /** Turn a settled claim into the one line the shopper needs. */
+  const announce = (prize: { code: string | null; points: number | null }) => {
+    if (prize.code) showToast('Prize claimed', `Code ${prize.code} — apply it at checkout`, 'gift');
+    else if (prize.points) showToast('Prize claimed', `${prize.points} points added to your account`, 'gift');
+    else showToast('Claimed', 'Enjoy!', 'gift');
+  };
+
+  const runClaim = async (token: string) => {
+    setClaiming(true);
+    try {
+      const res = await claimPrize(token);
+      if (res.prize) {
+        setClaimed({ code: res.prize.code, points: res.prize.points });
+        announce(res.prize);
+      }
+    } catch {
+      showToast("Couldn't claim", 'Try again from Coupons in your profile.', 'x');
+    } finally {
+      setClaiming(false);
+    }
+  };
+
+  const onClaimPress = () => {
+    if (!result) return;
+    if (!result.won) { onClose(); return; }
+    if (claimed) { onClose(); return; } // already settled — nothing left to do
+
+    const token = result.claimToken;
+    if (!token) { onClose(); return; }
+
+    if (result.requiresLogin) {
+      // Park the token across the sign-in round trip, then collect automatically.
+      setPendingClaim(token);
+      onClose();
+      requireAuth(() => { void runClaim(token); });
+      return;
+    }
+    void runClaim(token).then(onClose);
   };
 
   const rotate = rotation.interpolate({ inputRange: [0, 360], outputRange: ['0deg', '360deg'] });
-  const hubScale = hubPulse.interpolate({ inputRange: [0, 1], outputRange: [1, spinning || won !== null ? 1 : 1.07] });
+  const hubScale = hubPulse.interpolate({ inputRange: [0, 1], outputRange: [1, spinning || result !== null ? 1 : 1.07] });
 
   // Slice geometry — border-triangles overshoot the circle, clipped by it.
   const halfAngleRad = ((SLICE_DEG / 2) * Math.PI) / 180;
@@ -89,8 +144,9 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
   const halfBase = L * Math.tan(halfAngleRad);
 
   // Pixel-square confetti (ink + yellow) — same particle language as the splash.
+  // Losing slices get none: a consolation shower reads as a win.
   const confetti = useMemo(() => {
-    if (won === null) return [];
+    if (!result?.won) return [];
     return Array.from({ length: 18 }, (_, i) => {
       const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.5;
       const dist = 80 + Math.random() * 90;
@@ -103,7 +159,16 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
         delay: Math.random() * 120,
       };
     });
-  }, [won]);
+  }, [result]);
+
+  const headline = result ? `${result.label} ${result.sublabel ?? ''}`.trim() : 'Spin to win';
+  const subline = !result
+    ? wheel.spinsLeftToday > 0 ? 'One spin, one prize · sign in to collect' : 'Come back tomorrow for another spin'
+    : !result.won ? 'Not this time — try again tomorrow'
+    : claimed ? (claimed.code ? `Code ${claimed.code} · use it at checkout` : 'Added to your account')
+    : result.requiresLogin ? 'Sign in to collect it' : 'Locked in — claim it below';
+
+  const fillFor = (i: number) => segments[i]?.colorHex || DEFAULT_BG[i % DEFAULT_BG.length];
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose} statusBarTranslucent>
@@ -131,12 +196,10 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
             <View style={{ alignSelf: 'center' }}>
               <View style={{ position: 'absolute', left: -4, right: -8, bottom: 2, height: 11, backgroundColor: YELLOW }} />
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.5, textTransform: 'uppercase' }}>
-                {won === null ? '100% Win!' : `${PRIZES[won].title} ${PRIZES[won].sub}`}
+                {headline}
               </Text>
             </View>
-            <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>
-              {won === null ? 'Your first-order gift · every spin wins' : 'Locked in — claim it below'}
-            </Text>
+            <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>{subline}</Text>
 
             {/* ── Wheel ── */}
             <View style={{ width: WHEEL, height: WHEEL + 16, alignItems: 'center', marginTop: SP.l }}>
@@ -148,9 +211,9 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
               <View style={{ marginTop: 10, width: WHEEL, height: WHEEL, alignItems: 'center', justifyContent: 'center' }}>
                 {/* Rotating face — 2px ink ring, flat slices */}
                 <Animated.View style={{ width: WHEEL, height: WHEEL, transform: [{ rotate }] }}>
-                  <View style={{ width: WHEEL, height: WHEEL, borderRadius: R, overflow: 'hidden', backgroundColor: SLICE_BG[0], borderWidth: 2, borderColor: C.ink }}>
-                    {PRIZES.map((p, i) => (
-                      <View key={i} style={{ position: 'absolute', width: WHEEL, height: WHEEL, transform: [{ rotate: `${i * SLICE_DEG}deg` }] }}>
+                  <View style={{ width: WHEEL, height: WHEEL, borderRadius: R, overflow: 'hidden', backgroundColor: fillFor(0), borderWidth: 2, borderColor: C.ink }}>
+                    {segments.map((s, i) => (
+                      <View key={s.id} style={{ position: 'absolute', width: WHEEL, height: WHEEL, transform: [{ rotate: `${i * SLICE_DEG}deg` }] }}>
                         <View style={{
                           position: 'absolute',
                           left: R - halfBase,
@@ -159,22 +222,24 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
                           borderTopWidth: L,
                           borderLeftWidth: halfBase,
                           borderRightWidth: halfBase,
-                          borderTopColor: SLICE_BG[i],
+                          borderTopColor: fillFor(i),
                           borderLeftColor: 'transparent',
                           borderRightColor: 'transparent',
                         }} />
                         {/* Label reads outward along the slice axis — ink only */}
-                        <View style={{ position: 'absolute', top: 16, left: 0, right: 0, alignItems: 'center' }}>
-                          <MaterialCommunityIcons name={p.icon as any} size={20} color={C.ink} />
-                          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.ink, marginTop: 3, letterSpacing: 0.3 }}>{p.title}</Text>
-                          <Text style={{ fontFamily: 'Helvetica Neue', fontWeight: '600', fontSize: rf(9), color: C.ink, letterSpacing: 1.5, marginTop: 1 }}>{p.sub}</Text>
+                        <View style={{ position: 'absolute', top: 16, left: 0, right: 0, alignItems: 'center', opacity: s.soldOut ? 0.35 : 1 }}>
+                          {!!s.icon && <MaterialCommunityIcons name={s.icon as any} size={20} color={C.ink} />}
+                          <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.ink, marginTop: 3, letterSpacing: 0.3 }}>{s.label}</Text>
+                          {!!s.sublabel && (
+                            <Text style={{ fontFamily: HELV, fontWeight: '600', fontSize: rf(9), color: C.ink, letterSpacing: 1.5, marginTop: 1 }}>{s.sublabel}</Text>
+                          )}
                         </View>
                       </View>
                     ))}
                     {/* Hairline dividers at slice boundaries */}
-                    {PRIZES.map((_, i) => (
+                    {segments.map((s, i) => (
                       <View
-                        key={'d' + i}
+                        key={'d' + s.id}
                         style={{
                           position: 'absolute',
                           width: 1.5,
@@ -206,11 +271,11 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
                 <Animated.View style={{ position: 'absolute', transform: [{ scale: hubScale }] }}>
                   <Pressable
                     onPress={spin}
-                    disabled={spinning || won !== null}
+                    disabled={spinning || result !== null || wheel.spinsLeftToday <= 0}
                     style={{ width: 58, height: 58, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.white }}
                   >
-                    {won !== null ? (
-                      <Feather name="check" size={22} color={YELLOW} />
+                    {result !== null ? (
+                      <Feather name={result.won ? 'check' : 'x'} size={22} color={YELLOW} />
                     ) : (
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 1.5 }}>{spinning ? '···' : 'SPIN'}</Text>
                     )}
@@ -220,28 +285,44 @@ export function SpinWinPopup({ visible, onClose, onShop }: {
             </View>
 
             {/* ── CTA — full-width black slab, app-standard button ── */}
-            {won === null ? (
+            {result === null ? (
               <Pressable
                 onPress={spin}
-                disabled={spinning}
-                style={{ marginTop: SP.l, alignSelf: 'stretch', paddingVertical: 15, alignItems: 'center', backgroundColor: spinning ? C.faint : C.ink }}
+                disabled={spinning || wheel.spinsLeftToday <= 0}
+                style={{ marginTop: SP.l, alignSelf: 'stretch', paddingVertical: 15, alignItems: 'center', backgroundColor: spinning || wheel.spinsLeftToday <= 0 ? C.faint : C.ink }}
               >
-                <Text style={[T.button, { color: C.white, letterSpacing: 2 }]}>{spinning ? 'SPINNING···' : 'SPIN NOW'}</Text>
+                <Text style={[T.button, { color: C.white, letterSpacing: 2 }]}>
+                  {wheel.spinsLeftToday <= 0 ? 'NO SPINS LEFT' : spinning ? 'SPINNING···' : 'SPIN NOW'}
+                </Text>
               </Pressable>
             ) : (
               <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 240 }} style={{ alignSelf: 'stretch', alignItems: 'center' }}>
-                <Pressable onPress={claim} style={{ alignSelf: 'stretch', paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, backgroundColor: C.ink }}>
-                  <Feather name="gift" size={16} color={YELLOW} />
-                  <Text style={[T.button, { color: C.white, letterSpacing: 2 }]}>CLAIM MY GIFT</Text>
+                <Pressable
+                  onPress={onClaimPress}
+                  disabled={claiming}
+                  style={{ alignSelf: 'stretch', paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, backgroundColor: claiming ? C.faint : C.ink }}
+                >
+                  <Feather name={result.won ? 'gift' : 'x'} size={16} color={YELLOW} />
+                  <Text style={[T.button, { color: C.white, letterSpacing: 2 }]}>
+                    {!result.won ? 'CLOSE'
+                      : claiming ? 'CLAIMING···'
+                      : claimed ? 'DONE'
+                      : result.requiresLogin ? 'SIGN IN TO CLAIM'
+                      : 'CLAIM MY GIFT'}
+                  </Text>
                 </Pressable>
-                <Pressable onPress={() => { claim(); onShop(); }} hitSlop={8} style={{ marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>Claim & shop now</Text>
-                  <Feather name="arrow-right" size={13} color={C.ink} />
-                </Pressable>
+                {result.won && (
+                  <Pressable onPress={() => { onClaimPress(); onShop(); }} hitSlop={8} style={{ marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>Claim & shop now</Text>
+                    <Feather name="arrow-right" size={13} color={C.ink} />
+                  </Pressable>
+                )}
               </MotiView>
             )}
 
-            <Text style={[T.micro, { color: C.dim, marginTop: SP.m }]}>Every spin wins · applied at checkout</Text>
+            <Text style={[T.micro, { color: C.dim, marginTop: SP.m }]}>
+              {claimed?.code ? 'Saved to your coupons · apply it at checkout' : 'Prizes apply at checkout'}
+            </Text>
           </View>
         </MotiView>
       </View>

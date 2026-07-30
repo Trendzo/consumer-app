@@ -60,54 +60,82 @@ function PixelGrid({ rows, cell, base, zooming = false, zoomBase = 0 }: {
   rows: string[]; cell: number; base: number; zooming?: boolean; zoomBase?: number;
 }) {
   const cols = rows[0].length;
-  const cx = (cols - 1) / 2;
-  const cy = (rows.length - 1) / 2;
   const pxSize = cell - Math.max(1.5, cell * 0.14);
+
+  /**
+   * Only the LIT cells become views, absolutely positioned.
+   *
+   * This used to render a nested row/cell tree: one View per row, then one View
+   * per column — so a 12x13 cart grid emitted 156 views to light 41 of them, and
+   * the wordmark another ~170 for ~60. Several hundred native views on the very
+   * first frame, on the slowest device in the fleet, ~70% of them empty spacers
+   * that existed purely to occupy grid space. Absolute placement gets the same
+   * pixels from just the lit cells.
+   *
+   * The geometry is also memoised: it is pure trig over the glyph data and does
+   * not depend on `zooming`, but it was recomputed every time the burst flipped.
+   */
+  const particles = React.useMemo(() => {
+    const cx = (cols - 1) / 2;
+    const cy = (rows.length - 1) / 2;
+    const out: {
+      key: string; left: number; top: number;
+      tx: number; ty: number; spin: string; delay: number; springDelay: number;
+    }[] = [];
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r]!;
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] !== 'X') continue;
+        const dcx = x - cx;
+        const dcy = r - cy;
+        const radius = Math.hypot(dcx, dcy);
+        const j = rand2(r, x);
+        // Outward direction from centre + a swirl twist + a little jitter.
+        let angle = Math.atan2(dcy, dcx) + 0.5 + (j - 0.5) * 0.7;
+        if (radius < 0.01) angle = j * Math.PI * 2;
+        // Wide scatter so the particles spread out with clear gaps between
+        // them (not a tight clump) as they disperse.
+        const throw_ = DIAG * (0.34 + rand2(x, r) * 0.42);
+        out.push({
+          key: `${r}-${x}`,
+          left: x * cell,
+          top: r * cell,
+          tx: Math.cos(angle) * throw_,
+          ty: Math.sin(angle) * throw_,
+          spin: `${(j - 0.5) * 200}deg`,
+          // Launch order: rings from the centre outward, so it bursts one by one.
+          delay: zoomBase + Math.min(radius, 9) * ZOOM_STAGGER + j * 70,
+          springDelay: base + (r + x) * 18,
+        });
+      }
+    }
+    return out;
+  }, [rows, cell, base, zoomBase, cols]);
+
   return (
-    <View style={{ width: cell * cols }}>
-      {rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: 'row', height: cell }}>
-          {row.split('').map((c, x) => {
-            if (c !== 'X') return <View key={x} style={{ width: cell, height: cell }} />;
-            const dcx = x - cx;
-            const dcy = r - cy;
-            const radius = Math.hypot(dcx, dcy);
-            const j = rand2(r, x);
-            // Outward direction from centre + a swirl twist + a little jitter.
-            let angle = Math.atan2(dcy, dcx) + 0.5 + (j - 0.5) * 0.7;
-            if (radius < 0.01) angle = j * Math.PI * 2;
-            // Wide scatter so the particles spread out with clear gaps between
-            // them (not a tight clump) as they disperse.
-            const throw_ = DIAG * (0.34 + rand2(x, r) * 0.42);
-            const tx = Math.cos(angle) * throw_;
-            const ty = Math.sin(angle) * throw_;
-            const spin = `${(j - 0.5) * 200}deg`;
-            // Launch order: rings from the centre outward, so it bursts one by one.
-            const delay = zoomBase + Math.min(radius, 9) * ZOOM_STAGGER + j * 70;
-            return (
-              <View key={x} style={{ width: cell, height: cell, alignItems: 'center', justifyContent: 'center' }}>
-                {/* OUTER — the outward flight, spreading apart */}
-                <MotiView
-                  from={{ translateX: 0, translateY: 0 }}
-                  animate={zooming ? { translateX: tx, translateY: ty } : { translateX: 0, translateY: 0 }}
-                  transition={zooming
-                    ? { type: 'timing', duration: 820, delay, easing: Easing.out(Easing.cubic) }
-                    : { type: 'timing', duration: 150 }}
-                >
-                  {/* INNER — swells toward you, spins, then fades into light (no white wall) */}
-                  <MotiView
-                    from={{ opacity: 0, scale: 0, rotate: '0deg' }}
-                    animate={zooming ? { opacity: 0, scale: ZOOM_SCALE, rotate: spin } : { opacity: 1, scale: 1, rotate: '0deg' }}
-                    transition={zooming
-                      ? { type: 'timing', duration: 820, delay, easing: Easing.out(Easing.cubic) }
-                      : { type: 'spring', delay: base + (r + x) * 18, damping: 12, stiffness: 220, mass: 0.6 }}
-                    style={{ width: pxSize, height: pxSize, borderRadius: 1.5, backgroundColor: '#fff' }}
-                  />
-                </MotiView>
-              </View>
-            );
-          })}
-        </View>
+    <View style={{ width: cell * cols, height: cell * rows.length }}>
+      {particles.map((pt) => (
+        // OUTER — the outward flight, spreading apart. Absolute placement
+        // replaces the old spacer-grid; transforms compose with it unchanged.
+        <MotiView
+          key={pt.key}
+          from={{ translateX: 0, translateY: 0 }}
+          animate={zooming ? { translateX: pt.tx, translateY: pt.ty } : { translateX: 0, translateY: 0 }}
+          transition={zooming
+            ? { type: 'timing', duration: 820, delay: pt.delay, easing: Easing.out(Easing.cubic) }
+            : { type: 'timing', duration: 150 }}
+          style={{ position: 'absolute', left: pt.left, top: pt.top, width: cell, height: cell, alignItems: 'center', justifyContent: 'center' }}
+        >
+          {/* INNER — swells toward you, spins, then fades into light (no white wall) */}
+          <MotiView
+            from={{ opacity: 0, scale: 0, rotate: '0deg' }}
+            animate={zooming ? { opacity: 0, scale: ZOOM_SCALE, rotate: pt.spin } : { opacity: 1, scale: 1, rotate: '0deg' }}
+            transition={zooming
+              ? { type: 'timing', duration: 820, delay: pt.delay, easing: Easing.out(Easing.cubic) }
+              : { type: 'spring', delay: pt.springDelay, damping: 12, stiffness: 220, mass: 0.6 }}
+            style={{ width: pxSize, height: pxSize, borderRadius: 1.5, backgroundColor: '#fff' }}
+          />
+        </MotiView>
       ))}
     </View>
   );
@@ -117,10 +145,15 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
   // Ending: the cart + wordmark disperse — every particle bursts outward from
   // the centre (staggered), swelling and spinning, then fading into light.
   // No white wall; once the burst clears we hand off to home.
+  // Timings were 2050 / 3350 ms — a 3.35 s floor before the app could become
+  // interactive on ANY device, made of fixed timers rather than work. On a
+  // mid-range phone the real startup work exceeds that window and ADDS to it
+  // instead of hiding inside it. Trimmed to keep the burst legible while
+  // returning ~1.2 s to every cold start.
   const [zooming, setZooming] = useState(false);
   useEffect(() => {
-    const tz = setTimeout(() => setZooming(true), 2050);
-    const t = setTimeout(onDone, 3350);
+    const tz = setTimeout(() => setZooming(true), 1150);
+    const t = setTimeout(onDone, 2100);
     return () => { clearTimeout(tz); clearTimeout(t); };
   }, [onDone]);
 

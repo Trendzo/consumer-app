@@ -1,19 +1,20 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER } from '../theme/brutal';
-import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp } from '../components/Brutal';
+import { C, T, SP, BORDER, HELV} from '../theme/brutal';
+import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
+import { CatalogEmpty, ProductRailSkeleton, ProductGridSkeleton } from '../components/CatalogState';
 import {
-  getProductDetail, listReviews, listProducts, isBackendListingId, addReview,
+  getProductDetail, listReviews, listProducts, isBackendListingId, addReview, listSizeScales,
   type ProductDetailData, type Review,
 } from '../services/catalog';
+import { listCoupons, type Coupon } from '../services/promotions';
 
 const { width, height: SCREEN_H } = Dimensions.get('window');
 const PRODUCT_ZOOM_MS = 440;
@@ -27,6 +28,9 @@ const fmtReviewDate = (iso: string) => {
   catch { return ''; }
 };
 
+// Last-resort only. A product's real sizes come from its variants; failing that
+// we ask the backend for the scale that fits its CATEGORY (so shoes get UK
+// numbers, belts inches). This letter run is what shows if both are unavailable.
 const SIZES = ['XS', 'S', 'M', 'L', 'XL'];
 const COLORS = ['#000000', '#666666', '#bdbdbd', '#FFFFFF'];
 const REVIEWS = [
@@ -36,10 +40,37 @@ const REVIEWS = [
   { id: '4', user: '@dev.m', rating: 4, date: '2 weeks ago', text: 'Solid buy. Colour is true to the photos. Would order again.' },
 ];
 
+/**
+ * Stand-in for "this screen was opened without a product".
+ *
+ * It used to be `PRODUCTS[0]` — a bundled demo coat — so a broken navigation
+ * silently rendered a real-looking, buyable product page for an item that does
+ * not exist. Blank fields plus an empty `id` let the render below show the
+ * unavailable state instead, without every hook needing an optional chain.
+ */
+const NO_PRODUCT: Product = {
+  id: '', brand: '', name: '', price: 0, original: 0, rating: 0,
+  colors: ['#e6e6e6', '#e6e6e6'], img: '', category: '',
+};
+
 export default function ProductDetailScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const product = route.params?.product || PRODUCTS[0];
+  // Loosely typed on purpose: grids decorate their rows with extra display-only
+  // fields (rating/reviews/stock) before pushing them here.
+  const product: any = route.params?.product ?? NO_PRODUCT;
+  const hasProduct = !!product.id;
+  // Stable so the "More to Love" rail's ProductCard memo can hold.
+  const pushProduct = useCallback((p: any) => nav.push('ProductDetail', { product: p }), [nav]);
+  // Best live coupon to advertise on this page, or null when none is running.
+  const [topCoupon, setTopCoupon] = useState<Coupon | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listCoupons()
+      .then((cs) => { if (!cancelled) setTopCoupon(cs.find((c) => c.active) ?? null); })
+      .catch(() => { /* no banner rather than a fake one */ });
+    return () => { cancelled = true; };
+  }, []);
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
   const { addToCart, showToast, showConfirm, gender, requireAuth } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
@@ -48,7 +79,10 @@ export default function ProductDetailScreen() {
   const listingId = String(product?.id ?? '').replace(/-\d+$/, '');
   const [detail, setDetail] = useState<ProductDetailData | null>(null);
   const [reviews, setReviews] = useState<Review[] | null>(null);
+  // Category-appropriate sizes, fetched only when the product itself has none.
+  const [scaleSizes, setScaleSizes] = useState<string[]>([]);
   const [similar, setSimilar] = useState<Product[] | null>(null);
+  const [similarStatus, setSimilarStatus] = useState<'loading' | 'error' | 'ready'>('loading');
   const closeStarted = useRef(false);
   // Close mirrors open: fade content, then fly the image/backdrop back to the measured card frame.
   const goBack = () => {
@@ -99,7 +133,13 @@ export default function ProductDetailScreen() {
     let cancelled = false;
     getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
     listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
-    listProducts({ gender, limit: 12 }).then((p) => { if (!cancelled) setSimilar(p); }).catch(() => {});
+    // 24, not 12: the "More to Love" grid used to pad itself by repeating the
+    // same 12 rows four times. Ask for as many as the grid can show and let it
+    // end honestly when the catalog does.
+    setSimilarStatus('loading');
+    listProducts({ gender, limit: 24 })
+      .then((p) => { if (!cancelled) { setSimilar(p); setSimilarStatus('ready'); } })
+      .catch(() => { if (!cancelled) { setSimilar([]); setSimilarStatus('error'); } });
     return () => { cancelled = true; };
   }, [listingId, gender, gridReady]);
   const SLOT = { x: 0, y: 105, w: width, h: width * 1.2 }; // where the gallery image lands
@@ -211,12 +251,50 @@ export default function ProductDetailScreen() {
     return g.length ? g : [product.img];
   }, [detail, product.img]);
   const colorSwatches = (detail?.swatches ?? []).map((sw) => sw.hex).filter(Boolean) as string[];
-  const colors = colorSwatches.length ? colorSwatches : COLORS;
-  const sizes = detail?.sizes && detail.sizes.length ? detail.sizes : SIZES;
+
+  /**
+   * Does this product have options at all?
+   *
+   * The retailer declares it: 'single' means one price, one SKU, one stock count
+   * — no colour axis, no size axis. The consumer API did not ship `variantMode`,
+   * so this page could not tell and drew BOTH pickers for everything: four
+   * invented hex swatches from a local COLORS constant and a size row reading
+   * "Default". A shirt the retailer had explicitly set up as a single product
+   * looked like it came in four colours.
+   *
+   * Until the detail request lands we assume single, so nothing invented ever
+   * flashes on screen before the truth arrives.
+   */
+  const isSingle = !detail || detail.variantMode === 'single';
+  const showColors = !isSingle && colorSwatches.length > 0;
+  const showSizes = !isSingle;
+
+  // Real sizes come from the variants; failing that we ask the backend for the
+  // scale that fits the CATEGORY. The letter run is the last resort — and only
+  // for products that genuinely have a size axis.
+  const colors = colorSwatches;
+  const sizes = detail?.sizes && detail.sizes.length
+    ? detail.sizes
+    : (scaleSizes.length ? scaleSizes : SIZES);
   // Products that come in a single size (bags, watches, "One Size") auto-select it.
   useEffect(() => {
     if (detail && detail.sizes.length === 1) setSize(detail.sizes[0]);
   }, [detail]);
+  useEffect(() => {
+    // Only when the variants gave us nothing — otherwise the product is the truth.
+    if (!detail || detail.sizes.length > 0 || !detail.categoryId) { setScaleSizes([]); return; }
+    let cancelled = false;
+    listSizeScales(detail.categoryId)
+      .then((scales) => {
+        if (cancelled) return;
+        // Lowest sortOrder is the most specific scale for this category.
+        const best = scales.filter((sc) => sc.isActive).sort((a, b) => a.sortOrder - b.sortOrder)[0];
+        setScaleSizes(best?.values ?? []);
+      })
+      .catch(() => { if (!cancelled) setScaleSizes([]); });
+    return () => { cancelled = true; };
+  }, [detail]);
+
   const reviewsCount = detail?.ratingCount ?? product.reviews ?? 128;
   // Memoized so the item objects keep a stable identity across re-renders —
   // this is what lets React.memo on MiniCard actually skip work.
@@ -224,8 +302,21 @@ export default function ProductDetailScreen() {
     ? reviews.map((r) => ({ id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body, date: fmtReviewDate(r.createdAt) }))
     : REVIEWS), [reviews]);
   const similarList = React.useMemo(
-    () => (similar && similar.length ? similar : PRODUCTS).filter((p) => p.id !== product.id),
+    () => (similar ?? []).filter((p) => p.id !== product.id),
     [similar, product.id]);
+
+  // The 4x-repeat-then-slice used to run on EVERY render of this screen,
+  // allocating a 4N array and throwing most of it away. It only depends on
+  // similarList, which is itself memoised.
+  //
+  // NOT virtualised, deliberately: this grid lives inside the parallax
+  // Animated.ScrollView that also drives the sticky header and the scroll-linked
+  // CTA. Restructuring that into a FlatList is a large, risky change for 16
+  // cards that are already gated behind `gridReady`. Revisit if the count grows.
+  // NO repetition. This used to concatenate similarList four times and slice to
+  // 16, so a 4-product catalog rendered the same four cards four times over —
+  // an inventory claim the store could not back. It now shows what exists.
+  const moreToLove = React.useMemo(() => similarList.slice(0, 16), [similarList]);
   // Stable handler for the upsell "+ ADD" buttons (keeps MiniCard memo intact).
   const handleUpsellAdd = React.useCallback((p: Product) => {
     addToCart(p, 'M');
@@ -274,8 +365,10 @@ export default function ProductDetailScreen() {
     scrollRef.current?.scrollTo?.({ y: Math.max(0, infoYRef.current + sizeLocalYRef.current - 90), animated: true });
     showToast('Pick a size', 'Choose a size to continue', 'maximize-2');
   };
-  const handleAdd = () => { if (!size) { askSize('add'); return; } doAdd(size); };
-  const handleBuy = () => { if (!size) { askSize('buy'); return; } doBuy(size); };
+  // A single product has no size axis, so there is nothing to ask for — demanding
+  // one would strand the shopper on a picker that isn't rendered.
+  const handleAdd = () => { if (!size && showSizes) { askSize('add'); return; } doAdd(size ?? ''); };
+  const handleBuy = () => { if (!size && showSizes) { askSize('buy'); return; } doBuy(size ?? ''); };
   const pickSize = (sz: string) => {
     const action = sizeSheet;
     setSize(sz);
@@ -286,6 +379,28 @@ export default function ProductDetailScreen() {
     if (action === 'add') setTimeout(() => doAdd(sz), 80);
     else if (action === 'buy') setTimeout(() => doBuy(sz), 80);
   };
+
+  // Opened without a product (a bad deep link, a stale nav param). Say so
+  // instead of rendering a page for the demo coat that used to stand in here.
+  if (!hasProduct) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 56 }}>
+        <StatusBar barStyle="dark-content" />
+        <View style={{ paddingHorizontal: SP.l }}>
+          <BrutalIconBtn icon="arrow-left" onPress={() => nav.goBack()} />
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <CatalogEmpty
+            icon="alert-circle"
+            title="Product unavailable"
+            sub="We couldn't open this item. It may have been removed."
+            actionLabel="Go back"
+            onAction={() => nav.goBack()}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: isZoom ? 'transparent' : '#FFFFFF' }}>
@@ -373,44 +488,62 @@ export default function ProductDetailScreen() {
           {/* Price (smaller) */}
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
             <Text style={[T.price]}>₹{product.price}</Text>
-            <Text style={[T.mrp]}>₹{product.original}</Text>
-            <Text style={[T.discount]}>{`-${discount}%`}</Text>
+            {/* Only when there IS one. A product priced at its MRP was rendering
+                "₹1749  ₹1749  -0%" — a struck-through price identical to the
+                real one and a discount badge claiming nothing off. */}
+            {discount > 0 && (<>
+              <Text style={[T.mrp]}>₹{product.original}</Text>
+              <Text style={[T.discount]}>{`-${discount}%`}</Text>
+            </>)}
           </View>
 
-          {/* COUPON OFFER — get it for less with a code */}
-          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}>
-            <Feather name="tag" size={16} color={C.ink} />
-            <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB]}>Get it for ₹{couponPrice}</Text>
-              <Text style={[T.micro, { marginTop: 1 }]}>Extra 10% off · applied at checkout</Text>
+          {/* COUPON OFFER — only shown when a REAL coupon is running.
+              This used to advertise a hardcoded 'TRENDZO10' with an invented
+              "extra 10% off". That code does not exist on the backend, so every
+              shopper who followed the prompt was told at checkout that it was
+              invalid. Now it renders the live coupon from /promotions/active, or
+              nothing at all. */}
+          {topCoupon && (
+            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}>
+              <Feather name="tag" size={16} color={C.ink} />
+              <View style={{ flex: 1 }}>
+                <Text style={[T.bodyB]}>{`${topCoupon.discount} with ${topCoupon.code}`}</Text>
+                <Text style={[T.micro, { marginTop: 1 }]}>{`${topCoupon.min} · apply it at checkout`}</Text>
+              </View>
+              <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
+                <Text style={[T.monoB, { color: C.white }]}>{topCoupon.code}</Text>
+              </View>
             </View>
-            <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
-              <Text style={[T.monoB, { color: C.white }]}>TRENDZO10</Text>
-            </View>
-          </View>
+          )}
 
           <View style={{ height: 1, backgroundColor: C.ink, marginTop: SP.l }} />
 
-          {/* COLOR */}
-          <Text style={[T.caption, { marginTop: SP.l }]}>{'Color'}</Text>
-          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
-            {colors.map((c, i) => (
-              <Pressable key={i} onPress={() => setColorIdx(i)} style={[{ width: 36, height: 36, backgroundColor: c, padding: 3 }, i === colorIdx ? BORDER(2) : BORDER(1)]}>
-                {i === colorIdx && <View style={{ flex: 1, borderWidth: 1, borderColor: c === '#000000' ? C.white : C.ink }} />}
-              </Pressable>
-            ))}
-          </View>
+          {/* COLOR — only when the product genuinely has colours to choose between. */}
+          {showColors && (
+            <>
+              <Text style={[T.caption, { marginTop: SP.l }]}>{'Color'}</Text>
+              <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8 }}>
+                {colors.map((c, i) => (
+                  <Pressable key={i} onPress={() => setColorIdx(i)} style={[{ width: 36, height: 36, backgroundColor: c, padding: 3 }, i === colorIdx ? BORDER(2) : BORDER(1)]}>
+                    {i === colorIdx && <View style={{ flex: 1, borderWidth: 1, borderColor: c === '#000000' ? C.white : C.ink }} />}
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
 
           {/* SIZE — inline picker; when Add/Buy is tapped without a size the
               page scrolls here and the label flips to a highlighted prompt.
-              Picking a size then CONTINUES the pending action (see pickSize). */}
+              Picking a size then CONTINUES the pending action (see pickSize).
+              Hidden entirely for a single product, which has no size axis. */}
+          {showSizes && (<>
           <View
             onLayout={(e) => { sizeLocalYRef.current = e.nativeEvent.layout.y; }}
             style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}
           >
             <View>
               {needSize && <View style={{ position: 'absolute', left: -3, right: -5, bottom: 0, height: 9, backgroundColor: '#F2E63C' }} />}
-              <Text style={[T.caption, needSize && { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>
+              <Text style={[T.caption, needSize && { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>
                 {needSize ? 'PICK A SIZE TO CONTINUE' : 'Size'}
               </Text>
             </View>
@@ -425,6 +558,7 @@ export default function ProductDetailScreen() {
               </Pressable>
             ))}
           </View>
+          </>)}
 
           {/* DELIVERY */}
           <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12 }, BORDER(1)]}>
@@ -505,13 +639,22 @@ export default function ProductDetailScreen() {
             )}
           </MotiView>
 
-          {/* SIMILAR */}
-          <Text style={[T.h2, { marginTop: SP.xl }]}>{`You may also like`}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
-            {similarList.slice(0, 5).map(p => (
-              <ProductCard key={p.id} p={p} onPress={() => nav.push('ProductDetail', { product: p })} />
-            ))}
-          </ScrollView>
+          {/* SIMILAR — hidden entirely when the catalog has nothing else to show,
+              rather than padded out with bundled art. */}
+          {(similarStatus === 'loading' || similarList.length > 0) && (<>
+            <Text style={[T.h2, { marginTop: SP.xl }]}>{`You may also like`}</Text>
+            {similarStatus === 'loading' ? (
+              <View style={{ marginTop: SP.m, marginHorizontal: -SP.l }}>
+                <ProductRailSkeleton count={3} />
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
+                {similarList.slice(0, 5).map(p => (
+                  <ProductCard key={p.id} p={p} onPress={pushProduct} />
+                ))}
+              </ScrollView>
+            )}
+          </>)}
 
           {/* RATINGS & REVIEWS — swipable carousel + View All */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
@@ -541,28 +684,53 @@ export default function ProductDetailScreen() {
 
         {/* BUY MORE, SAVE MORE — Add to bag slides you down to this upsell on the same page */}
         <View onLayout={(e) => setUpsellY(e.nativeEvent.layout.y)} style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <View style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
-            <Feather name="gift" size={18} color={C.white} />
-            <View style={{ flex: 1 }}>
-              <Text style={[T.h3, { color: C.white }]}>Buy items & get ₹50 off</Text>
-              <Text style={[T.micro, { color: C.white, marginTop: 2, opacity: 0.8 }]}>Add one more to unlock TRENDZO50 at checkout</Text>
+          {/* Advertises a REAL live coupon from /promotions/active, or nothing.
+              This used to name 'TRENDZO50' unconditionally — a code the backend
+              had never heard of, so anyone who followed the prompt was told at
+              checkout that it was invalid. */}
+          {topCoupon && (
+            <View style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
+              <Feather name="gift" size={18} color={C.white} />
+              <View style={{ flex: 1 }}>
+                <Text style={[T.h3, { color: C.white }]}>{`${topCoupon.discount} with ${topCoupon.code}`}</Text>
+                <Text style={[T.micro, { color: C.white, marginTop: 2, opacity: 0.8 }]}>
+                  {`${topCoupon.min} · apply it at checkout`}
+                </Text>
+              </View>
             </View>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
-            {ready && similarList.slice(0, 6).map(p => (
-              <ProductCard key={p.id} p={p} onAdd={handleUpsellAdd} />
-            ))}
-          </ScrollView>
+          )}
+          {(similarStatus === 'loading' || similarList.length > 0) && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
+              {ready && similarList.slice(0, 6).map(p => (
+                <ProductCard key={p.id} p={p} onAdd={handleUpsellAdd} />
+              ))}
+            </ScrollView>
+          )}
         </View>
 
-        {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it. */}
+        {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it.
+            BOTH of these stay unconditional direct children of the ScrollView.
+            `stickyHeaderIndices={[3]}` above is a positional index into
+            React.Children.toArray(children), which DROPS false/null — so wrapping
+            this pair in a fragment (or hiding it when the catalog is empty)
+            silently re-points the sticky header at the wrong element. It also
+            makes React itself complain: ScrollView clones the sticky child to
+            inject a style, and a Fragment cannot take one
+            ("Invalid prop `style` supplied to `React.Fragment`").
+            The empty/loading/error states therefore live INSIDE the grid. */}
         <View style={{ backgroundColor: '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
           <Text style={T.h2}>{`More to Love`}</Text>
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
-          {gridReady && [...similarList, ...similarList, ...similarList, ...similarList].slice(0, 16).map((p, i) => (
-            <ProductCard key={p.id + '-' + i} p={p} style={{ marginBottom: SP.m }} />
-          ))}
+          {gridReady && (similarStatus === 'loading'
+            ? <ProductGridSkeleton count={4} />
+            : similarStatus === 'error'
+              ? <CatalogEmpty compact icon="wifi-off" title="Couldn't load more" sub="Check your connection and pull to refresh." />
+              : moreToLove.length === 0
+                ? <CatalogEmpty compact title="Nothing else yet" sub="More lands here as stores go live." />
+                : moreToLove.map((p, i) => (
+                    <ProductCard key={p.id + '-' + i} p={p} style={CARD_STYLES.mb_m} />
+                  )))}
         </View>
 
       </Animated.ScrollView>

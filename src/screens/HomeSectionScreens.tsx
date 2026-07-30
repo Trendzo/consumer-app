@@ -7,17 +7,29 @@
 //   • TopStoriesScreen    — editorial magazine feed, every poster its own story
 //   • ShopByOccasionScreen— occasion selector + themed hero + curated grid
 //   • FlashFitScreen      — live countdown + a shoppable "fit" + more flash deals
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Dimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
-import { CachedImage, ProductCard, FadeInUp, CARD } from '../components/Brutal';
+import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
+import { CachedImage, ProductCard, FadeInUp, CARD, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
-import { PRODUCTS, HER_PRODUCTS, HIM_PRODUCTS } from '../data/mockData';
 import type { Product } from '../data/mockData';
+import { useCatalogProducts } from '../hooks/useCatalogProducts';
+import { CatalogSection, CatalogEmpty, ProductRailSkeleton, Shimmer } from '../components/CatalogState';
+import { listCollectionProducts } from '../services/catalog';
+// ── Home CMS ──────────────────────────────────────────────────────────────────
+// The hero art, price bands, story copy, occasion notes and both campaign Edit pages below
+// used to be eight hardcoded arrays in this file. They are CMS sections now (`page.*`), with
+// the identical content shipped in content/home.content.json as the offline fallback. Layouts
+// and components are untouched.
+import { useCmsSection, useCmsSections } from '../hooks/useCmsContent';
+import type { CmsItem, CmsSection } from '../content/types';
+import { resolveMedia, resolveConfigMedia, withSource, str, num, color, type MediaSource } from '../content/media';
+import { openLink } from '../content/links';
+import { IMG } from '../services/images';
 
 const { width: W } = Dimensions.get('window');
 
@@ -38,56 +50,36 @@ function SectionHeader({ title, onBack, right }: { title: string; onBack: () => 
   );
 }
 
-// Deterministic product pool for a gender — combines the gender edit with the
-// general catalog and clones to a target size (unique ids), so grids/rails
-// never run short. `spread` re-scales prices to fan across the deal bands.
-function buildPool(gender: 'her' | 'him', count: number, spread = false): (Product & { id: string })[] {
-  const base = gender === 'her' ? HER_PRODUCTS : HIM_PRODUCTS;
-  const pool = [...base, ...PRODUCTS];
-  const factors = [0.35, 0.5, 0.65, 0.8, 1];
-  return Array.from({ length: count }, (_, i) => {
-    const p = pool[i % pool.length];
-    if (!spread) return { ...p, id: `pool-${i}-${p.id}` };
-    // Deal pages overlay their own badge (% OFF / FLASH), so drop the catalog
-    // tag here to avoid two badges stacking in the same top-left corner.
-    const price = Math.max(299, Math.round((p.price * factors[i % factors.length]) / 10) * 10);
-    return { ...p, id: `pool-${i}-${p.id}`, price, tag: undefined };
-  });
-}
+/**
+ * Every grid on these four pages used to come from `buildPool`.
+ *
+ * It concatenated the bundled demo arrays, cloned them up to a target size
+ * with ids like `pool-7-p3`, and — for the deal pages — MULTIPLIED each price
+ * by one of five factors so the results would spread nicely across the price
+ * bands. So "Under ₹499" was a real filter over invented prices for products
+ * that do not exist, and every tile opened a buyable product page with no
+ * listing behind it.
+ *
+ * These pages now read the live catalog. Where a page needs a price band it
+ * asks the backend for cheapest-first and filters on the real price; where a
+ * band has nothing in it, it says so.
+ */
+const SECTION_PAGE_SIZE = 40;
 
 // ════════════════════════════════════════════════════════════════════════════
 // STEALS — price-banded deals. Editorial hero, a band selector, a small bento of
 // hero deals, then a savings-first product grid that filters by the active band.
 // ════════════════════════════════════════════════════════════════════════════
-const STEAL_HERO = {
-  her: require('../../assets/steals/her/tops.jpeg'),
-  him: require('../../assets/steals/him/jacket.jpeg'),
-};
-const STEAL_BENTO = {
-  her: [
-    { label: 'Beauty', priceLine: '₹999', img: require('../../assets/steals/her/beauty.jpeg') },
-    { label: 'Jewelry', priceLine: '₹1499', img: require('../../assets/steals/her/jewelry.jpeg') },
-    { label: 'Tops', priceLine: '₹1999', img: require('../../assets/steals/her/tops.jpeg') },
-  ],
-  him: [
-    { label: 'Tees', priceLine: '₹1499', img: require('../../assets/steals/him/tee.jpeg') },
-    { label: 'Eyewear', priceLine: '₹1999', img: require('../../assets/steals/him/eyewear.jpeg') },
-    { label: 'Jackets', priceLine: '₹2499', img: require('../../assets/steals/him/jacket.jpeg') },
-  ],
-};
-const STEAL_BANDS = [
-  { label: 'All deals', max: Infinity },
-  { label: 'Under ₹499', max: 499 },
-  { label: 'Under ₹999', max: 999 },
-  { label: 'Under ₹1499', max: 1499 },
-  { label: 'Under ₹1999', max: 1999 },
-];
+// Hero art, deal tiles and price bands are the `page.steals_hero`, `page.steals_bento` and
+// `page.steals_bands` sections. A band's ceiling is authored in PAISE (the unit every money
+// value in this codebase uses) and converted where the filter runs, so admin never has to
+// think about the app's internal rupee-float representation.
 const STEAL_GAP = SP.s;
 const STEAL_COL = (W - SP.l * 2 - STEAL_GAP) / 2;
 const STEAL_SMALL_H = Math.round(STEAL_COL * 0.95);
 const STEAL_BIG_H = STEAL_SMALL_H * 2 + STEAL_GAP;
 
-function DealTile({ label, priceLine, img, w, h, onPress }: { label: string; priceLine: string; img: any; w: number; h: number; onPress: () => void }) {
+function DealTile({ label, priceLine, img, w, h, onPress }: { label: string; priceLine: string; img: MediaSource; w: number; h: number; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[{ width: w, height: h, overflow: 'hidden', backgroundColor: C.white }, BORDER(1)]}>
       <CachedImage source={img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
@@ -105,32 +97,73 @@ export function StealsScreen() {
   const nav = useNavigation<any>();
   const { gender } = useApp();
   const [band, setBand] = useState(0);
-  const bento = STEAL_BENTO[gender];
-  const pool = useMemo(() => buildPool(gender, 30, true), [gender]);
-  const activeMax = STEAL_BANDS[band].max;
-  const deals = useMemo(() => pool.filter((p) => p.price <= activeMax), [pool, activeMax]);
+  const { sections: cms, status: cmsStatus } = useCmsSections(
+    ['page.steals_hero', 'page.steals_bento', 'page.steals_bands'],
+    gender,
+  );
+  // Reaching this screen normally means Home already resolved the payload, so this is 'ready';
+  // 'loading' happens on a cold start straight into it.
+  const cmsLoading = cmsStatus === 'loading';
+  const heroSection = cms['page.steals_hero']!;
+  const bentoSection = cms['page.steals_bento']!;
+  const bandsSection = cms['page.steals_bands']!;
+
+  const heroImg = resolveMedia(heroSection.items[0], IMG.hero);
+  const bento = useMemo(
+    () =>
+      bentoSection.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
+        .filter(withSource)
+        .slice(0, 3),
+    [bentoSection.items],
+  );
+  // `maxPaise` absent means no ceiling — that is the "All deals" band. Product prices are in
+  // rupees on the client, so the paise ceiling is divided here rather than authored twice.
+  const bands = useMemo(
+    () =>
+      bandsSection.items.map((item) => ({
+        key: item.key,
+        label: str(item.content, 'label'),
+        max: item.content.maxPaise === undefined ? Infinity : num(item.content, 'maxPaise', 0) / 100,
+      })),
+    [bandsSection.items],
+  );
+
+  // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
+  // the catalog rather than from whatever the first page happened to contain.
+  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
+  const activeBand = bands[band] ?? bands[0];
+  const activeMax = activeBand?.max ?? Infinity;
+  const activeLabel = activeBand?.label ?? 'All deals';
+  const deals = useMemo(() => products.filter((p) => p.price <= activeMax), [products, activeMax]);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <SectionHeader title="Steals" onBack={() => nav.goBack()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* ── HERO — full-bleed steal photo with a bold savings headline ── */}
+        {cmsLoading ? (
+          <Shimmer h={Math.round(W * 0.62)} />
+        ) : (
         <View style={{ height: Math.round(W * 0.62), overflow: 'hidden' }}>
-          <CachedImage source={STEAL_HERO[gender]} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+          {heroImg ? <CachedImage source={heroImg} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" /> : null}
           <LinearGradient colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.78)']} style={StyleSheet.absoluteFillObject as any} />
           <View style={{ flex: 1, justifyContent: 'flex-end', padding: SP.l }}>
-            <View style={{ alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10 }}>
-              <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1 }]}>LOWEST PRICES</Text>
-            </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(46), lineHeight: rf(46), color: '#fff', letterSpacing: -1.5 }}>Steal it{'\n'}before it's gone.</Text>
-            <Text style={[T.caption, { color: 'rgba(255,255,255,0.9)', marginTop: 10 }]}>Handpicked drops at their lowest. New steals every hour.</Text>
+            {heroSection.kicker ? (
+              <View style={{ alignSelf: 'flex-start', backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10 }}>
+                <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '700', letterSpacing: 1 }]}>{heroSection.kicker}</Text>
+              </View>
+            ) : null}
+            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(46), lineHeight: rf(46), color: '#fff', letterSpacing: -1.5 }}>{heroSection.title ?? ''}</Text>
+            <Text style={[T.caption, { color: 'rgba(255,255,255,0.9)', marginTop: 10 }]}>{heroSection.subtitle ?? ''}</Text>
           </View>
         </View>
+        )}
 
         {/* ── PRICE-BAND SELECTOR ── */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, paddingVertical: SP.l }}>
-          {STEAL_BANDS.map((b, i) => (
-            <Pressable key={b.label} onPress={() => setBand(i)} style={[{ paddingHorizontal: 16, paddingVertical: 9, backgroundColor: band === i ? C.ink : C.white }, BORDER(1)]}>
+          {bands.map((b, i) => (
+            <Pressable key={b.key} onPress={() => setBand(i)} style={[{ paddingHorizontal: 16, paddingVertical: 9, backgroundColor: band === i ? C.ink : C.white }, BORDER(1)]}>
               <Text style={[T.caption, { color: band === i ? C.white : C.ink }]}>{b.label}</Text>
             </Pressable>
           ))}
@@ -138,34 +171,73 @@ export function StealsScreen() {
 
         {/* ── HERO DEALS — bento: one tall tile + a stacked pair ── */}
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
-          <DealTile label={bento[0].label} priceLine={bento[0].priceLine} img={bento[0].img} w={STEAL_COL} h={STEAL_BIG_H} onPress={() => nav.navigate('Categories', { label: bento[0].label })} />
+          {bento[0] ? (
+            <DealTile
+              label={bento[0].label}
+              priceLine={str(bento[0].item.content, 'priceLine')}
+              img={bento[0].source}
+              w={STEAL_COL}
+              h={STEAL_BIG_H}
+              onPress={() => { if (!openLink(nav, bento[0]!.item.link)) nav.navigate('Categories', { label: bento[0]!.label }); }}
+            />
+          ) : null}
           <View style={{ gap: STEAL_GAP }}>
             {bento.slice(1).map((b) => (
-              <DealTile key={b.label} label={b.label} priceLine={b.priceLine} img={b.img} w={STEAL_COL} h={STEAL_SMALL_H} onPress={() => nav.navigate('Categories', { label: b.label })} />
+              <DealTile
+                key={b.item.key}
+                label={b.label}
+                priceLine={str(b.item.content, 'priceLine')}
+                img={b.source}
+                w={STEAL_COL}
+                h={STEAL_SMALL_H}
+                onPress={() => { if (!openLink(nav, b.item.link)) nav.navigate('Categories', { label: b.label }); }}
+              />
             ))}
           </View>
         </View>
 
         {/* ── DEAL GRID — filtered by the active band ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <Text style={[T.h2, { textTransform: 'uppercase' }]}>{STEAL_BANDS[band].label}</Text>
+          <Text style={[T.h2, { textTransform: 'uppercase' }]}>{activeLabel}</Text>
           <Text style={[T.micro]}>{deals.length} steals</Text>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: STEAL_GAP, paddingHorizontal: SP.l, marginTop: SP.m }}>
-          {deals.map((p, i) => (
-            <FadeInUp key={p.id} delay={(i % 6) * 30}>
-              <ProductCard p={p} style={{ marginBottom: SP.s }}>
-                <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.green, paddingHorizontal: 8, paddingVertical: 3 }}>
-                  <Text style={[T.micro, { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>{`${Math.max(20, Math.round((1 - p.price / p.original) * 100))}% OFF`}</Text>
-                </View>
-              </ProductCard>
-            </FadeInUp>
-          ))}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+          <CatalogSection
+            status={status}
+            count={deals.length}
+            onRetry={reload}
+            empty={<CatalogEmpty
+              title="Nothing in this band"
+              sub={`No live listings ${activeLabel.toLowerCase()} right now. Try a wider band.`}
+            />}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: STEAL_GAP }}>
+              {deals.map((p, i) => {
+                // Real discount, or no badge. It used to be
+                // `Math.max(20, …)` — a floor that stamped "20% OFF" on
+                // full-price items.
+                const off = p.original > p.price ? Math.round((1 - p.price / p.original) * 100) : 0;
+                return (
+                  <FadeInUp key={p.id} delay={(i % 6) * 30}>
+                    <ProductCard p={p} style={CARD_STYLES.mb_s}>
+                      {off > 0 && (
+                        <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.green, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={[T.micro, { color: '#fff', fontFamily: HELV, fontWeight: '700' }]}>{`${off}% OFF`}</Text>
+                        </View>
+                      )}
+                    </ProductCard>
+                  </FadeInUp>
+                );
+              })}
+            </View>
+          </CatalogSection>
         </View>
 
-        <View style={{ alignItems: 'center', marginTop: SP.xl }}>
-          <Text style={[T.micro]}>That's the lot for now · new steals in 60 min</Text>
-        </View>
+        {deals.length > 0 && (
+          <View style={{ alignItems: 'center', marginTop: SP.xl }}>
+            <Text style={[T.micro]}>That's the lot for now · new steals in 60 min</Text>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -176,22 +248,19 @@ export function StealsScreen() {
 // vertical feed where EVERY poster carries its own headline, chapter number,
 // blurb, tags and a shoppable product rail. No two stories read the same.
 // ════════════════════════════════════════════════════════════════════════════
-type Story = { id: string; img: any; tag: string; title: string; blurb: string; read: string; tags: string[] };
+type Story = {
+  id: string;
+  img: MediaSource;
+  link: CmsItem['link'];
+  tag: string;
+  title: string;
+  blurb: string;
+  read: string;
+  tags: string[];
+};
 
-const HER_STORIES: Story[] = [
-  { id: 'hs1', img: require('../../assets/story-posters/her-60-min.png'), tag: '60-Minute Edit', title: 'Ready in an Hour', blurb: 'The pieces that reach your door before you finish getting ready — styled for a night that starts now.', read: '4 min', tags: ['Fast', 'Party', 'Heels'] },
-  { id: 'hs2', img: require('../../assets/story-posters/her-friday.png'), tag: 'Friday Feeling', title: 'Into the Weekend', blurb: 'Clock-out to cocktails without a costume change. Soft tailoring that works twice as hard as you do.', read: '3 min', tags: ['Work', 'Evening', 'Dresses'] },
-  { id: 'hs3', img: require('../../assets/story-posters/her-roommate.png'), tag: 'Roommate Picks', title: 'Borrowed & Better', blurb: 'The oversized, the cropped, the endlessly borrowable. A shared-closet capsule you will not want to give back.', read: '5 min', tags: ['Casual', 'Denim', 'Layers'] },
-  { id: 'hs4', img: require('../../assets/story-posters/her-latest-drops.png'), tag: 'Just Dropped', title: 'The Latest Drops', blurb: 'Fresh off the rack and already trending. The first look at what everyone will be wearing next.', read: '2 min', tags: ['New', 'Trending', 'Tops'] },
-  { id: 'hs5', img: require('../../assets/story-posters/her-casual-affair.png'), tag: 'Off Duty', title: 'A Casual Affair', blurb: 'Effortless never happens by accident. The relaxed uniform, engineered to look like you did not try.', read: '4 min', tags: ['Everyday', 'Comfort', 'Sets'] },
-];
-const HIM_STORIES: Story[] = [
-  { id: 'ms1', img: require('../../assets/story-posters/him-coffee.png'), tag: 'Morning Routine', title: 'The Coffee Run', blurb: 'Thrown on, never thrown together. The five-minute fit that carries you from the queue to the meeting.', read: '3 min', tags: ['Casual', 'Tees', 'Denim'] },
-  { id: 'ms2', img: require('../../assets/story-posters/him-60-min.png'), tag: '60-Minute Edit', title: 'Fast, Literally', blurb: 'Ordered at noon, worn by one. A full look at your door inside the hour — no compromise on the fit.', read: '2 min', tags: ['Fast', 'Street', 'Sneakers'] },
-  { id: 'ms3', img: require('../../assets/story-posters/him-friday.png'), tag: 'Friday Feeling', title: 'Clock-Out Looks', blurb: 'The pivot from desk to bar in one layer. Sharp enough for the office, loose enough for after.', read: '4 min', tags: ['Work', 'Evening', 'Shirts'] },
-  { id: 'ms4', img: require('../../assets/story-posters/him-bros.png'), tag: 'Crew Love', title: 'Rolling With the Crew', blurb: 'Matching energy, not matching outfits. The group-chat-approved fits for whatever the weekend throws.', read: '5 min', tags: ['Weekend', 'Jackets', 'Caps'] },
-];
-
+// The nine stories are the `page.top_stories` CMS section — one item per story, carrying its
+// poster plus tag / title / blurb / read time / tags.
 const STORY_LEAD_H = Math.round(W * 1.12);
 const STORY_POSTER_H = Math.round(W * 0.92);
 
@@ -199,7 +268,7 @@ function StoryRail({ products, onOpenAll }: { products: (Product & { id: string 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, paddingRight: SP.l }}>
       {products.map((p) => (
-        <ProductCard key={p.id} p={p} style={{ width: CARD.w * 0.86 }} />
+        <ProductCard key={p.id} p={p} style={CARD_STYLES.railCell} />
       ))}
       <Pressable onPress={onOpenAll} style={{ width: 120, height: CARD.imgH, alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         <View style={[{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
@@ -214,12 +283,37 @@ function StoryRail({ products, onOpenAll }: { products: (Product & { id: string 
 export function TopStoriesScreen() {
   const nav = useNavigation<any>();
   const { gender } = useApp();
-  const stories = gender === 'her' ? HER_STORIES : HIM_STORIES;
-  const pool = useMemo(() => buildPool(gender, 40), [gender]);
+  const { section } = useCmsSection('page.top_stories', gender);
+  const stories = useMemo<Story[]>(
+    () =>
+      section.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.hero) }))
+        .filter(withSource)
+        .map(({ item, source }) => ({
+          id: item.key,
+          img: source,
+          link: item.link,
+          tag: str(item.content, 'tag'),
+          title: str(item.content, 'title'),
+          blurb: str(item.content, 'blurb'),
+          read: str(item.content, 'read'),
+          tags: Array.isArray(item.content.tags)
+            ? (item.content.tags as unknown[]).filter((t): t is string => typeof t === 'string')
+            : [],
+        })),
+    [section.items],
+  );
+  const { products, status } = useCatalogProducts({ gender, limit: SECTION_PAGE_SIZE });
   const lead = stories[0];
   const rest = stories.slice(1);
-  // Each story gets a DIFFERENT slice of the pool so its rail is unique.
-  const railFor = (i: number) => pool.slice(i * 5, i * 5 + 5);
+  // Each story gets a DIFFERENT slice of the catalog so its rail is unique.
+  // Wraps around rather than running dry when the catalog is smaller than the
+  // number of stories — but only over products that genuinely exist.
+  const railFor = (i: number) => {
+    if (products.length === 0) return [];
+    const start = (i * 5) % products.length;
+    return products.slice(start, start + 5);
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -227,22 +321,25 @@ export function TopStoriesScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* ── SECTION INTRO ── */}
         <View style={{ alignItems: 'center', paddingTop: SP.l, paddingHorizontal: SP.l }}>
-          <Text style={[T.micro, { letterSpacing: 2, color: C.dim }]}>THE EDIT · WEEK OF NOW</Text>
-          <Text style={[T.h1, { textAlign: 'center', textTransform: 'uppercase', marginTop: 6 }]}>Top Stories{'\n'}of the Week</Text>
+          <Text style={[T.micro, { letterSpacing: 2, color: C.dim }]}>{section.kicker ?? ''}</Text>
+          <Text style={[T.h1, { textAlign: 'center', textTransform: 'uppercase', marginTop: 6 }]}>{section.title ?? 'Top Stories'}</Text>
         </View>
 
         {/* ── FEATURED LEAD — tall full-bleed cover ── */}
-        <Pressable onPress={() => nav.navigate('Categories', { label: lead.title })} style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
+        {lead ? (
+        <Pressable onPress={() => { if (!openLink(nav, lead.link)) nav.navigate('Categories', { label: lead.title }); }} style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
           <View style={[{ height: STORY_LEAD_H, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
             <CachedImage source={lead.img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <LinearGradient colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.85)']} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFillObject as any} />
             <View style={{ position: 'absolute', top: SP.m, left: SP.m, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <View style={{ backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1 }]}>COVER STORY</Text>
+                <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '700', letterSpacing: 1 }]}>COVER STORY</Text>
               </View>
-              <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={[T.micro, { color: '#fff' }]}>{lead.read} read</Text>
-              </View>
+              {lead.read ? (
+                <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 10, paddingVertical: 4 }}>
+                  <Text style={[T.micro, { color: '#fff' }]}>{lead.read} read</Text>
+                </View>
+              ) : null}
             </View>
             <View style={{ position: 'absolute', left: SP.l, right: SP.l, bottom: SP.l }}>
               <Text style={[T.caption, { color: 'rgba(255,255,255,0.85)' }]}>{lead.tag}</Text>
@@ -255,6 +352,7 @@ export function TopStoriesScreen() {
             </View>
           </View>
         </Pressable>
+        ) : null}
 
         {/* ── STORY FEED — every entry is its own poster + copy + product rail ── */}
         {rest.map((s, i) => (
@@ -266,7 +364,7 @@ export function TopStoriesScreen() {
               <Text style={[T.micro, { letterSpacing: 1.5, color: C.dim }]}>{s.tag.toUpperCase()}</Text>
             </View>
 
-            <Pressable onPress={() => nav.navigate('Categories', { label: s.title })} style={{ marginHorizontal: SP.l, marginTop: SP.m }}>
+            <Pressable onPress={() => { if (!openLink(nav, s.link)) nav.navigate('Categories', { label: s.title }); }} style={{ marginHorizontal: SP.l, marginTop: SP.m }}>
               <View style={[{ height: STORY_POSTER_H, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
                 <CachedImage source={s.img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
                 <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']} start={{ x: 0, y: 0.45 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject as any} />
@@ -288,15 +386,20 @@ export function TopStoriesScreen() {
               </View>
             </View>
 
-            {/* shoppable rail */}
-            <View style={{ marginTop: SP.l, paddingLeft: SP.l }}>
-              <StoryRail products={railFor(i)} onOpenAll={() => nav.navigate('Categories', { label: s.title })} />
-            </View>
+            {/* shoppable rail — omitted entirely when the catalog is empty,
+                rather than filled with bundled art the store cannot sell */}
+            {status === 'loading' ? (
+              <View style={{ marginTop: SP.l }}><ProductRailSkeleton count={3} /></View>
+            ) : railFor(i).length > 0 ? (
+              <View style={{ marginTop: SP.l, paddingLeft: SP.l }}>
+                <StoryRail products={railFor(i)} onOpenAll={() => nav.navigate('Categories', { label: s.title })} />
+              </View>
+            ) : null}
           </View>
         ))}
 
         <View style={{ alignItems: 'center', marginTop: SP.xxl }}>
-          <Text style={[T.micro]}>End of this week's edit · new stories every Monday</Text>
+          <Text style={[T.micro]}>{section.subtitle ?? ''}</Text>
         </View>
       </ScrollView>
     </View>
@@ -308,36 +411,95 @@ export function TopStoriesScreen() {
 // themed hero (pastel gradient + product cutout + styling note) and a curated
 // grid beneath it. Every occasion has its own tint so the page feels re-dressed.
 // ════════════════════════════════════════════════════════════════════════════
-type Occ = { id: string; label: string; img: any; note: string; tint: readonly [string, string]; accent: string };
-const HER_OCC: Occ[] = [
-  { id: 'brunch', label: 'Brunch', img: require('../../assets/github-import/women/dress.png'), note: 'Soft linens, easy florals and one good sandal. Made for slow mornings and long tables.', tint: ['#FDECEF', '#F7D6E0'], accent: '#C84F87' },
-  { id: 'party', label: 'Party', img: require('../../assets/github-import/women/top.png'), note: 'Shine, sequins and a hemline with opinions. Turn heads before you say a word.', tint: ['#F3E9FB', '#E3CFF6'], accent: '#8A4FC8' },
-  { id: 'date', label: 'Date', img: require('../../assets/github-import/women/heels.png'), note: 'A little bit of red, a heel that means business. Dress for the second glance.', tint: ['#FBE9E9', '#F6CFCF'], accent: '#C84F4F' },
-  { id: 'wedding', label: 'Wedding', img: require('../../assets/github-import/women/ethenic.png'), note: 'Occasion-wear that photographs beautifully and lasts through the last dance.', tint: ['#FBF3E2', '#F2E1BE'], accent: '#B48A2E' },
-  { id: 'casual', label: 'Casual', img: require('../../assets/github-import/women/pants.png'), note: 'The off-duty uniform — relaxed denim, easy layers, nothing to overthink.', tint: ['#EEF2F6', '#D9E2EC'], accent: '#4F6C8A' },
-];
-const HIM_OCC: Occ[] = [
-  { id: 'office', label: 'Office', img: require('../../assets/github-import/men/shirt.png'), note: 'Crisp shirting and clean lines. Quietly sharp, never trying too hard.', tint: ['#EEF2F6', '#D9E2EC'], accent: '#4F6C8A' },
-  { id: 'street', label: 'Street', img: require('../../assets/github-import/men/jackets.png'), note: 'Layered, boxy and built for the pavement. Loud where it counts.', tint: ['#EDEDED', '#D6D6D6'], accent: '#333333' },
-  { id: 'gym', label: 'Gym', img: require('../../assets/github-import/men/tshirt.png'), note: 'Breathable, flexible, ready to move. Performance that still looks the part.', tint: ['#E7F4EE', '#CDE7DA'], accent: '#2E8B63' },
-  { id: 'travel', label: 'Travel', img: require('../../assets/github-import/men/jeans.png'), note: 'Wrinkle-friendly and layer-ready for gate to gate. Comfort that keeps up.', tint: ['#EAF0FB', '#CFDDF6'], accent: '#3A5FA0' },
-  { id: 'weekend', label: 'Weekend', img: require('../../assets/github-import/men/shoes.png'), note: 'Off the clock and onto the good stuff. Easy fits for slow plans.', tint: ['#FBF1E7', '#F2DEC6'], accent: '#B4772E' },
-];
+// The occasions are the `page.occasion` CMS section. `id` is the item key, and it doubles as
+// the collection slug the grid resolves against — which is why the key matters here and is not
+// just a React key: `listCollectionProducts(occ.id)` looks it up in the catalog.
+type Occ = {
+  id: string;
+  label: string;
+  img: MediaSource;
+  note: string;
+  tint: readonly [string, string];
+  accent: string;
+};
 
 export function ShopByOccasionScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { gender } = useApp();
-  const occasions = gender === 'her' ? HER_OCC : HIM_OCC;
+  const { section, status: cmsStatus } = useCmsSection('page.occasion', gender);
+  const occasions = useMemo<Occ[]>(
+    () =>
+      section.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.card) }))
+        .filter(withSource)
+        .map(({ item, source }) => ({
+          id: item.key,
+          label: str(item.content, 'label'),
+          img: source,
+          note: str(item.content, 'note'),
+          tint: [
+            color(item.content, 'tintFrom', '#EEF2F6'),
+            color(item.content, 'tintTo', '#D9E2EC'),
+          ] as const,
+          accent: color(item.content, 'accent', '#4F6C8A'),
+        })),
+    [section.items],
+  );
   // Home passes an occasion slug (e.g. "streetwear"); match by id / prefix / label.
   const param = String(route.params?.occasion ?? '').toLowerCase();
   const found = param
     ? occasions.findIndex((o) => param === o.id || param.startsWith(o.id) || param === o.label.toLowerCase())
     : -1;
   const [active, setActive] = useState(found === -1 ? 0 : found);
-  const occ = occasions[active];
-  const pool = useMemo(() => buildPool(gender, 40), [gender]);
-  const grid = useMemo(() => pool.slice(active * 6, active * 6 + 8), [pool, active]);
+  const occ = occasions[Math.min(active, Math.max(0, occasions.length - 1))];
+  /**
+   * The grid is the occasion's real collection when the backend has one.
+   *
+   * `GET /catalog/collections/:slug` resolves an occasion collection straight
+   * from the live catalog (listings tagged with that occasion), so "Wear it to
+   * Brunch" means it. When no such collection exists the page falls back to a
+   * plain browse and RENAMES the heading, because calling a general browse
+   * "Wear it to Brunch" would be the same lie in a different place.
+   */
+  const occId = occ?.id ?? '';
+  const [occProducts, setOccProducts] = useState<Product[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setOccProducts(null);
+    // No occasions at all (section disabled, or every one out of window) — nothing to resolve.
+    if (!occId) { setOccProducts([]); return; }
+    listCollectionProducts(occId)
+      .then((rows) => { if (!cancelled) setOccProducts(rows); })
+      .catch(() => { if (!cancelled) setOccProducts([]); });
+    return () => { cancelled = true; };
+  }, [occId]);
+  const hasOccCollection = !!occProducts && occProducts.length > 0;
+  const browse = useCatalogProducts({ gender, limit: SECTION_PAGE_SIZE, enabled: occProducts !== null && !hasOccCollection });
+  const grid = hasOccCollection ? occProducts.slice(0, 8) : browse.products.slice(0, 8);
+  const gridStatus = occProducts === null ? 'loading' : hasOccCollection ? 'ready' : browse.status;
+
+  // Every hook above runs unconditionally; only the render short-circuits.
+  //
+  // "Nothing to show" and "not loaded yet" are different answers and must not look the same —
+  // claiming there are no occasions while the request is still in flight is the exact mistake
+  // CatalogState.tsx was written to stop.
+  if (!occ) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <SectionHeader title="Occasions" onBack={() => nav.goBack()} />
+        {cmsStatus === 'loading' ? (
+          <View style={{ padding: SP.l, gap: SP.s }}>
+            <Shimmer w={'40%'} h={10} />
+            <Shimmer w={'70%'} h={26} />
+            <Shimmer h={Math.round(W * 0.7)} style={{ marginTop: SP.m }} />
+          </View>
+        ) : (
+          <CatalogEmpty title="No occasions right now" sub="Check back shortly — this page is being refreshed." />
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -345,8 +507,8 @@ export function ShopByOccasionScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* ── INTRO ── */}
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          <Text style={[T.micro, { letterSpacing: 2, color: C.dim }]}>DRESS FOR THE MOMENT</Text>
-          <Text style={[T.h1, { textTransform: 'uppercase', marginTop: 6 }]}>Shop by Occasion</Text>
+          <Text style={[T.micro, { letterSpacing: 2, color: C.dim }]}>{section.kicker ?? 'DRESS FOR THE MOMENT'}</Text>
+          <Text style={[T.h1, { textTransform: 'uppercase', marginTop: 6 }]}>{section.title ?? 'Shop by Occasion'}</Text>
         </View>
 
         {/* ── OCCASION PILL SELECTOR ── */}
@@ -367,7 +529,7 @@ export function ShopByOccasionScreen() {
             <View style={{ flex: 1, flexDirection: 'row' }}>
               <View style={{ flex: 1.05, padding: SP.l, justifyContent: 'center' }}>
                 <View style={{ alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, backgroundColor: occ.accent }}>
-                  <Text style={[T.micro, { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 0.5 }]}>{occ.label.toUpperCase()}</Text>
+                  <Text style={[T.micro, { color: '#fff', fontFamily: HELV, fontWeight: '700', letterSpacing: 0.5 }]}>{occ.label.toUpperCase()}</Text>
                 </View>
                 <Text style={[T.h2, { marginTop: 10, textTransform: 'uppercase' }]}>The {occ.label}{'\n'}Edit</Text>
                 <Text style={[T.caption, { color: C.inkSoft, marginTop: 8 }]}>{occ.note}</Text>
@@ -395,14 +557,25 @@ export function ShopByOccasionScreen() {
 
         {/* ── CURATED GRID ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <Text style={[T.h2, { textTransform: 'uppercase' }]}>Wear it to {occ.label}</Text>
+          <Text style={[T.h2, { textTransform: 'uppercase' }]}>
+            {hasOccCollection ? `Wear it to ${occ.label}` : 'Fresh in store'}
+          </Text>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m }}>
-          {grid.map((p, i) => (
-            <FadeInUp key={p.id} delay={(i % 6) * 30}>
-              <ProductCard p={p} style={{ marginBottom: SP.s }} />
-            </FadeInUp>
-          ))}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+          <CatalogSection
+            status={gridStatus}
+            count={grid.length}
+            onRetry={browse.reload}
+            empty={<CatalogEmpty title="Nothing here yet" sub="No live listings for this moment right now." />}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+              {grid.map((p, i) => (
+                <FadeInUp key={p.id} delay={(i % 6) * 30}>
+                  <ProductCard p={p} style={CARD_STYLES.mb_s} />
+                </FadeInUp>
+              ))}
+            </View>
+          </CatalogSection>
         </View>
       </ScrollView>
     </View>
@@ -413,17 +586,60 @@ export function ShopByOccasionScreen() {
 // FLASH FIT OF THE DAY — a live countdown, one fully shoppable "fit" (top +
 // bottom + shoes) with a buy-the-whole-look CTA, then a grid of more flash deals.
 // ════════════════════════════════════════════════════════════════════════════
-type FitPiece = { slot: string; label: string; price: number; original: number; img: any };
-const HER_FIT: FitPiece[] = [
-  { slot: 'Top', label: 'Ribbed Knit Top', price: 799, original: 1499, img: require('../../assets/github-import/women/top.png') },
-  { slot: 'Bottom', label: 'Pleated Mini Skirt', price: 999, original: 1999, img: require('../../assets/github-import/women/skirts.png') },
-  { slot: 'Shoes', label: 'Block Heel Sandal', price: 1299, original: 2499, img: require('../../assets/github-import/women/heels.png') },
+/**
+ * One piece of today's fit — a REAL listing, wearing its own category as the
+ * slot label.
+ *
+ * HER_FIT / HIM_FIT used to live here: three hardcoded garments per gender with
+ * invented prices and bundled art ("Ribbed Knit Top · ₹799, was ₹1499"). The
+ * page summed those numbers into a "you save ₹2,900" headline and an "Add the
+ * fit" button that only fired a toast — nothing was ever added, and none of the
+ * three existed. The fit is now assembled from the live catalog.
+ */
+type FitPiece = { slot: string; label: string; price: number; original: number; img: any; product: Product };
+
+/**
+ * Categories you cannot wear.
+ *
+ * The fit is assembled cheapest-first, and the cheapest live listings are
+ * routinely beauty — which produced "Today's Complete Fit: Fragrance + Makeup +
+ * Nails". Every one of those was a real, in-stock product, so nothing was
+ * fabricated, but three cosmetics are not an outfit and the heading says outfit.
+ * Excluding them is a smaller lie than renaming the section.
+ */
+const NON_APPAREL = [
+  'beauty', 'makeup', 'nails', 'skincare', 'fragrance', 'perfume',
+  'hair accessories', 'grooming',
 ];
-const HIM_FIT: FitPiece[] = [
-  { slot: 'Top', label: 'Boxy Graphic Tee', price: 599, original: 1299, img: require('../../assets/github-import/men/tshirt.png') },
-  { slot: 'Bottom', label: 'Relaxed Denim', price: 1099, original: 2299, img: require('../../assets/github-import/men/jeans.png') },
-  { slot: 'Shoes', label: 'Court Sneaker', price: 1499, original: 2999, img: require('../../assets/github-import/men/shoes.png') },
-];
+
+/**
+ * Pick up to three WEARABLE products from DIFFERENT categories to make a
+ * head-to-toe fit.
+ *
+ * Distinct categories are what make it read as an outfit rather than three
+ * shirts. Falls back to fewer pieces (or none) when the catalog cannot supply
+ * them — the section hides itself rather than padding.
+ */
+function assembleFit(products: Product[]): FitPiece[] {
+  const seen = new Set<string>();
+  const out: FitPiece[] = [];
+  for (const p of products) {
+    const cat = (p.category || '').toLowerCase();
+    if (NON_APPAREL.some((c) => cat.includes(c))) continue;
+    if (cat && seen.has(cat)) continue;
+    if (cat) seen.add(cat);
+    out.push({
+      slot: p.category || 'Piece',
+      label: p.name,
+      price: p.price,
+      original: p.original,
+      img: p.img,
+      product: p,
+    });
+    if (out.length === 3) break;
+  }
+  return out;
+}
 
 function useFlashCountdown() {
   const [t, setT] = useState({ h: 5, m: 32, s: 8 });
@@ -449,21 +665,52 @@ function CountdownCell({ n }: { n: string }) {
   );
 }
 
+/**
+ * The ticking clock, isolated.
+ *
+ * `useFlashCountdown()` used to be called at FlashFitScreen scope, so every
+ * one-second tick re-rendered the entire screen — re-running a filter, rebuilding
+ * a 24-item pool's inline props, and re-rendering ~24 product cards, once per
+ * second, forever, while the screen was open. Home already solved this the right
+ * way by isolating its own countdown in a leaf component; this screen never got
+ * the same treatment. Only these three digits re-render now.
+ */
+function FlashCountdown() {
+  const time = useFlashCountdown();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <CountdownCell n={String(time.h).padStart(2, '0')} />
+      <Text style={{ fontFamily: 'Inter_900Black', color: C.ink }}>:</Text>
+      <CountdownCell n={String(time.m).padStart(2, '0')} />
+      <Text style={{ fontFamily: 'Inter_900Black', color: C.ink }}>:</Text>
+      <CountdownCell n={String(time.s).padStart(2, '0')} />
+    </View>
+  );
+}
+
 const FIT_BIG_H = Math.round(W * 0.62);
 const FIT_SMALL_H = (FIT_BIG_H - SP.s) / 2;
 
 export function FlashFitScreen() {
   const nav = useNavigation<any>();
-  const { gender, showToast } = useApp();
-  const fit = gender === 'her' ? HER_FIT : HIM_FIT;
+  const { gender, showToast, addToCart } = useApp();
+  const { section, status: cmsStatus } = useCmsSection('page.flash_fit', gender);
   const time = useFlashCountdown();
+  // Cheapest first: this page's whole promise is "under ₹999".
+  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
+  const fit = useMemo(() => assembleFit(products), [products]);
   const total = fit.reduce((s, p) => s + p.price, 0);
   const totalOriginal = fit.reduce((s, p) => s + p.original, 0);
   const saved = totalOriginal - total;
-  const pool = useMemo(() => buildPool(gender, 24, true), [gender]);
+  const flashDeals = useMemo(() => products.filter((p) => p.price <= 999), [products]);
   const cellW = (W - SP.l * 2 - SP.s) / 2;
 
-  const buyTheFit = () => showToast('Fit added', `${fit.length} pieces · you saved ₹${saved}`, 'shopping-bag');
+  // Actually adds the pieces. This was a toast and nothing else — the bag never
+  // changed, so the shopper checked out with an empty cart.
+  const buyTheFit = () => {
+    fit.forEach((p) => addToCart(p.product, 'M'));
+    showToast('Fit added', `${fit.length} piece${fit.length === 1 ? '' : 's'} in your bag`, 'shopping-bag');
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -473,31 +720,41 @@ export function FlashFitScreen() {
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
           <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
             <View>
-              <Text style={[T.micro, { letterSpacing: 1.5, color: C.dim }]}>FLASH FIT OF THE DAY</Text>
-              <Text style={[T.h3, { marginTop: 3 }]}>Ends in</Text>
+              {cmsStatus === 'loading' ? (
+                <>
+                  <Shimmer w={120} h={9} />
+                  <Shimmer w={70} h={15} style={{ marginTop: 5 }} />
+                </>
+              ) : (
+                <>
+                  <Text style={[T.micro, { letterSpacing: 1.5, color: C.dim }]}>{section.kicker ?? 'FLASH FIT OF THE DAY'}</Text>
+                  <Text style={[T.h3, { marginTop: 3 }]}>{section.title ?? 'Ends in'}</Text>
+                </>
+              )}
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <CountdownCell n={String(time.h).padStart(2, '0')} />
-              <Text style={{ fontFamily: 'Inter_900Black', color: C.ink }}>:</Text>
-              <CountdownCell n={String(time.m).padStart(2, '0')} />
-              <Text style={{ fontFamily: 'Inter_900Black', color: C.ink }}>:</Text>
-              <CountdownCell n={String(time.s).padStart(2, '0')} />
-            </View>
+            <FlashCountdown />
           </View>
         </View>
 
-        {/* ── THE FIT — head-to-toe, laid out as a bento (top big, two stacked) ── */}
+        {/* ── THE FIT — head-to-toe, laid out as a bento (top big, two stacked).
+            GATED on all three pieces existing. `fit` is assembled from live
+            listings in three DIFFERENT categories, so a thin catalog yields one
+            or two — and this bento indexes fit[0..2] directly, which crashed
+            with "Cannot read property 'slot' of undefined". Half a bento is not
+            a layout worth rescuing, so the whole block stands down and the page
+            leads with More Flash Deals instead. ── */}
+        {fit.length === 3 && (<>
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
           <Text style={[T.h2, { textTransform: 'uppercase' }]}>Today's Complete Fit</Text>
           <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>One look, {fit.length} pieces — shop them together or one at a time.</Text>
         </View>
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.m, flexDirection: 'row', gap: SP.s }}>
-          {/* big piece (top) */}
-          <FitTile piece={fit[0]} w={cellW} h={FIT_BIG_H} onPress={() => nav.navigate('Categories', { label: fit[0].slot })} />
+          {/* big piece (top) — opens the real product, not a category guess */}
+          <FitTile piece={fit[0]!} w={cellW} h={FIT_BIG_H} onPress={() => nav.navigate('ProductDetail', { product: fit[0]!.product })} />
           {/* stacked pair (bottom + shoes) */}
           <View style={{ gap: SP.s }}>
-            <FitTile piece={fit[1]} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('Categories', { label: fit[1].slot })} />
-            <FitTile piece={fit[2]} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('Categories', { label: fit[2].slot })} />
+            <FitTile piece={fit[1]!} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('ProductDetail', { product: fit[1]!.product })} />
+            <FitTile piece={fit[2]!} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('ProductDetail', { product: fit[2]!.product })} />
           </View>
         </View>
 
@@ -509,9 +766,16 @@ export function FlashFitScreen() {
                 <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', letterSpacing: 1 }]}>BUY THE FULL LOOK</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(28), color: '#fff' }}>₹{total}</Text>
-                  <Text style={[T.caption, { color: 'rgba(255,255,255,0.55)', textDecorationLine: 'line-through' }]}>₹{totalOriginal}</Text>
+                  {/* Only when the pieces are genuinely marked down. At MRP this
+                      rendered "₹1197  ₹1197" with the second struck through, and
+                      "You save ₹0" underneath. */}
+                  {saved > 0 && (
+                    <Text style={[T.caption, { color: 'rgba(255,255,255,0.55)', textDecorationLine: 'line-through' }]}>₹{totalOriginal}</Text>
+                  )}
                 </View>
-                <Text style={[T.caption, { color: '#5FD08C', marginTop: 4 }]}>You save ₹{saved}</Text>
+                {saved > 0 && (
+                  <Text style={[T.caption, { color: '#5FD08C', marginTop: 4 }]}>You save ₹{saved}</Text>
+                )}
               </View>
               <Pressable onPress={buyTheFit} style={{ backgroundColor: '#fff', paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Text style={[T.button, { color: C.ink, fontSize: rf(14) }]}>Add the fit</Text>
@@ -520,23 +784,33 @@ export function FlashFitScreen() {
             </View>
           </View>
         </View>
+        </>)}
 
         {/* ── MORE FLASH DEALS ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xxl }}>
           <Text style={[T.h2, { textTransform: 'uppercase' }]}>More Flash Deals</Text>
           <Text style={[T.micro]}>Under ₹999</Text>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m }}>
-          {pool.filter((p) => p.price <= 999).map((p, i) => (
-            <FadeInUp key={p.id} delay={(i % 6) * 30}>
-              <ProductCard p={p} style={{ marginBottom: SP.s }}>
-                <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Feather name="zap" size={10} color="#fff" />
-                  <Text style={[T.micro, { color: '#fff', fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>FLASH</Text>
-                </View>
-              </ProductCard>
-            </FadeInUp>
-          ))}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+          <CatalogSection
+            status={status}
+            count={flashDeals.length}
+            onRetry={reload}
+            empty={<CatalogEmpty title="No flash deals right now" sub="Nothing under 999 is live at the moment. Check back soon." />}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+              {flashDeals.map((p, i) => (
+                <FadeInUp key={p.id} delay={(i % 6) * 30}>
+                  <ProductCard p={p} style={CARD_STYLES.mb_s}>
+                    <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Feather name="zap" size={10} color="#fff" />
+                      <Text style={[T.micro, { color: '#fff', fontFamily: HELV, fontWeight: '700' }]}>FLASH</Text>
+                    </View>
+                  </ProductCard>
+                </FadeInUp>
+              ))}
+            </View>
+          </CatalogSection>
         </View>
       </ScrollView>
     </View>
@@ -551,68 +825,80 @@ export function FlashFitScreen() {
 // ════════════════════════════════════════════════════════════════════════════
 const EDIT_YELLOW = '#F2E63C';
 
+/**
+ * The Her/His Edit page, assembled from four CMS sections rather than one hardcoded object:
+ * `page.edit_<g>` (cover art + all the copy), `_chips`, `_cats` and `_features`.
+ *
+ * It stays an object with this exact shape because `GenderEditScreen` and `EditFeature` below
+ * are unchanged — the page is built from CMS content, then rendered by the same code that
+ * always rendered it.
+ */
 type EditContent = {
   kicker: string;
   headline: string;
   sub: string;
-  cover: any;
+  cover: MediaSource | null;
   chips: string[];
-  cats: { label: string; img: any }[];
-  features: { img: any; tag: string; title: string; copy: string }[];
+  cats: { key: string; label: string; img: MediaSource; link: CmsItem['link'] }[];
+  features: { key: string; img: MediaSource; tag: string; title: string; copy: string; link: CmsItem['link'] }[];
   gridTitle: string;
-  poster: any;
+  poster: MediaSource | null;
   cta: string;
 };
 
-const HER_EDIT: EditContent = {
-  kicker: "THE WOMEN'S CAMPAIGN",
-  headline: 'HER\nEDIT.',
-  sub: 'Bold, soft, unapologetic — the pieces she reaches for first, at her door in 60 minutes.',
-  cover: require('../../assets/banners/her-new1.png'),
-  chips: ['60-MIN DELIVERY', 'NEW DROPS WEEKLY', 'EASY RETURNS'],
-  cats: [
-    { label: 'Dresses', img: require('../../assets/github-import/women/dress.png') },
-    { label: 'Tops', img: require('../../assets/github-import/women/top.png') },
-    { label: 'Skirts', img: require('../../assets/github-import/women/skirts.png') },
-    { label: 'Heels', img: require('../../assets/github-import/women/heels.png') },
-    { label: 'Jewelry', img: require('../../assets/github-import/women/jwellery.png') },
-    { label: 'Pants', img: require('../../assets/github-import/women/pants.png') },
-    { label: 'Ethnic', img: require('../../assets/github-import/women/ethenic.png') },
-    { label: 'Eyewear', img: require('../../assets/github-import/women/glasses.png') },
-  ],
-  features: [
-    { img: require('../../assets/banners/her-closet.jpg'), tag: 'CLOSET REFRESH', title: 'New week,\nnew closet.', copy: 'Seven days of fits, zero repeats. Swap the basics, keep the attitude.' },
-    { img: require('../../assets/banners/her-friday.jpg'), tag: 'FRIDAY FEELING', title: 'Off the\nclock.', copy: 'Desk to dinner in one layer — sharp enough for work, easy enough for after.' },
-  ],
-  gridTitle: 'TRENDING FOR HER',
-  poster: require('../../assets/story-posters/her-latest-drops.png'),
-  cta: 'EXPLORE ALL · HER',
-};
+/** Build one Edit page's content from its four sections, plus whether it is confirmed yet. */
+function useEditContent(which: 'her' | 'him'): { content: EditContent; loading: boolean } {
+  const keys = [
+    `page.edit_${which}`,
+    `page.edit_${which}_chips`,
+    `page.edit_${which}_cats`,
+    `page.edit_${which}_features`,
+  ];
+  // These pages are gender-specific by ROUTE, not by the app's active rail — "For Her" shows
+  // the women's campaign even when the shopper is browsing HIM — so the items are authored as
+  // `all` and the gender passed here only picks which payload is cached.
+  const { sections: cms, status } = useCmsSections(keys, which);
+  const main = cms[keys[0]!]!;
+  const chips = cms[keys[1]!]!;
+  const cats = cms[keys[2]!]!;
+  const features = cms[keys[3]!]!;
 
-const HIM_EDIT: EditContent = {
-  kicker: "THE MEN'S CAMPAIGN",
-  headline: 'HIS\nCODE.',
-  sub: 'Raw, rugged, refined — the rotation he lives in, at his door in 60 minutes.',
-  cover: require('../../assets/banners/him-new1.png'),
-  chips: ['60-MIN DELIVERY', 'NEW DROPS WEEKLY', 'EASY RETURNS'],
-  cats: [
-    { label: 'Tees', img: require('../../assets/github-import/men/tshirt.png') },
-    { label: 'Shirts', img: require('../../assets/github-import/men/shirt.png') },
-    { label: 'Jeans', img: require('../../assets/github-import/men/jeans.png') },
-    { label: 'Jackets', img: require('../../assets/github-import/men/jackets.png') },
-    { label: 'Shoes', img: require('../../assets/github-import/men/shoes.png') },
-    { label: 'Watches', img: require('../../assets/github-import/men/watchs.png') },
-    { label: 'Caps', img: require('../../assets/github-import/men/cap.png') },
-    { label: 'Shorts', img: require('../../assets/github-import/men/short.png') },
-  ],
-  features: [
-    { img: require('../../assets/banners/him-coffee.jpg'), tag: 'THE COFFEE RUN', title: 'Five-minute\nfits.', copy: 'Thrown on, never thrown together — the morning uniform that just works.' },
-    { img: require('../../assets/banners/him-closet.jpg'), tag: 'CLOSET RESET', title: 'Built\ndifferent.', copy: 'Heavy cotton, clean lines, zero fuss. Staples that outlast trends.' },
-  ],
-  gridTitle: 'TRENDING FOR HIM',
-  poster: require('../../assets/story-posters/him-bros.png'),
-  cta: 'EXPLORE ALL · HIM',
-};
+  const content = useMemo(
+    () => ({
+      kicker: main.kicker ?? '',
+      headline: main.title ?? '',
+      sub: main.subtitle ?? '',
+      cover: resolveMedia(main.items[0], IMG.hero),
+      chips: chips.items.map((i) => str(i.content, 'label')).filter(Boolean),
+      cats: cats.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.thumb) }))
+        .filter(withSource)
+        .map(({ item, source }) => ({
+          key: item.key,
+          label: str(item.content, 'label'),
+          img: source,
+          link: item.link,
+        })),
+      features: features.items
+        .map((item) => ({ item, source: resolveMedia(item, IMG.card) }))
+        .filter(withSource)
+        .map(({ item, source }) => ({
+          key: item.key,
+          img: source,
+          tag: str(item.content, 'tag'),
+          title: str(item.content, 'title'),
+          copy: str(item.content, 'copy'),
+          link: item.link,
+        })),
+      gridTitle: str(main.config, 'gridTitle'),
+      poster: resolveConfigMedia(main.config, 'posterAssetKey', 'posterImageUrl', IMG.hero),
+      cta: main.ctaLabel ?? '',
+    }),
+    [main, chips.items, cats.items, features.items],
+  );
+
+  return { content, loading: status === 'loading' };
+}
 
 // One editorial split band — image on one side, white copy panel with a giant
 // faded word on the other. `reverse` flips the sides so bands alternate.
@@ -629,7 +915,7 @@ function EditFeature({ f, reverse, onPress }: { f: EditContent['features'][numbe
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(21), lineHeight: rf(24), color: C.ink, letterSpacing: -0.5, marginTop: 6, textTransform: 'uppercase' }}>{f.title}</Text>
         <Text style={[T.micro, { color: C.dim, marginTop: 6 }]} numberOfLines={2}>{f.copy}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 }}>
-          <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>View</Text>
+          <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>View</Text>
           <Feather name="arrow-right" size={13} color={C.ink} />
         </View>
       </View>
@@ -637,10 +923,24 @@ function EditFeature({ f, reverse, onPress }: { f: EditContent['features'][numbe
   );
 }
 
-function GenderEditScreen({ content, title }: { content: EditContent; title: string }) {
+function GenderEditScreen({
+  content,
+  title,
+  loading,
+}: {
+  content: EditContent;
+  title: string;
+  /** True until the published campaign is confirmed — render placeholders, not shipped copy. */
+  loading: boolean;
+}) {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const products = title === 'For Her' ? HER_PRODUCTS : HIM_PRODUCTS;
+  // "TRENDING FOR HER" was the eight bundled demo products, identical on both
+  // pages bar the array name. It is the live rail for this gender now.
+  const { products, status, reload } = useCatalogProducts({
+    gender: title === 'For Her' ? 'her' : 'him',
+    limit: 12,
+  });
   const COVER_H = Math.round(W * 1.1);
   const CAT_W = 96;
 
@@ -649,7 +949,7 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* ── COVER — full-bleed campaign art under the status bar ── */}
         <View style={{ height: COVER_H, overflow: 'hidden' }}>
-          <CachedImage source={content.cover} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+          {content.cover ? <CachedImage source={content.cover} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" /> : null}
           <LinearGradient colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFillObject as any} />
           {/* header row on the photo */}
           <View style={{ position: 'absolute', top: insets.top + 8, left: SP.l, right: SP.l, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -659,19 +959,29 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
             <Text style={[T.caption, { color: '#fff', letterSpacing: 3 }]}>{title.toUpperCase()}</Text>
             <View style={{ width: 38 }} />
           </View>
-          {/* kicker + display headline */}
-          <View style={{ position: 'absolute', left: SP.l, bottom: 56 }}>
-            <View style={{ alignSelf: 'flex-start', backgroundColor: EDIT_YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={[T.micro, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700', letterSpacing: 1.5 }]}>{content.kicker}</Text>
+          {/* kicker + display headline. Held back until confirmed — the back arrow and page
+              title above stay, so the screen is navigable while the campaign resolves. */}
+          {!loading && (
+            <View style={{ position: 'absolute', left: SP.l, bottom: 56 }}>
+              <View style={{ alignSelf: 'flex-start', backgroundColor: EDIT_YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '700', letterSpacing: 1.5 }]}>{content.kicker}</Text>
+              </View>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(58), lineHeight: rf(56), color: '#fff', letterSpacing: -2, marginTop: 10 }}>{content.headline}</Text>
             </View>
-            <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(58), lineHeight: rf(56), color: '#fff', letterSpacing: -2, marginTop: 10 }}>{content.headline}</Text>
-          </View>
+          )}
         </View>
 
         {/* ── INTRO CARD — overlaps the cover bottom ── */}
         <FadeInUp style={{ marginHorizontal: SP.l, marginTop: -36 }}>
           <View style={[{ backgroundColor: C.white, padding: SP.l }, BORDER(1)]}>
-            <Text style={[T.body, { color: C.inkSoft }]}>{content.sub}</Text>
+            {loading ? (
+              <>
+                <Shimmer h={13} />
+                <Shimmer w={'72%'} h={13} style={{ marginTop: 6 }} />
+              </>
+            ) : (
+              <Text style={[T.body, { color: C.inkSoft }]}>{content.sub}</Text>
+            )}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: SP.m }}>
               {content.chips.map((ch) => (
                 <View key={ch} style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
@@ -691,7 +1001,7 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.m }}>
           {content.cats.map((c, i) => (
-            <Pressable key={c.label} onPress={() => nav.navigate('Categories', { label: c.label })} style={{ width: CAT_W }}>
+            <Pressable key={c.key} onPress={() => { if (!openLink(nav, c.link)) nav.navigate('Categories', { label: c.label }); }} style={{ width: CAT_W }}>
               <View style={[{ height: 124, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                 <Text style={{ position: 'absolute', top: 4, left: 7, fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.ink, opacity: 0.35 }}>{`0${i + 1}`}</Text>
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingTop: 16 }}>
@@ -706,8 +1016,8 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
         {/* ── EDITORIAL SPLIT BANDS — alternating sides ── */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, gap: SP.s }}>
           {content.features.map((f, i) => (
-            <FadeInUp key={f.tag} delay={i * 60}>
-              <EditFeature f={f} reverse={i % 2 === 1} onPress={() => nav.navigate('Categories', { label: f.tag })} />
+            <FadeInUp key={f.key} delay={i * 60}>
+              <EditFeature f={f} reverse={i % 2 === 1} onPress={() => { if (!openLink(nav, f.link)) nav.navigate('Categories', { label: f.tag }); }} />
             </FadeInUp>
           ))}
         </View>
@@ -716,27 +1026,36 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
           <Text style={[T.h2, { textTransform: 'uppercase' }]}>{content.gridTitle}</Text>
           <Pressable onPress={() => nav.navigate('Categories')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '600' }]}>View all</Text>
+            <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '600' }]}>View all</Text>
             <Feather name="chevron-right" size={14} color={C.ink} />
           </Pressable>
         </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m }}>
-          {products.map((p, i) => (
-            <FadeInUp key={p.id} delay={(i % 6) * 30}>
-              <ProductCard p={p} style={{ marginBottom: SP.s }} />
-            </FadeInUp>
-          ))}
+        <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+          <CatalogSection
+            status={status}
+            count={products.length}
+            onRetry={reload}
+            empty={<CatalogEmpty title="Nothing live yet" sub="New drops land here as stores go live." />}
+          >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+              {products.map((p, i) => (
+                <FadeInUp key={p.id} delay={(i % 6) * 30}>
+                  <ProductCard p={p} style={CARD_STYLES.mb_s} />
+                </FadeInUp>
+              ))}
+            </View>
+          </CatalogSection>
         </View>
 
         {/* ── STORY POSTER — full-width band into Top Stories ── */}
         <Pressable onPress={() => nav.navigate('TopStories')} style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
           <View style={[{ height: Math.round(W * 1.05), overflow: 'hidden' }, BORDER(1)]}>
-            <CachedImage source={content.poster} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+            {content.poster ? <CachedImage source={content.poster} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" /> : null}
             <View style={{ position: 'absolute', top: SP.m, left: SP.m, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Text style={[T.micro, { color: C.white, letterSpacing: 1.5 }]}>THIS WEEK'S STORY</Text>
             </View>
             <View style={{ position: 'absolute', right: SP.m, bottom: SP.m, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[T.caption, { color: C.ink, fontFamily: 'Helvetica Neue', fontWeight: '700' }]}>Read the edit</Text>
+              <Text style={[T.caption, { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>Read the edit</Text>
               <Feather name="arrow-right" size={13} color={C.ink} />
             </View>
           </View>
@@ -758,10 +1077,12 @@ function GenderEditScreen({ content, title }: { content: EditContent; title: str
 }
 
 export function ForHerEditScreen() {
-  return <GenderEditScreen content={HER_EDIT} title="For Her" />;
+  const { content, loading } = useEditContent('her');
+  return <GenderEditScreen content={content} title="For Her" loading={loading} />;
 }
 export function ForHimEditScreen() {
-  return <GenderEditScreen content={HIM_EDIT} title="For Him" />;
+  const { content, loading } = useEditContent('him');
+  return <GenderEditScreen content={content} title="For Him" loading={loading} />;
 }
 
 function FitTile({ piece, w, h, compact, onPress }: { piece: FitPiece; w: number; h: number; compact?: boolean; onPress: () => void }) {
@@ -779,7 +1100,7 @@ function FitTile({ piece, w, h, compact, onPress }: { piece: FitPiece; w: number
         {!compact && <Text style={[T.productName]} numberOfLines={1}>{piece.label}</Text>}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: compact ? 0 : 2 }}>
           <Text style={[T.price]}>₹{piece.price}</Text>
-          <Text style={[T.mrp]}>₹{piece.original}</Text>
+          {piece.original > piece.price && <Text style={[T.mrp]}>₹{piece.original}</Text>}
         </View>
       </View>
     </Pressable>

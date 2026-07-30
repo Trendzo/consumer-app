@@ -1,95 +1,67 @@
 // Category browser — SHEIN-style two-pane "Menu" page.
 //
-// Left: vertical rail of ALL categories — backend categories (listCategories,
-// gender-scoped) merged with a standard fashion taxonomy so the rail is always
-// full (Tops, Dresses, Bottoms, Denim, Co-ords, Accessories, …).
-// Right: the selected category's page — hero ("Shop All"), FEATURED tiles,
-// SHOP BY STYLE (real subcategories for that category — T-Shirts, Blouses &
-// Shirts, Tank Tops… under Tops, etc.), SHOP BY COLOR, the app's own
-// occasion collections, and a product grid from the backend.
+// Left: vertical rail of every top-level category. Right: one continuous scroll,
+// a section per category with its banner ("Shop All") and its sub-category tiles.
 //
-// Per-category products are cached in a ref map so flipping between rail
-// entries is instant after the first load — no refetch, no spinner churn.
+// The taxonomy comes from the BACKEND (`listCategoryTree`), which returns the tree
+// already resolved for this rail — HIM sees "Footwear" where HER sees "Shoes", and
+// each node carries a product count so empty tiles are never drawn. The TAXONOMY /
+// HIM_TAXONOMY arrays below are the offline fallback only; they mirror the seed, so
+// the two agree. Banner artwork stays local (shipped in the bundle) and is keyed by
+// category slug.
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, FlatList, Pressable, Dimensions, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, HELV} from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { RealIcon } from '../components/RealIcon';
-import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
-import { PRODUCTS, CATEGORIES } from '../data/mockData';
-import type { Product, Category, Occasion } from '../data/mockData';
-import { listCategories, listProducts, listOccasions, isBackendCategoryId } from '../services/catalog';
+import { listCategoryTree } from '../services/catalog';
+import type { CategoryNode } from '../services/catalog';
 import { useTabBarScroll } from '../hooks/useTabBarScroll';
+import { useCmsSection } from '../hooks/useCmsContent';
+import type { CmsSection } from '../content/types';
+import { resolveMedia, str } from '../content/media';
+import { IMG } from '../services/images';
 
-// Landscape category-banner art, keyed by taxonomy key. HER only for now —
-// HIM banners will be dropped in later; until then HIM falls back to a
-// product image. (Add HIM_BANNERS the same way once the assets arrive.)
-const HER_BANNERS: Record<string, any> = {
-  tops: require('../../assets/category-banners/her/tops.png'),
-  dresses: require('../../assets/category-banners/her/dresses.png'),
-  coords: require('../../assets/category-banners/her/coords.png'),
-  bottoms: require('../../assets/category-banners/her/bottoms.png'),
-  denim: require('../../assets/category-banners/her/denim.png'),
-  lounge: require('../../assets/category-banners/her/lounge.png'),
-  active: require('../../assets/category-banners/her/active.png'),
-  swim: require('../../assets/category-banners/her/swim.png'),
-  outerwear: require('../../assets/category-banners/her/outerwear.png'),
-  shoes: require('../../assets/category-banners/her/shoes.png'),
-  bags: require('../../assets/category-banners/her/bags.png'),
-  accessories: require('../../assets/category-banners/her/accessories.png'),
-  jewelry: require('../../assets/category-banners/her/jewelry.png'),
-  beauty: require('../../assets/category-banners/her/beauty.png'),
-};
-
-// Men banners (9 so far — shoes/accessories/bags/grooming still to come →
-// those fall back to a product image until added).
-const HIM_BANNERS: Record<string, any> = {
-  tops: require('../../assets/category-banners/him/tops.png'),
-  bottoms: require('../../assets/category-banners/him/bottoms.png'),
-  denim: require('../../assets/category-banners/him/denim.png'),
-  ethnic: require('../../assets/category-banners/him/ethnic.png'),
-  formal: require('../../assets/category-banners/him/formal.png'),
-  outerwear: require('../../assets/category-banners/him/outerwear.png'),
-  active: require('../../assets/category-banners/him/active.png'),
-  lounge: require('../../assets/category-banners/him/lounge.png'),
-  swim: require('../../assets/category-banners/him/swim.png'),
-};
-
-// Editorial text placement per banner — computed OFFLINE by finding the
-// emptiest region of each banner (away from the model), so the label sits in
-// negative space, poster-style, never on top of the person. `light` = the
-// spot is dark, so use white text.
+/**
+ * Category banner art and its label placement are the `page.category_banners` CMS section.
+ *
+ * The item KEY is the gendered taxonomy slug (`her-tops`, `him-denim`) — that is the lookup,
+ * not just a React key. Backend categories arrive keyed by slug, and a shared node carries no
+ * gender prefix (`tops`), so the lookup tries the gendered key first and then the bare one.
+ *
+ * Coverage is deliberately partial: HER has 14 banners and HIM 9. A category with no banner
+ * falls back to a product image, which is why the lookup returning nothing is a normal
+ * outcome rather than an error. Admin can fill the gaps without an app release now.
+ *
+ * Text placement was computed offline by finding the emptiest region of each banner, so the
+ * label sits in negative space rather than across the model.
+ */
 type TxtPos = { h: 'left' | 'center' | 'right'; v: 'top' | 'bottom' };
-const HER_TXT: Record<string, TxtPos> = {
-  tops: { h: 'left', v: 'top' },
-  dresses: { h: 'left', v: 'bottom' },
-  coords: { h: 'left', v: 'bottom' },
-  bottoms: { h: 'center', v: 'top' },
-  denim: { h: 'left', v: 'top' },
-  lounge: { h: 'center', v: 'top' },
-  active: { h: 'left', v: 'top' },
-  swim: { h: 'left', v: 'bottom' },
-  outerwear: { h: 'center', v: 'top' },
-  shoes: { h: 'right', v: 'bottom' },
-  bags: { h: 'right', v: 'bottom' },
-  accessories: { h: 'right', v: 'bottom' },
-  jewelry: { h: 'right', v: 'top' },
-  beauty: { h: 'left', v: 'top' },
-};
-const HIM_TXT: Record<string, TxtPos> = {
-  tops: { h: 'left', v: 'top' },
-  bottoms: { h: 'left', v: 'top' },
-  denim: { h: 'left', v: 'top' },
-  ethnic: { h: 'left', v: 'top' },
-  formal: { h: 'right', v: 'top' },
-  outerwear: { h: 'left', v: 'bottom' },
-  active: { h: 'left', v: 'top' },
-  lounge: { h: 'right', v: 'top' },
-  swim: { h: 'right', v: 'top' },
-};
+
+const DEFAULT_TXT: TxtPos = { h: 'left', v: 'bottom' };
+
+function bannerFor(section: CmsSection, slug: string, him: boolean) {
+  const bare = slug.replace(/^(her|him)-/, '');
+  const prefix = him ? 'him' : 'her';
+  const item =
+    section.items.find((i) => i.key === `${prefix}-${bare}`) ??
+    section.items.find((i) => i.key === bare);
+  if (!item) return null;
+  const source = resolveMedia(item, IMG.card);
+  if (!source) return null;
+  const h = str(item.content, 'textH');
+  const v = str(item.content, 'textV');
+  return {
+    source,
+    pos: {
+      h: h === 'center' || h === 'right' ? h : 'left',
+      v: v === 'top' ? 'top' : 'bottom',
+    } as TxtPos,
+  };
+}
 
 const { width: W } = Dimensions.get('window');
 const RAIL_W = 118;
@@ -101,6 +73,9 @@ const TILE_H = Math.round(TILE_W * 1.25); // near-square, like the reference
 // Each entry: how to recognise a backend category (match), the subcategories
 // shown under SHOP BY STYLE, and per-sub search keywords used both to pick a
 // tile image from the loaded products and as the search term when tapped.
+// OFFLINE FALLBACK ONLY. The live taxonomy comes from `listCategoryTree`; these arrays
+// mirror the backend seed (`backend/src/shared/catalog/taxonomy.ts`) so the page still
+// renders with no network. `q` supplies the stand-in tile image; `match` is vestigial.
 type Sub = { label: string; q: string[] };
 type Taxo = { key: string; label: string; himLabel?: string; match: RegExp; herOnly?: boolean; subs: Sub[]; himSubs?: Sub[] };
 
@@ -442,31 +417,112 @@ const COLORS: { label: string; hex: string; border?: boolean }[] = [
   { label: 'Orange', hex: '#E08A3C' },
 ];
 
-const findTaxo = (label: string, list: Taxo[] = TAXONOMY): Taxo | undefined => list.find((t) => t.match.test(label));
+/*
+ * `poolImg` used to live here.
+ *
+ * It borrowed artwork from the bundled demo catalogue for any category the
+ * backend had not given an image — keyword-matched on the label, else picked by
+ * name hash — so a category with no art showed a photo of a product that is not
+ * in it and is not for sale. Categories without art now fall back to the local
+ * banner set, and failing that to the plain grey label tile.
+ */
 
 // Grey label tile — Home "Flash Fit" look: grey #F4F4F4 + hairline, an uppercase
 // ink label at the TOP, and the image filling the rest of the tile.
+// `node` + a STABLE `onPress(node)` rather than `onPress: () => void`. Every call
+// site used to pass a fresh `() => openListing(sub)` closure, which gave the memo
+// a new prop identity on every render and meant this React.memo could never once
+// skip a re-render.
 const StyleTile = React.memo(function StyleTile({
-  img, label, onPress, tileRef, w = TILE_W, h = TILE_H,
+  img, label, node, onPress, tileRef, w = TILE_W, h = TILE_H,
 }: {
-  img: string; label: string; onPress: () => void;
+  // string = remote URL (backend category art); number = a bundled require().
+  img: string | number; label: string;
+  node: CategoryNode; onPress: (n: CategoryNode) => void;
   tileRef?: (el: any) => void; w?: number; h?: number;
 }) {
+  const press = useCallback(() => onPress(node), [onPress, node]);
   return (
-    <Pressable onPress={onPress} style={{ width: w }}>
+    <Pressable onPress={press} style={{ width: w }}>
       {/* Same grey as Home category tiles; image fills; label bottom-left in
           white over just a soft scrim (no heavy black gradient). */}
       <View ref={tileRef} collapsable={false} style={[{ width: w, height: h, backgroundColor: '#f1f1f1', overflow: 'hidden' }, BORDER(1)]}>
-        {!!img && <CachedImage transition={0} source={{ uri: img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />}
+        {!!img && (
+          <CachedImage
+            transition={0}
+            source={typeof img === 'number' ? img : { uri: img }}
+            style={{ width: '100%', height: '100%' }}
+            resizeMode="contain"
+          />
+        )}
         <LinearGradient
           colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.42)']}
           style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '34%' }}
         />
-        <Text numberOfLines={1} style={{ position: 'absolute', left: 8, right: 8, bottom: 6, color: '#FFFFFF', fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 11 }}>
+        <Text numberOfLines={1} style={{ position: 'absolute', left: 8, right: 8, bottom: 6, color: '#FFFFFF', fontFamily: HELV, fontWeight: '500', fontSize: 11 }}>
           {label}
         </Text>
       </View>
     </Pressable>
+  );
+});
+
+/** Gap BETWEEN sections only — the first banner stays flush with the rail's first row. */
+const SectionGap = () => <View style={{ height: SP.l }} />;
+
+/**
+ * One category: its landscape banner plus the grid of its leaf tiles.
+ *
+ * Extracted and memoised so the FlatList below can actually virtualise. As a
+ * `.map()` inside a ScrollView this mounted every banner and every tile at once
+ * — 98 images on the HER rail — and `removeClippedSubviews` only detached the
+ * native views while leaving all 98 React components mounted and re-rendering.
+ */
+const CategorySection = React.memo(function CategorySection({
+  cat, him, banners, onOpen,
+}: {
+  cat: CategoryNode; him: boolean; banners: CmsSection; onOpen: (c: CategoryNode) => void;
+}) {
+  const banner = bannerFor(banners, cat.slug, him);
+  const bImg = cat.img;
+  const tp = banner?.pos ?? DEFAULT_TXT;
+  const openSelf = useCallback(() => onOpen(cat), [onOpen, cat]);
+
+  return (
+    <View>
+      <Pressable onPress={openSelf}>
+        <View style={{ height: 104, marginBottom: SP.s, backgroundColor: '#e6e6e6', overflow: 'hidden' }}>
+          <CachedImage transition={0} source={banner?.source ?? { uri: bImg }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
+          {/* Directional scrim under the label so WHITE text stays legible. A
+              solid low-opacity fill instead of the old LinearGradient — with one
+              of these per category the gradient shader was a real fill-rate cost
+              on budget GPUs, and at this size the two are near indistinguishable. */}
+          <View
+            style={{
+              position: 'absolute', left: 0, right: 0,
+              [tp.v === 'top' ? 'top' : 'bottom']: 0,
+              height: '55%',
+              backgroundColor: 'rgba(0,0,0,0.28)',
+            }}
+          />
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingVertical: 12, alignItems: tp.h === 'left' ? 'flex-start' : tp.h === 'right' ? 'flex-end' : 'center', justifyContent: tp.v === 'top' ? 'flex-start' : 'flex-end' }}>
+            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '700', fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase', textAlign: tp.h, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>{cat.label}</Text>
+            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '500', fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', textAlign: tp.h, marginTop: 3, color: 'rgba(255,255,255,0.9)', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>Shop All →</Text>
+          </View>
+        </View>
+      </Pressable>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
+        {cat.children.map((sub) => (
+          <StyleTile
+            key={sub.id}
+            img={sub.img}
+            label={sub.label}
+            node={sub}
+            onPress={onOpen}
+          />
+        ))}
+      </View>
+    </View>
   );
 });
 
@@ -484,128 +540,106 @@ export default function CategoryBrowseScreen() {
   const route = useRoute<any>();
   const { gender } = useApp();
   const tabScroll = useTabBarScroll();
-  const { openZoom } = useZoom();
-  const zoomRefs = useRef<Record<string, any>>({});
   const him = gender === 'him';
+  // Banner art per category. One payload read shared by every section below; the object
+  // identity is stable between renders, so CategorySection's memo still holds.
+  const { section: banners } = useCmsSection('page.category_banners', gender);
 
-  // Gender-specific taxonomy — men get a completely different category set.
-  const TAX = him ? HIM_TAXONOMY : TAXONOMY;
+  // ── The rail + its sub-tiles come from the backend taxonomy ──────────────────
+  // Until it lands (and if the device is offline) we render the bundled taxonomy so
+  // the page is never blank. Both describe the same tree; the seed is generated from
+  // these very arrays.
+  const fallback = useMemo<CategoryNode[]>(() => {
+    const TAX = him ? HIM_TAXONOMY : TAXONOMY;
+    return TAX.filter((t) => !(him && t.herOnly)).map((t) => ({
+      id: 'tx-' + t.key,
+      slug: t.key,
+      parentId: null,
+      label: him && t.himLabel ? t.himLabel : t.label,
+      icon: 'grid-outline',
+      tint: '#eeeeee',
+      img: '',
+      isLeaf: false,
+      listingCount: 1, // unknown offline — show every tile rather than hide them all
+      children: ((him && t.himSubs) ? t.himSubs : (t.subs ?? DEFAULT_SUBS)).map((s) => ({
+        id: `tx-${t.key}-${s.label}`,
+        slug: `${t.key}-${s.label}`,
+        parentId: 'tx-' + t.key,
+        label: s.label,
+        icon: 'grid-outline',
+        tint: '#eeeeee',
+        img: '',
+        isLeaf: true,
+        listingCount: 1,
+        children: [],
+      })),
+    }));
+  }, [him]);
 
-  // ── Rail = ONLY the curated taxonomy (clean names: Tops, Bottoms, Ethnic
-  // Wear…). We intentionally do NOT merge backend categories here — they came
-  // in with granular labels (Top, Tee, Shirt…) that cluttered the rail. ──
-  const [apiCats, setApiCats] = useState<Category[] | null>(null);
-  const cats = useMemo<Category[]>(() =>
-    TAX
-      .filter((t) => !(him && t.herOnly))
-      .map((t) => ({ id: 'tx-' + t.key, label: him && t.himLabel ? t.himLabel : t.label, icon: 'grid-outline', tint: '#eeeeee', img: '' })),
-  [him]);
-
-  const [selected, setSelected] = useState<Category>(
-    () => cats.find((c) => c.id === route.params?.id || c.label === route.params?.label) ?? cats[0],
-  );
+  const [tree, setTree] = useState<CategoryNode[] | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    listCategories(gender)
-      .then((list) => {
-        if (cancelled || !list.length) return;
-        setApiCats(list);
-        setSelected((cur) =>
-          list.find((c) => c.id === route.params?.id || c.label === route.params?.label)
-          ?? list.find((c) => c.id === cur.id)
-          ?? cur);
-      })
-      .catch(() => { /* keep merged mock rail */ });
-    return () => { cancelled = true; };
+    const ac = new AbortController();
+    listCategoryTree(gender, ac.signal)
+      .then((t) => { if (t.length) setTree(t); })
+      .catch(() => { /* aborted, or offline — keep the bundled taxonomy */ });
+    return () => ac.abort();
   }, [gender]);
 
-  // ── Products for the selected category — cached per category id ──
-  const cache = useRef<Record<string, Product[]>>({});
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const key = selected.id;
-    if (cache.current[key]) { setProducts(cache.current[key]); return; }
-    let cancelled = false;
-    setLoading(true);
-    const taxo = findTaxo(selected.label);
-    listProducts({
-      gender,
-      categoryId: isBackendCategoryId(key) ? key : undefined,
-      // taxonomy-only rail entries have no backend id — search by their name instead
-      search: isBackendCategoryId(key) ? undefined : (taxo?.label ?? selected.label),
-      limit: 24,
-    })
-      .then((list) => {
-        if (cancelled) return;
-        const mock = PRODUCTS.filter((p) => p.category === selected.label);
-        const final = list.length ? list : (mock.length ? mock : PRODUCTS);
-        cache.current[key] = final;
-        setProducts(final);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        const mock = PRODUCTS.filter((p) => p.category === selected.label);
-        setProducts(mock.length ? mock : PRODUCTS);
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [selected.id, gender]);
+  // Drop anything with nothing in it — a tile that opens an empty grid is worse than
+  // no tile. Offline rows carry count 1, so the fallback is unaffected.
+  const cats = useMemo<CategoryNode[]>(() => {
+    const src = tree ?? fallback;
+    return src
+      .map((c) => ({ ...c, children: c.children.filter((s) => s.listingCount > 0) }))
+      .filter((c) => c.listingCount > 0 && c.children.length > 0);
+  }, [tree, fallback]);
 
-  // ── Occasions — the app's own collections, fetched once ──
-  const [occasions, setOccasions] = useState<Occasion[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    listOccasions(gender).then((o) => { if (!cancelled) setOccasions(o); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [gender]);
-
-  // Full listing page for this category (optionally narrowed by a search term).
-  const openListing = useCallback((label: string, search?: string) => {
-    nav.navigate('Category', {
-      id: isBackendCategoryId(selected.id) ? selected.id : undefined,
-      label,
-      search,
-    });
-  }, [nav, selected.id]);
-  const shopAll = useCallback(() => openListing(selected.label), [openListing, selected.label]);
-
-  // Resolve the taxonomy for the selected category → its subcategory tiles.
-  const taxo = findTaxo(selected.label);
-  const subs: Sub[] = (him && taxo?.himSubs) ? taxo.himSubs : (taxo?.subs ?? DEFAULT_SUBS);
-
-  // Pick a tile image for a subcategory: first product whose name matches its
-  // keywords, else rotate through whatever this category has loaded.
-  const subImg = useCallback((sub: Sub, i: number): string => {
-    const hit = products.find((p) => sub.q.some((q) => p.name.toLowerCase().includes(q)));
-    return hit?.img ?? products[i % Math.max(products.length, 1)]?.img ?? '';
-  }, [products]);
+  // Full listing page for a category — the id/slug is what narrows it now; a parent
+  // shows everything in its sub-categories, a leaf shows just its own.
+  const openListing = useCallback((c: CategoryNode) => {
+    nav.navigate('Category', { id: c.id, slug: c.slug, label: c.label });
+  }, [nav]);
 
   // ── SCROLL-SPY — the right pane is ONE continuous scroll through every
   // category; the left rail highlights whichever section is at the top, and
   // tapping the rail jumps the right pane to that section. ──
-  const rightRef = useRef<ScrollView>(null);
-  const sectionY = useRef<Record<string, number>>({});
-  const [activeId, setActiveId] = useState<string>(() => selected.id);
+  const rightRef = useRef<FlatList<CategoryNode>>(null);
+  const [activeId, setActiveId] = useState<string>('');
   const suppressSpy = useRef(false); // ignore spy while a tap-jump is animating
-  const onRightScroll = useCallback((e: any) => {
-    tabScroll.onScroll(e); // keep the hide-on-scroll tab-bar behaviour
+
+  // Viewability instead of hand-measured section offsets. The old handler listed
+  // `activeId` in its own dependency array while being the only thing that sets
+  // `activeId`, so its identity changed every time it fired — replacing the
+  // ScrollView's onScroll prop on every scroll frame. It also cannot work under
+  // virtualisation, since off-screen sections are never laid out and so never
+  // record an offset.
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: Array<{ item: CategoryNode }> }) => {
     if (suppressSpy.current) return;
-    const y = e.nativeEvent.contentOffset.y + 90; // trigger a touch below the top edge
-    let cur = cats[0]?.id;
-    for (const c of cats) {
-      const sy = sectionY.current[c.id];
-      if (sy != null && sy <= y) cur = c.id;
-    }
-    if (cur && cur !== activeId) setActiveId(cur);
-  }, [tabScroll, cats, activeId]);
-  const jumpTo = useCallback((c: Category) => {
+    const first = viewableItems[0]?.item;
+    if (first) setActiveId((cur) => (cur === first.id ? cur : first.id));
+  }).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 40, minimumViewTime: 80 }).current;
+
+  const jumpTo = useCallback((c: CategoryNode) => {
     setActiveId(c.id);
-    const y = sectionY.current[c.id];
-    if (y == null) return;
+    const index = cats.findIndex((x) => x.id === c.id);
+    if (index < 0) return;
     suppressSpy.current = true;
-    rightRef.current?.scrollTo({ y: Math.max(0, y - 4), animated: true });
+    rightRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
     setTimeout(() => { suppressSpy.current = false; }, 460);
+  }, [cats]);
+
+  // ── FlatList plumbing. All stable so CategorySection's memo can hold. ──
+  const keyExtractor = useCallback((c: CategoryNode) => c.id, []);
+  const renderSection = useCallback(
+    ({ item }: { item: CategoryNode }) => (
+      <CategorySection cat={item} him={him} banners={banners} onOpen={openListing} />
+    ),
+    [him, openListing, banners],
+  );
+  const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
+    rightRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+    setTimeout(() => rightRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 }), 120);
   }, []);
   // Auto-scroll the left rail so the active chip stays in view.
   const railRef = useRef<ScrollView>(null);
@@ -614,14 +648,32 @@ export default function CategoryBrowseScreen() {
     if (i >= 0) railRef.current?.scrollTo({ y: Math.max(0, i * 46 - 160), animated: true });
   }, [activeId, cats]);
 
-  // One clean representative image per subcategory (mock pool, deterministic) —
-  // so every tile shows a single category-style image, no per-category fetch.
-  const poolImg = useCallback((label: string, q: string[]): string => {
-    const hit = PRODUCTS.find((p) => q.some((k) => p.name.toLowerCase().includes(k)));
-    if (hit) return hit.img;
-    let h = 0; for (let i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) & 0xffff;
-    return PRODUCTS[h % PRODUCTS.length]?.img ?? '';
-  }, []);
+  // Land on the category the caller asked for (Home's tiles pass a label), else the
+  // first one. Re-runs when the tree arrives, since ids change from tx-* to cat_*.
+  const jumpedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (cats.length === 0) return;
+    const key = `${gender}:${cats[0]!.id}`;
+    if (jumpedFor.current === key) return;
+    jumpedFor.current = key;
+    /**
+     * Try EVERY hint the caller gave, in order of precision.
+     *
+     * This used to be `slug ?? id ?? label` — one value, picked by which was
+     * merely *defined*. Callers that pass a local id alongside a good label
+     * (Home's tiles historically, Discover Brands today) therefore resolved on
+     * the id, missed, and silently landed on `cats[0]` — tap "Dresses", get
+     * "Belts". Falling through to the next hint costs nothing and cannot make a
+     * correct call worse, since slug still wins whenever it is present.
+     */
+    const hints = [route.params?.slug, route.params?.id, route.params?.label].filter(Boolean);
+    let target: (typeof cats)[number] | undefined;
+    for (const want of hints) {
+      target = cats.find((c) => c.slug === want || c.id === want || c.label === want);
+      if (target) break;
+    }
+    setActiveId((target ?? cats[0]!).id);
+  }, [cats, gender, route.params]);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
@@ -666,7 +718,7 @@ export default function CategoryBrowseScreen() {
                 {active && <View style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, backgroundColor: '#999999' }} />}
                 <Text
                   style={{
-                    fontFamily: 'Helvetica Neue', fontWeight: '400', // thin/regular weight
+                    fontFamily: HELV, fontWeight: '400', // thin/regular weight
                     fontSize: 11,
                     letterSpacing: 0.3,
                     textTransform: 'uppercase',     // CAPS
@@ -682,60 +734,33 @@ export default function CategoryBrowseScreen() {
           })}
         </ScrollView>
 
-        {/* ═══ RIGHT PANE — ONE continuous scroll through every category ═══ */}
-        <ScrollView
+        {/* ═══ RIGHT PANE — ONE virtualised scroll through every category ═══ */}
+        <FlatList
           ref={rightRef}
-          onScroll={onRightScroll}
+          data={cats}
+          keyExtractor={keyExtractor}
+          renderItem={renderSection}
+          ItemSeparatorComponent={SectionGap}
+          onScroll={tabScroll.onScroll}
           scrollEventThrottle={16}
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          // Sections have variable height (a category has 2-12 leaves), so an
+          // exact getItemLayout is not possible; these bound how much mounts at
+          // once instead. Two screens of buffer keeps fast flicks from showing
+          // blanks without going back to mounting all 98 images.
+          windowSize={5}
+          initialNumToRender={2}
+          maxToRenderPerBatch={3}
+          updateCellsBatchingPeriod={60}
           removeClippedSubviews={Platform.OS === 'android'}
+          // Without a fixed row height FlatList cannot land a scrollToIndex on an
+          // unmeasured row; retry once the target has been rendered.
+          onScrollToIndexFailed={onScrollToIndexFailed}
           contentContainerStyle={{ paddingHorizontal: SP.m, paddingTop: 0, paddingBottom: 180 }}
-        >
-          {cats.map((c, ci) => {
-            const t = findTaxo(c.label, TAX);
-            const cSubs: Sub[] = (him && t?.himSubs) ? t.himSubs : (t?.subs ?? DEFAULT_SUBS);
-            // Real landscape banner art keyed by taxonomy key (gender-aware).
-            // Unmapped keys (e.g. men's shoes/bags until added) → product image.
-            const bannerArt = t?.key ? (him ? HIM_BANNERS[t.key] : HER_BANNERS[t.key]) : undefined;
-            const bImg = c.img || poolImg(c.label, [c.label.toLowerCase().split(' ')[0]]);
-            // editorial text placement (empty-space per banner); default bottom-left
-            const tp = (t?.key && (him ? HIM_TXT : HER_TXT)[t.key]) || { h: 'left' as const, v: 'bottom' as const };
-            return (
-              <View key={c.id} onLayout={(e) => { sectionY.current[c.id] = e.nativeEvent.layout.y; }}>
-                {/* landscape banner header for the category — first one flush to
-                    the top so it lines up with the left rail's first entry */}
-                <Pressable onPress={() => openListing(c.label)}>
-                  <View style={{ height: 104, marginTop: ci === 0 ? 0 : SP.l, marginBottom: SP.s, backgroundColor: '#e6e6e6', overflow: 'hidden' }}>
-                    <CachedImage transition={0} source={bannerArt ?? { uri: bImg }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
-                    {/* directional scrim under the label so WHITE text stays legible */}
-                    <LinearGradient
-                      colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0)']}
-                      start={{ x: 0.5, y: tp.v === 'top' ? 0 : 1 }}
-                      end={{ x: 0.5, y: tp.v === 'top' ? 0.75 : 0.25 }}
-                      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-                    />
-                    {/* editorial label — white, anchored in the empty region */}
-                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingVertical: 12, alignItems: tp.h === 'left' ? 'flex-start' : tp.h === 'right' ? 'flex-end' : 'center', justifyContent: tp.v === 'top' ? 'flex-start' : 'flex-end' }}>
-                      <Text numberOfLines={1} style={{ fontFamily: 'Helvetica Neue', fontWeight: '700', fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase', textAlign: tp.h, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>{c.label}</Text>
-                      <Text numberOfLines={1} style={{ fontFamily: 'Helvetica Neue', fontWeight: '500', fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', textAlign: tp.h, marginTop: 3, color: 'rgba(255,255,255,0.9)', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>Shop All →</Text>
-                    </View>
-                  </View>
-                </Pressable>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
-                  {cSubs.map((sub) => (
-                    <StyleTile
-                      key={c.id + sub.label}
-                      img={poolImg(sub.label, sub.q)}
-                      label={sub.label}
-                      onPress={() => nav.navigate('Category', { id: isBackendCategoryId(c.id) ? c.id : undefined, label: sub.label, search: sub.q[0] ?? sub.label })}
-                    />
-                  ))}
-                </View>
-              </View>
-            );
-          })}
-        </ScrollView>
+        />
       </View>
     </View>
   );
