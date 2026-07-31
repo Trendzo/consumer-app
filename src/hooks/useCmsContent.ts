@@ -11,7 +11,7 @@
 // Cached per gender because the payload is gender-filtered server-side and HER↔HIM flips are
 // frequent; the home screen caches its catalog slices per gender for the same reason.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   FALLBACK_CONTENT,
   getHomeContent,
@@ -40,11 +40,40 @@ function warmFromStorage(): Promise<void> {
     for (const gender of ['her', 'him'] as const) {
       // A live fetch that already landed outranks anything on disk.
       const snapshot = snapshots[gender];
-      if (snapshot && !lastKnown[gender]) lastKnown[gender] = snapshot;
+      if (snapshot && !lastKnown[gender]) {
+        lastKnown[gender] = snapshot;
+        bumpRails();
+      }
     }
   });
   return persistedWarm;
 }
+
+/**
+ * Rail-arrival notifications.
+ *
+ * The category conveyor crossfades BOTH rails' art on the UI thread, so it needs both payloads
+ * mounted at once. `prefetchRail` deliberately fills `lastKnown` without touching component state
+ * — that is what stops it interfering with the rail on screen — so a component that wants both
+ * rails has to be told when the second one arrives. Hence this minimal store; the same
+ * `useSyncExternalStore` shape the theme uses in components/Brutal.tsx.
+ */
+let railsVersion = 0;
+const railListeners = new Set<() => void>();
+
+function bumpRails(): void {
+  railsVersion += 1;
+  for (const listener of railListeners) listener();
+}
+
+function subscribeRails(cb: () => void): () => void {
+  railListeners.add(cb);
+  return () => {
+    railListeners.delete(cb);
+  };
+}
+
+const getRailsVersion = (): number => railsVersion;
 
 const OTHER_RAIL: Record<CmsGender, CmsGender> = { her: 'him', him: 'her' };
 
@@ -70,6 +99,7 @@ function prefetchRail(gender: CmsGender, city?: string | null): void {
       if (next && Array.isArray(next.sections) && next.sections.length > 0) {
         lastKnown[gender] = next;
         writePersisted(gender, next);
+        bumpRails();
       }
     })
     .catch(() => {
@@ -94,7 +124,7 @@ function prefetchRail(gender: CmsGender, city?: string | null): void {
  */
 const FIRST_PAINT_BUDGET_MS = 2500;
 
-export type CmsContentState = { content: HomeContent | null; status: CmsStatus };
+export type CmsContentState = { content: HomeContent | null; status: CmsStatus; gender: CmsGender };
 
 /**
  * The payload for one rail, plus where it came from.
@@ -104,38 +134,69 @@ export type CmsContentState = { content: HomeContent | null; status: CmsStatus }
  * showing it before the server has answered is the flash this exists to prevent.
  */
 export function useCmsContent(gender: CmsGender, city?: string | null): CmsContentState {
-  const [state, setState] = useState<CmsContentState>(() =>
-    lastKnown[gender] ? { content: lastKnown[gender]!, status: 'ready' } : { content: null, status: 'loading' },
-  );
+  // Carries the COLD path only. The warm path is resolved during render, below.
+  const [cold, setCold] = useState<CmsContentState>(() => ({
+    content: null,
+    status: 'loading',
+    gender,
+  }));
+
+  /**
+   * Resolved during RENDER, not in an effect — this is the keystone of the flip feeling instant.
+   *
+   * `lastKnown` is a module-level, grow-only cache, so reading it here is deterministic for a
+   * given gender and gives the flip exactly the timing the original
+   * `gender === 'her' ? HER_X : HIM_X` module constants had: the new rail's content is present in
+   * the SAME render that commits the new gender.
+   *
+   * Resolving it in an effect instead costs one extra render in which the page still shows the
+   * previous rail — which IS the reported "removes the content for a very small instance of a
+   * sec, and renders other instead of animation". Every section then hard-cuts a frame later
+   * rather than crossfading.
+   */
+  const warm = lastKnown[gender];
+  const resolved: CmsContentState = warm
+    ? { content: warm, status: 'ready', gender }
+    : cold.content
+      ? // Cold rail, but the page is already populated. Hold what is on screen rather than
+        // blanking, and keep `gender` as the CONTENT's rail so its items are not filtered
+        // against a rail they do not belong to.
+        cold
+      : { content: null, status: cold.status, gender };
 
   // Guards a late resolution from overwriting a newer one after a rail flip.
   const railRef = useRef(gender);
   railRef.current = gender;
 
-  // What is on screen right now, readable synchronously. A functional setState updater runs
-  // during render, not at call time, so deciding "is the page already populated?" inside one
-  // and reading the answer in the same tick would always see the stale value.
-  const contentRef = useRef<HomeContent | null>(state.content);
-  contentRef.current = state.content;
+  // What is on screen right now, readable synchronously — the effect below needs it to decide
+  // whether the page is already populated, and reading state inside a setState updater would
+  // see a stale value (updaters run during render, not at call time).
+  const contentRef = useRef<HomeContent | null>(resolved.content);
+  contentRef.current = resolved.content;
 
   useEffect(() => {
     let cancelled = false;
+    /**
+     * Commit a cold-path result.
+     *
+     * Bails out when nothing actually changed. `cachedGet` hands back the SAME object on a cache
+     * hit, so without this a revalidation re-renders the largest component in the app for no
+     * reason — and if that lands mid-transition (a flip, or a PDP zoom) it drops frames.
+     */
     const settle = (next: CmsContentState) => {
-      if (!cancelled && railRef.current === gender) setState(next);
+      if (cancelled || railRef.current !== gender) return;
+      setCold((prev) =>
+        prev.content === next.content && prev.status === next.status && prev.gender === next.gender
+          ? prev
+          : next,
+      );
     };
 
-    // Swap instantly when this rail is already cached — the common path, and what makes the
-    // HER↔HIM drag feel immediate.
     const inSession = lastKnown[gender];
-    // Nothing cached for the new rail: drop to placeholders ONLY when the screen is empty
-    // anyway (first launch). On a flip there is already a full page rendered, and unmounting
-    // every section to show placeholders for ~200ms collapses the layout and throws the Explore
-    // grid up into view — far worse than the rail lagging by a beat. So the previous rail's
-    // content is held until the new one lands.
+    // Nothing cached for this rail: the render above is already holding the previous rail's
+    // content when there is any, so the effect only has to decide whether to arm the
+    // first-launch fallback timer.
     const heldPreviousRail = !inSession && contentRef.current !== null;
-
-    if (inSession) setState({ content: inSession, status: 'ready' });
-    else if (!heldPreviousRail) setState({ content: null, status: 'loading' });
 
     // Storage and network race to paint. `networkWon` is set ONLY on a successful fetch, so a
     // snapshot that resolves after a failed request still gets its turn — an offline launch must
@@ -147,7 +208,7 @@ export function useCmsContent(gender: CmsGender, city?: string | null): CmsConte
       void warmFromStorage().then(() => {
         const snapshot = lastKnown[gender];
         if (!snapshot || networkWon) return;
-        settle({ content: snapshot, status: 'ready' });
+        settle({ content: snapshot, status: 'ready', gender });
       });
     }
 
@@ -157,8 +218,8 @@ export function useCmsContent(gender: CmsGender, city?: string | null): CmsConte
       const known = lastKnown[gender];
       settle(
         known
-          ? { content: known, status: 'ready' }
-          : { content: FALLBACK_CONTENT, status: 'fallback' },
+          ? { content: known, status: 'ready', gender }
+          : { content: FALLBACK_CONTENT, status: 'fallback', gender },
       );
     };
 
@@ -169,7 +230,7 @@ export function useCmsContent(gender: CmsGender, city?: string | null): CmsConte
       FIRST_PAINT_BUDGET_MS > 0 && !inSession && !heldPreviousRail
         ? setTimeout(() => {
             if (networkWon || lastKnown[gender]) return;
-            settle({ content: FALLBACK_CONTENT, status: 'fallback' });
+            settle({ content: FALLBACK_CONTENT, status: 'fallback', gender });
           }, FIRST_PAINT_BUDGET_MS)
         : null;
 
@@ -184,7 +245,8 @@ export function useCmsContent(gender: CmsGender, city?: string | null): CmsConte
         networkWon = true;
         lastKnown[gender] = next;
         writePersisted(gender, next);
-        settle({ content: next, status: 'ready' });
+        bumpRails();
+        settle({ content: next, status: 'ready', gender });
         // Warm the other rail now that this one is on screen, so the first flip is a pure
         // in-memory swap with no loading state and no layout collapse.
         prefetchRail(OTHER_RAIL[gender], city);
@@ -203,19 +265,19 @@ export function useCmsContent(gender: CmsGender, city?: string | null): CmsConte
     };
   }, [gender, city]);
 
-  return state;
+  return resolved;
 }
 
 export type CmsSectionState = { section: CmsSection; status: CmsStatus };
 
 /** One section, ready to render, plus the status the caller needs to choose a placeholder. */
 export function useCmsSection(key: string, gender: CmsGender, city?: string | null): CmsSectionState {
-  const { content, status } = useCmsContent(gender, city);
-  const section = useMemo(() => selectSection(content, key, gender), [content, key, gender]);
+  const { content, status, gender: contentGender } = useCmsContent(gender, city);
+  const section = useMemo(() => selectSection(content, key, contentGender), [content, key, contentGender]);
   return { section, status };
 }
 
-export type CmsSectionsState = { sections: Record<string, CmsSection>; status: CmsStatus };
+export type CmsSectionsState = { sections: Record<string, CmsSection>; status: CmsStatus; gender: CmsGender };
 
 /**
  * Several sections from ONE payload read. Prefer this when a screen renders more than one.
@@ -232,12 +294,67 @@ export function useCmsSections(
   gender: CmsGender,
   city?: string | null,
 ): CmsSectionsState {
-  const { content, status } = useCmsContent(gender, city);
+  const { content, status, gender: contentGender } = useCmsContent(gender, city);
   const keySignature = keys.join('|');
   const sections = useMemo(() => {
     const out: Record<string, CmsSection> = {};
-    for (const key of keySignature.split('|')) out[key] = selectSection(content, key, gender);
+    for (const key of keySignature.split('|')) out[key] = selectSection(content, key, contentGender);
     return out;
-  }, [content, keySignature, gender]);
-  return { sections, status };
+  }, [content, keySignature, contentGender]);
+  return { sections, status, gender: contentGender };
+}
+
+export type CmsRailsState = {
+  /** Null until that rail's payload is cached. */
+  her: Record<string, CmsSection> | null;
+  him: Record<string, CmsSection> | null;
+  /** Only then can a section crossfade between the two on the UI thread. */
+  bothWarm: boolean;
+  status: CmsStatus;
+};
+
+/**
+ * BOTH rails' sections at once, for sections that animate between them.
+ *
+ * The category tiles crossfade HER art to HIM art on a clipped conveyor driven by
+ * `curveProgress` — both images have to be mounted simultaneously or there is nothing to
+ * crossfade, and doing it on the UI thread is the only way it survives a mid-range device.
+ *
+ * The server payload is gender-filtered, so "both rails" means both cached payloads. That makes
+ * `prefetchRail` load-bearing for the ANIMATION, not just for perf: until the second rail lands
+ * `bothWarm` is false and the caller must fall back to an instant swap.
+ */
+export function useCmsRails(
+  keys: string[],
+  gender: CmsGender,
+  city?: string | null,
+): CmsRailsState {
+  // Subscribing to the active rail is what drives the fetch and the normal re-renders.
+  const active = useCmsContent(gender, city);
+  // Re-render when the OTHER rail lands, since a prefetch writes no component state.
+  useSyncExternalStore(subscribeRails, getRailsVersion, getRailsVersion);
+
+  const keySignature = keys.join('|');
+  // The bundled file is NOT gender-filtered — it carries every audience — so when we are running
+  // on it (offline first launch) it can drive both sides of the crossfade on its own. Without this
+  // the animation would silently degrade in exactly the situation where nothing else is moving.
+  const usingFallback = active.status === 'fallback' && active.content !== null;
+  const her = lastKnown.her ?? (usingFallback ? active.content! : undefined);
+  const him = lastKnown.him ?? (usingFallback ? active.content! : undefined);
+
+  const rails = useMemo(() => {
+    const build = (payload: HomeContent | undefined, rail: CmsGender) => {
+      if (!payload) return null;
+      const out: Record<string, CmsSection> = {};
+      for (const key of keySignature.split('|')) out[key] = selectSection(payload, key, rail);
+      return out;
+    };
+    return { her: build(her, 'her'), him: build(him, 'him') };
+  }, [her, him, keySignature]);
+
+  return {
+    ...rails,
+    bothWarm: rails.her !== null && rails.him !== null,
+    status: active.status,
+  };
 }

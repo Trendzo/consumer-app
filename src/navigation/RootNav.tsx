@@ -25,6 +25,7 @@ import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import CompleteProfileScreen from '../screens/CompleteProfileScreen';
 import { AuthSheet } from '../components/AuthSheet';
+import { LocationGate } from '../components/LocationGate';
 import HomeScreen from '../screens/HomeScreen';
 import ReelsScreen from '../screens/ReelsScreen';
 import CreateReelScreen from '../screens/CreateReelScreen';
@@ -524,6 +525,9 @@ function MainApp() {
     <BrutalToast />
     <BrutalConfirm />
     <AuthSheet />
+    {/* Resolves the shopper's location at app open. Mounted here, beside AuthSheet, so it runs
+        once regardless of which tab opens first. */}
+    <LocationGate />
     </View>
     </ZoomProvider>
   );

@@ -8,9 +8,28 @@
 // the app binary exactly as fast as it does now, while anything an admin uploads takes effect
 // without a release.
 
+import { useRef } from 'react';
 import { ASSET_REGISTRY } from './assets.registry';
 import { IMG, sizedImage } from '../services/images';
 import type { CmsItem } from './types';
+
+/**
+ * The current list, or the last non-empty one seen.
+ *
+ * A section that renders `null` when its items are empty *unmounts*, and unmounting several
+ * sections at once collapses the page height. Two visible consequences, both reported: the HER↔HIM
+ * flip blanks and then hard-cuts instead of animating, and the product zoom's return flight lands
+ * in the wrong place because the card moved after its frame was measured.
+ *
+ * Holding the previous items keeps the layout stable through the gap, so there is always something
+ * to animate FROM. A ref rather than state: this must not trigger its own render, and the value is
+ * only ever read during the render that needs it.
+ */
+export function useLastNonEmpty<T>(items: T[]): T[] {
+  const held = useRef<T[]>(items);
+  if (items.length > 0) held.current = items;
+  return items.length > 0 ? items : held.current;
+}
 
 /** What `CachedImage` accepts: a bundled module id, or a remote source. */
 export type MediaSource = number | { uri: string };

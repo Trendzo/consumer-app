@@ -1,17 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform, BackHandler } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
-import { MotiView } from 'moti';
 import { C, T, SP, BORDER, HELV} from '../theme/brutal';
 import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import { RichText } from '../components/RichText';
+import { ReviewComposer } from '../components/ReviewComposer';
 import type { Product } from '../data/mockData';
 import { CatalogEmpty, ProductRailSkeleton, ProductGridSkeleton } from '../components/CatalogState';
 import {
-  getProductDetail, listReviews, listProducts, isBackendListingId, addReview, listSizeScales,
+  getProductDetail, listReviews, listProducts, isBackendListingId, listSizeScales,
   type ProductDetailData, type Review,
 } from '../services/catalog';
 import { listCoupons, type Coupon } from '../services/promotions';
@@ -20,6 +21,7 @@ const { width, height: SCREEN_H } = Dimensions.get('window');
 const PRODUCT_ZOOM_MS = 440;
 const PRODUCT_CONTENT_FADE_MS = 260;
 const PRODUCT_ZOOM_EASING = Easing.inOut(Easing.cubic);
+/** How long before the image lands that the white backdrop lifts, revealing the card beneath. */
 const CARD_REVEAL_MS = 180;
 const CTA_CROSSFADE_DISTANCE = 44;
 
@@ -32,13 +34,6 @@ const fmtReviewDate = (iso: string) => {
 // we ask the backend for the scale that fits its CATEGORY (so shoes get UK
 // numbers, belts inches). This letter run is what shows if both are unavailable.
 const SIZES = ['XS', 'S', 'M', 'L', 'XL'];
-const COLORS = ['#000000', '#666666', '#bdbdbd', '#FFFFFF'];
-const REVIEWS = [
-  { id: '1', user: '@maya.k', rating: 5, date: '2 days ago', text: 'Fits perfect, exactly as shown. Delivery in 47 minutes — unreal.' },
-  { id: '2', user: '@arjun_r', rating: 4, date: '5 days ago', text: 'Great quality fabric. Runs slightly large, so size down a notch.' },
-  { id: '3', user: '@zoya.x', rating: 5, date: '1 week ago', text: 'Obsessed. The fit is exactly my vibe and the material feels premium.' },
-  { id: '4', user: '@dev.m', rating: 4, date: '2 weeks ago', text: 'Solid buy. Colour is true to the photos. Would order again.' },
-];
 
 /**
  * Stand-in for "this screen was opened without a product".
@@ -72,7 +67,7 @@ export default function ProductDetailScreen() {
     return () => { cancelled = true; };
   }, []);
   const brandName = route.params?.brand || product.brand; // store brand when opened from a brand store
-  const { addToCart, showToast, showConfirm, gender, requireAuth } = useApp();
+  const { addToCart, showToast, showConfirm, gender, requireAuth, token } = useApp();
   // Real product detail (variants/sizes/colours/gallery) + reviews + similar, keyed
   // off the listing id. Category strips ids as `lst_…-<index>`, so recover the base
   // id. Falls back to the passed adapted/mock product + mock reviews on any failure.
@@ -94,6 +89,15 @@ export default function ProductDetailScreen() {
       overlayOpacity.value = 1;
       contentFade.value = withTiming(0, { duration: PRODUCT_CONTENT_FADE_MS, easing: Easing.out(Easing.cubic) }, (contentDone) => {
         if (!contentDone) return;
+        // Animated HERE, not handed to ZoomProvider.
+        //
+        // The handoff (setSess -> overlay mount -> two rAFs -> pop -> start a fresh 440ms timing)
+        // pays for an overlay mount, a second decode of the same image, and the unmount of this
+        // whole screen at the exact moment the animation starts — that is the lag.
+        //
+        // This path is one continuous UI-thread timeline over an image that is already decoded and
+        // on screen. `backdropFade` lifts the white cover over the LAST 180ms so the home card is
+        // revealed just as the image lands on it, and the pop happens only once the flight is done.
         backdropFade.value = withDelay(
           PRODUCT_ZOOM_MS - CARD_REVEAL_MS,
           withTiming(0, { duration: CARD_REVEAL_MS, easing: Easing.out(Easing.cubic) })
@@ -104,6 +108,22 @@ export default function ProductDetailScreen() {
       });
     } else nav.goBack();
   };
+  /**
+   * Android back must run the SAME animated close as the on-screen arrow.
+   *
+   * Without this the hardware button and the back gesture pop the screen straight out through
+   * React Navigation — and since ProductDetail is registered with `animation: 'none'`, that is a
+   * hard cut with no fly-down at all. Anyone closing the page that way would see no animation no
+   * matter how correct the zoom code is.
+   */
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      goBack();
+      return true; // handled — do not let the navigator pop underneath us
+    });
+    return () => sub.remove();
+  });
+
   const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
   // Pending Add/Buy action while the user is sent to pick a size inline
@@ -200,8 +220,6 @@ export default function ProductDetailScreen() {
   const [imgIdx, setImgIdx] = useState(0);
   const galleryRef = useRef<ScrollView>(null);
   const scrollRef = useRef<any>(null);
-  const [upsellY, setUpsellY] = useState(0);
-  const [tab, setTab] = useState<'details' | 'reviews' | 'care'>('details');
   // CTA is pinned to the bottom until the user scrolls down to the inline buttons (just
   // before the recommendations); then it un-pins and the inline buttons take over.
   const [ctaY, setCtaY] = useState(99999);
@@ -243,7 +261,6 @@ export default function ProductDetailScreen() {
   );
 
   const discount = Math.round((1 - product.price / product.original) * 100);
-  const couponPrice = Math.round(product.price * 0.9); // extra 10% off with coupon
 
   // Backend-or-mock display data for gallery / colours / sizes / reviews / similar.
   const galleryImgs = React.useMemo(() => {
@@ -295,12 +312,23 @@ export default function ProductDetailScreen() {
     return () => { cancelled = true; };
   }, [detail]);
 
-  const reviewsCount = detail?.ratingCount ?? product.reviews ?? 128;
-  // Memoized so the item objects keep a stable identity across re-renders —
-  // this is what lets React.memo on MiniCard actually skip work.
-  const reviewList = React.useMemo(() => (reviews && reviews.length
-    ? reviews.map((r) => ({ id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body, date: fmtReviewDate(r.createdAt) }))
-    : REVIEWS), [reviews]);
+  const reviewsCount = detail?.ratingCount ?? 0;
+  const ratingAvg = detail?.ratingAvg ?? product.rating ?? 0;
+  // Only backend listings have a real reviews API; a signed-in shopper on one can
+  // write a review. Mock/demo products (non-`lst_` ids) can't be reviewed.
+  const canReview = !!token && isBackendListingId(listingId);
+  // Memoized for stable item identity across re-renders. No mock fallback: an empty
+  // list is the truth, and the Ratings & Reviews section hides itself when empty.
+  const reviewList = React.useMemo(() => (reviews ?? []).map((r) => ({
+    id: r.id, user: r.author || 'Trendzo Shopper', rating: r.rating, text: r.body,
+    date: fmtReviewDate(r.createdAt), verified: r.verifiedPurchase,
+  })), [reviews]);
+  // Re-pull the public (verified) list after posting so a verified review shows at
+  // once; a non-verified one stays hidden from others by design (composer explains).
+  const refetchReviews = useCallback(() => {
+    if (!isBackendListingId(listingId)) return;
+    listReviews(listingId).then(setReviews).catch(() => {});
+  }, [listingId]);
   const similarList = React.useMemo(
     () => (similar ?? []).filter((p) => p.id !== product.id),
     [similar, product.id]);
@@ -317,11 +345,6 @@ export default function ProductDetailScreen() {
   // 16, so a 4-product catalog rendered the same four cards four times over —
   // an inventory claim the store could not back. It now shows what exists.
   const moreToLove = React.useMemo(() => similarList.slice(0, 16), [similarList]);
-  // Stable handler for the upsell "+ ADD" buttons (keeps MiniCard memo intact).
-  const handleUpsellAdd = React.useCallback((p: Product) => {
-    addToCart(p, 'M');
-    showToast('Added to bag', p.name, 'shopping-bag');
-  }, [addToCart, showToast]);
 
   // Resolve the selected size (+ colour) to a real backend variant id so the cart can be
   // priced/checked-out server-side. Undefined for mock products (falls back to local math).
@@ -347,8 +370,6 @@ export default function ProductDetailScreen() {
       label: 'View bag',
       onPress: goBag,
     });
-    // Slide down to the "buy more, save more" upsell on the SAME page
-    setTimeout(() => scrollRef.current?.scrollTo?.({ y: Math.max(0, upsellY - 8), animated: true }), 140);
   };
   // Buy now → straight to the single-page Review Order (no multi-step checkout).
   // Guests get the bottom-sheet login first; the item is already in the bag
@@ -435,7 +456,7 @@ export default function ProductDetailScreen() {
         // Android: detach offscreen grid/upsell views so the long page doesn't
         // keep ~30 image views alive in the render tree while scrolling.
         removeClippedSubviews={Platform.OS === 'android'}
-        stickyHeaderIndices={[3]}
+        stickyHeaderIndices={[2]}
         onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
         onScroll={scrollHandler}
       >
@@ -479,10 +500,12 @@ export default function ProductDetailScreen() {
               <Text style={[T.productTitle]} numberOfLines={1}>{brandName}</Text>
               <Text style={[T.body, { color: C.dim, flex: 1 }]} numberOfLines={1}>{product.name}</Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, ...BORDER(1) }}>
-              <Feather name="star" size={13} color={C.ink} />
-              <Text style={[T.caption, { color: C.ink }]}>{product.rating}</Text>
-            </View>
+            {reviewsCount > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, ...BORDER(1) }}>
+                <Feather name="star" size={13} color={C.ink} />
+                <Text style={[T.caption, { color: C.ink }]}>{ratingAvg.toFixed(1)}</Text>
+              </View>
+            )}
           </View>
 
           {/* Price (smaller) */}
@@ -560,34 +583,21 @@ export default function ProductDetailScreen() {
           </View>
           </>)}
 
-          {/* DELIVERY */}
-          <View style={[{ marginTop: SP.l, padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 12 }, BORDER(1)]}>
-            <Feather name="zap" size={18} color={C.ink} />
-            <View style={{ flex: 1 }}>
-              <Text style={[T.bodyB]}>60-min delivery</Text>
-              <Text style={[T.micro]}>From nearest store · 2.4 km away</Text>
-            </View>
-            <Text style={[T.caption, { color: C.ink }]}>Free</Text>
-          </View>
-
           {/* Below-the-fold — mounts only after the open, off-screen, so no visible layout shift */}
           {ready && (<>
-          {/* KEY HIGHLIGHTS */}
-          <Text style={[T.caption, { marginTop: SP.l }]}>{'Key Highlights'}</Text>
-          <View style={[{ marginTop: 8 }, BORDER(1)]}>
-            {[
-              { k: 'Material', v: '100% Pure Wool' },
-              { k: 'Fit', v: 'Oversized · Tailored' },
-              { k: 'Care', v: 'Dry clean only' },
-              { k: 'Made in', v: 'India' },
-              { k: 'Returns', v: '7-day easy returns' },
-            ].map((h, i, arr) => (
-              <View key={h.k} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 11, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderColor: C.hairline }}>
-                <Text style={[T.caption]}>{h.k}</Text>
-                <Text style={[T.bodyB]}>{h.v}</Text>
-              </View>
-            ))}
-          </View>
+          {/* DESCRIPTION — real short + rich-text long description from the listing.
+              Hidden entirely when the listing has neither, so we never invent specs
+              (this block used to be a hardcoded "Key Highlights" table identical for
+              every product). */}
+          {(!!detail?.description || !!detail?.descriptionLong) && (
+            <View style={{ marginTop: SP.l }}>
+              <Text style={T.h2}>{'Description'}</Text>
+              {!!detail?.description && (
+                <Text style={[T.body, { color: C.inkSoft, marginTop: SP.m, lineHeight: 21 }]}>{detail.description}</Text>
+              )}
+              <RichText html={detail?.descriptionLong} />
+            </View>
+          )}
 
           {/* Real parked CTA. The fixed overlay fades away as this reaches the bottom. */}
           <Animated.View
@@ -597,47 +607,6 @@ export default function ProductDetailScreen() {
             <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
             <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
           </Animated.View>
-
-          {/* TABS */}
-          <View style={{ flexDirection: 'row', marginTop: SP.xl }}>
-            {(['details', 'reviews', 'care'] as const).map(t => (
-              <Pressable key={t} onPress={() => setTab(t)} style={[{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: tab === t ? C.ink : C.white }, BORDER(1)]}>
-                <Text style={[T.caption, { color: tab === t ? C.white : C.ink }]}>{t.charAt(0).toUpperCase() + t.slice(1)}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <MotiView key={tab} from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 280 }} style={{ marginTop: SP.l }}>
-            {tab === 'details' && (
-              <Text style={[T.body, { color: C.inkSoft }]}>
-                Premium fabric construction. Cut for an oversized, tailored fit. Featured in our Spring/Summer 26 lookbook. Designed in studio, sewn locally, delivered in 60 minutes.
-                {'\n\n'}Material: 100% pure wool · Lining: Cupro
-                {'\n'}Made in: India · Care: Dry clean only
-              </Text>
-            )}
-            {tab === 'reviews' && (
-              <View>
-                {[1, 2, 3].map(i => (
-                  <View key={i} style={{ marginBottom: SP.m }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={[T.caption, { color: C.ink }]}>@user_0{i}</Text>
-                      <Text style={[T.caption]}>★ {5 - i * 0.1}</Text>
-                    </View>
-                    <Text style={[T.body, { marginTop: 4 }]}>"Fits perfect, exactly as shown. Delivery was crazy fast — 47 minutes."</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-            {tab === 'care' && (
-              <Text style={[T.body, { color: C.inkSoft }]}>
-                · Dry clean only{'\n'}
-                · Do not bleach{'\n'}
-                · Cool iron if needed{'\n'}
-                · Store on hanger{'\n'}
-                · Keep away from direct sunlight
-              </Text>
-            )}
-          </MotiView>
 
           {/* SIMILAR — hidden entirely when the catalog has nothing else to show,
               rather than padded out with bundled art. */}
@@ -656,61 +625,60 @@ export default function ProductDetailScreen() {
             )}
           </>)}
 
-          {/* RATINGS & REVIEWS — swipable carousel + View All */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
-            <Text style={T.h2}>{`Ratings & Reviews`}</Text>
-            <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
-              <Text style={[T.caption]}>View all ──▶</Text>
-            </Pressable>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
-            {reviewList.map(r => (
-              <View key={r.id} style={[{ width: 260, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={[T.caption, { color: C.ink }]}>{r.user}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                    <Feather name="star" size={11} color={C.ink} />
-                    <Text style={[T.caption, { color: C.ink }]}>{r.rating}.0</Text>
-                  </View>
-                </View>
-                <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: 19 }]} numberOfLines={4}>{`"${r.text}"`}</Text>
-                <Text style={[T.micro, { marginTop: 10 }]}>{r.date}</Text>
+          {/* RATINGS & REVIEWS — shown when there are (verified) reviews to display OR
+              the shopper is signed in and can write one. Guests with no reviews see
+              nothing. Only verified-purchase reviews come back from the API, so every
+              card carries the badge. */}
+          {(reviewList.length > 0 || canReview) && (<>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SP.xl }}>
+              <Text style={T.h2}>{`Ratings & Reviews`}</Text>
+              {reviewList.length > 0 && (
+                <Pressable onPress={() => nav.navigate('Reviews', { product, count: reviewsCount })} hitSlop={8}>
+                  <Text style={[T.caption]}>View all ──▶</Text>
+                </Pressable>
+              )}
+            </View>
+            {reviewsCount > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SP.s }}>
+                <Feather name="star" size={14} color={C.ink} />
+                <Text style={[T.bodyB]}>{ratingAvg.toFixed(1)}</Text>
+                <Text style={[T.caption]}>{`· ${reviewsCount} ${reviewsCount === 1 ? 'review' : 'reviews'}`}</Text>
               </View>
-            ))}
-          </ScrollView>
+            )}
+            {canReview && <ReviewComposer listingId={listingId} onSubmitted={refetchReviews} />}
+            {reviewList.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
+                {reviewList.map(r => (
+                  <View key={r.id} style={[{ width: 260, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[T.caption, { color: C.ink }]}>{r.user}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                        <Feather name="star" size={11} color={C.ink} />
+                        <Text style={[T.caption, { color: C.ink }]}>{r.rating.toFixed(1)}</Text>
+                      </View>
+                    </View>
+                    {r.verified && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                        <Feather name="check-circle" size={11} color={C.ink} />
+                        <Text style={[T.micro, { color: C.ink }]}>Verified Purchase</Text>
+                      </View>
+                    )}
+                    <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: 19 }]} numberOfLines={4}>{r.text ? `"${r.text}"` : ''}</Text>
+                    <Text style={[T.micro, { marginTop: 10 }]}>{r.date}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={[T.body, { color: C.dim, marginTop: SP.m }]}>No reviews yet — be the first to review this product.</Text>
+            )}
+          </>)}
           </>)}
 
         </Animated.View>
 
-        {/* BUY MORE, SAVE MORE — Add to bag slides you down to this upsell on the same page */}
-        <View onLayout={(e) => setUpsellY(e.nativeEvent.layout.y)} style={{ paddingHorizontal: SP.l, paddingTop: SP.l }}>
-          {/* Advertises a REAL live coupon from /promotions/active, or nothing.
-              This used to name 'TRENDZO50' unconditionally — a code the backend
-              had never heard of, so anyone who followed the prompt was told at
-              checkout that it was invalid. */}
-          {topCoupon && (
-            <View style={[{ padding: SP.m, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.ink }, BORDER(1)]}>
-              <Feather name="gift" size={18} color={C.white} />
-              <View style={{ flex: 1 }}>
-                <Text style={[T.h3, { color: C.white }]}>{`${topCoupon.discount} with ${topCoupon.code}`}</Text>
-                <Text style={[T.micro, { color: C.white, marginTop: 2, opacity: 0.8 }]}>
-                  {`${topCoupon.min} · apply it at checkout`}
-                </Text>
-              </View>
-            </View>
-          )}
-          {(similarStatus === 'loading' || similarList.length > 0) && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m, minHeight: ready ? undefined : 230 }}>
-              {ready && similarList.slice(0, 6).map(p => (
-                <ProductCard key={p.id} p={p} onAdd={handleUpsellAdd} />
-              ))}
-            </ScrollView>
-          )}
-        </View>
-
         {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it.
             BOTH of these stay unconditional direct children of the ScrollView.
-            `stickyHeaderIndices={[3]}` above is a positional index into
+            `stickyHeaderIndices={[2]}` above is a positional index into
             React.Children.toArray(children), which DROPS false/null — so wrapping
             this pair in a fragment (or hiding it when the catalog is empty)
             silently re-points the sticky header at the wrong element. It also

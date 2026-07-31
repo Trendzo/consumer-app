@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, LayoutAnimation, Platform, UIManager } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, ScrollView, Pressable, TextInput, LayoutAnimation, Platform, UIManager, Modal } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
@@ -17,38 +17,67 @@ import { readCouponOutcome, type CouponOutcome } from '../services/coupons';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { pointsToRupees, type AppConfig } from '../services/appConfig';
+import { updateMe } from '../services/auth';
 import { getWallet } from '../services/wallet';
 import { getLoyalty } from '../services/loyalty';
+/**
+ * Two tenders, because two is what checkout actually does: pay now through the gateway, or
+ * pay on handover. `id` is the value the backend takes.
+ *
+ * The old list had four rows and three of them misrepresented the flow. "UPI" advertised a
+ * specific VPA (`pay@okhdfcbank`) that belongs to nobody, and "Credit / Debit Card" showed
+ * `•••• 4242` — a Stripe test number, as if a card were on file. Neither did what it said:
+ * both post the same `upi` tender and land in the same Razorpay sheet, which offers UPI,
+ * cards and netbanking itself. The Trendzo wallet was listed as a tender too, but the backend
+ * requires a wallet-only order to be covered in full and rejects it otherwise — as a partial
+ * amount alongside another tender it already has its own toggle above.
+ */
 const PAYMENTS = [
-  { id: 'upi', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
-  { id: 'card', icon: 'credit-card', label: 'Credit / Debit Card', sub: '•••• 4242' },
+  { id: 'upi', icon: 'smartphone', label: 'Pay online', sub: 'UPI, card or netbanking' },
   { id: 'cod', icon: 'dollar-sign', label: 'Cash on Delivery', sub: 'Pay when it arrives' },
-  { id: 'wallet', icon: 'package', label: 'Trendzo Wallet', sub: '' }, // sub filled from the live balance
-];
+] as const;
+
+type PayId = (typeof PAYMENTS)[number]['id'];
 // Wallet balance and reward points are fetched, never assumed. These were the
 // literals ₹1,240 and 240 pts — shown to every customer as if they were theirs,
 // and the reward toggle then discounted the DISPLAYED total by an amount the
 // server had never agreed to.
 
-// Delivery methods — mirrors the Bag's buckets so a per-bucket checkout shows
-// the same label/fee here. Try & Buy stays an express-only add-on.
+// Delivery methods — mirrors the Bag's buckets so a per-bucket checkout shows the same
+// labels. Try & Buy is a first-class method here, not an add-on toggle on express.
 type BagMethod = 'express' | 'standard' | 'pickup';
-type DeliveryMeta = { label: string; sub: string; icon: string; fee: number };
+/** What the backend prices and places. Try & Buy is its own method, not a flag on express. */
+type DeliveryChoice = 'express' | 'standard' | 'pickup' | 'try_and_buy';
+/**
+ * Copy only — deliberately no `fee`.
+ *
+ * The fee for every method comes from the price quote (`stores[].deliveryOptions`), computed by
+ * the same engine that places the order. This used to also carry a config-derived fee, which
+ * meant two independent numbers for the same charge and a screen that could show one while
+ * being billed the other.
+ */
+type DeliveryMeta = { label: string; sub: string; icon: string };
 
-/** Same source as the Bag — see methodMetaFrom there. Fallback only. */
-const deliveryMetaFrom = (cfg: AppConfig): Record<BagMethod, DeliveryMeta> => {
+/** Same source as the Bag — see methodMetaFrom there. */
+const deliveryMetaFrom = (cfg: AppConfig): Record<DeliveryChoice, DeliveryMeta> => {
   // Defensive: the hook merges over defaults, but a screen must not crash if
   // an older backend (or a bad cache entry) ever yields a partial config.
   const by = new Map((cfg.delivery?.methods ?? []).map((m) => [m.id, m]));
-  const one = (id: BagMethod, fallback: DeliveryMeta): DeliveryMeta => {
+  const one = (id: DeliveryChoice, fallback: DeliveryMeta): DeliveryMeta => {
     const m = by.get(id);
     if (!m) return fallback;
-    return { label: `${m.label} · ${m.etaLabel}`, sub: m.blurb, icon: m.icon, fee: Math.round(m.feePaise / 100) };
+    return { label: `${m.label} · ${m.etaLabel}`, sub: m.blurb, icon: m.icon };
   };
   return {
-    express: one('express', { label: 'Express · 60 min', sub: 'From your nearest store', icon: 'zap', fee: 99 }),
-    standard: one('standard', { label: 'Standard · 2-3 days', sub: 'Tracked shipping · door-to-door', icon: 'package', fee: 49 }),
-    pickup: one('pickup', { label: 'Instore pickup', sub: 'Ready at your nearest store', icon: 'map-pin', fee: 0 }),
+    express: one('express', { label: 'Express · 60 min', sub: 'From your nearest store', icon: 'zap' }),
+    standard: one('standard', { label: 'Standard · 2-3 days', sub: 'Tracked shipping · door-to-door', icon: 'package' }),
+    pickup: one('pickup', { label: 'Instore pickup', sub: 'Collect at your nearest store', icon: 'map-pin' }),
+    // Not one of the Bag's buckets, so config may not describe it.
+    try_and_buy: one('try_and_buy', {
+      label: 'Try & Buy',
+      sub: 'Try at home, keep what you love, pay-back for the rest',
+      icon: 'home',
+    }),
   };
 };
 
@@ -107,11 +136,31 @@ function Toggle({ on, onPress }: { on: boolean; onPress: () => void }) {
 export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const { cart, placeOrder, showToast, token, user, requireAuth } = useApp();
+  const { cart, placeOrder, showToast, token, getToken, user, applyConsumer, requireAuth } = useApp();
   // Launched from a Bag bucket → only that bucket's items + its delivery
   // method. Launched from Buy Now (no param) → whole bag, express.
   const preMethod = route.params?.preMethod as BagMethod | undefined;
-  const delivery: BagMethod = preMethod ?? 'express';
+  /**
+   * Chosen here, not inherited read-only from the Bag.
+   *
+   * The bucket the shopper came from is the starting point, but the method is theirs to change
+   * on the summary — and changing it re-prices against the server, so the fee, tax and total on
+   * screen always belong to the method that is selected.
+   *
+   * Note this does NOT change which items are in the order: `items` stays filtered by the
+   * bucket that launched the screen.
+   */
+  const [method, setMethod] = useState<DeliveryChoice>(preMethod ?? 'express');
+  /**
+   * Express, Try & Buy and store pickup. Standard is offered only when the shopper arrived on
+   * it, so an existing standard bag is never silently switched to a different fee.
+   */
+  const methodChoices = useMemo<DeliveryChoice[]>(
+    () => (preMethod === 'standard'
+      ? ['standard', 'express', 'try_and_buy', 'pickup']
+      : ['express', 'try_and_buy', 'pickup']),
+    [preMethod],
+  );
   // MUST be memoised. `items` is an effect dependency of the pricing call below;
   // computing it inline made a new array identity on every render, so priceCart →
   // setPricing → re-render → new `items` → priceCart looped a POST /pricing/cart
@@ -131,10 +180,31 @@ export default function ReviewOrderScreen() {
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [couponOutcome, setCouponOutcome] = useState<CouponOutcome>({ state: 'none' });
   const [useReward, setUseReward] = useState(false);
-  const [tryBuy, setTryBuy] = useState(false);
   // Payment is picked INLINE on the page (was a bottom-sheet modal).
-  const [payId, setPayId] = useState('upi');
+  const [payId, setPayId] = useState<PayId>('upi');
   const [pricing, setPricing] = useState<CartPricing | null>(null);
+  // Distinguishes "the quote hasn't come back yet" from "the server refused to price this".
+  // Money is never invented locally, so both states have to be visible rather than papered
+  // over with a guess — and Pay stays disabled until a real quote exists.
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingErr, setPricingErr] = useState<string | null>(null);
+  const [quoteNonce, setQuoteNonce] = useState(0);
+  // Name + email, collected here when the profile has neither and an order needs both.
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [pName, setPName] = useState('');
+  const [pEmail, setPEmail] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileErr, setProfileErr] = useState<string | null>(null);
+  /**
+   * Whether the profile is complete, readable synchronously.
+   *
+   * The sheet saves the details and then resumes the placement in the same tick — before React
+   * has committed the new consumer — so a `user?.profileComplete` read there would still be
+   * false and would reopen the sheet it just closed, forever. Mirrored on every render and
+   * written directly by the save. (Same reason AppState keeps a tokenRef for requireAuth.)
+   */
+  const profileCompleteRef = useRef(false);
+  profileCompleteRef.current = !!user?.profileComplete;
   const [placing, setPlacing] = useState(false);
   // Pickup only: the store's upcoming windows, and the one the customer picked.
   // The backend rejects a multi-store pickup cart, so there is exactly one store.
@@ -184,22 +254,46 @@ export default function ReviewOrderScreen() {
     }
   }, [route.params?.pickedAddressId]);
 
-  // Server delivery method for this placement — Try & Buy rides on express.
-  const apiMethod: 'express' | 'standard' | 'pickup' | 'try_and_buy' =
-    tryBuy && delivery === 'express' ? 'try_and_buy' : delivery;
+  // The selection IS the server method now; nothing to derive.
+  const apiMethod: DeliveryChoice = method;
 
-  // Real server totals for the cart (guest-ok); falls back to local math. The
+  /**
+   * Try & Buy is prepaid only — the shopper pays up front and is refunded for whatever they
+   * send back at the door, so there is no "pay on arrival" amount to collect.
+   *
+   * This was enforced only at the Pay button, which meant COD sat there selectable, the price
+   * quote went out with paymentMethod: 'cod', and the shopper was refused at the last step.
+   * Take the tender out of reach and say why instead.
+   */
+  const codBlocked = apiMethod === 'try_and_buy';
+  /**
+   * The tender actually sent to the server. Derived rather than read straight from state
+   * because state settles one render late: switching to Try & Buy with COD still selected
+   * would otherwise fire a quote for a pair the backend rejects, flashing a pricing error
+   * before the reset below lands. This keeps every request valid; the reset then makes the
+   * UI agree with it.
+   */
+  const effectivePayId: PayId = codBlocked && payId === 'cod' ? 'upi' : payId;
+  useEffect(() => {
+    if (codBlocked && payId === 'cod') setPayId('upi');
+  }, [codBlocked, payId]);
+
+  // Server totals for the cart (guest-ok). There is no local fallback: every figure shown on
+  // this screen — line prices, promo and coupon discounts, loyalty, delivery, GST, total — is
+  // whatever this quote says, produced by the same engine that will place the order. The
   // chosen method + tender are passed so the shown total is the charged total.
   const allPriceable = items.length > 0 && items.every((it) => !!it.variantId);
   useEffect(() => {
-    if (!allPriceable) { setPricing(null); return; }
+    if (!allPriceable) { setPricing(null); setPricingErr(null); setPricingLoading(false); return; }
     let cancelled = false;
+    setPricingLoading(true);
+    setPricingErr(null);
     priceCart(
       items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
       couponCode ?? undefined,
       {
         deliveryMethod: apiMethod,
-        paymentMethod: payId as any,
+        paymentMethod: effectivePayId,
         // Quote with the same points the placement will redeem. Without this the
         // quote and the charge disagree — the exact failure mode this section is
         // about. The server clamps to the real balance and to the order total.
@@ -214,15 +308,23 @@ export default function ReviewOrderScreen() {
         setPricing(p);
         setCouponOutcome(readCouponOutcome(couponCode, p.aggregate.couponPaise, p.rejectedCodes));
       })
-      .catch(() => { if (!cancelled) { setPricing(null); setCouponOutcome({ state: 'none' }); } });
+      .catch((e: any) => {
+        if (cancelled) return;
+        setPricing(null);
+        setCouponOutcome({ state: 'none' });
+        // Surfaced verbatim: the server's reason is usually actionable ("out of stock",
+        // "store closed", a rejected method/tender combination).
+        setPricingErr(e?.message ?? "Couldn't price this order. Please try again.");
+      })
+      .finally(() => { if (!cancelled) setPricingLoading(false); });
     return () => { cancelled = true; };
-  }, [items, allPriceable, apiMethod, payId, couponCode, useReward, rewardPoints, applyWallet]);
+  }, [items, allPriceable, apiMethod, effectivePayId, couponCode, useReward, rewardPoints, applyWallet, quoteNonce]);
 
   // Pickup: load the store's upcoming windows. A pickup cart is single-store by
   // backend rule, so the first bucket's store is the one to ask about.
-  const pickupStoreId = delivery === 'pickup' ? pricing?.stores[0]?.storeId : undefined;
+  const pickupStoreId = apiMethod === 'pickup' ? pricing?.stores[0]?.storeId : undefined;
   useEffect(() => {
-    if (delivery !== 'pickup' || !pickupStoreId) { setSlots([]); setSlotId(null); return; }
+    if (apiMethod !== 'pickup' || !pickupStoreId) { setSlots([]); setSlotId(null); return; }
     let cancelled = false;
     setSlotsLoading(true);
     listPickupSlots(pickupStoreId)
@@ -234,33 +336,64 @@ export default function ReviewOrderScreen() {
       .catch(() => { if (!cancelled) { setSlots([]); setSlotId(null); } })
       .finally(() => { if (!cancelled) setSlotsLoading(false); });
     return () => { cancelled = true; };
-  }, [delivery, pickupStoreId]);
+  }, [apiMethod, pickupStoreId]);
 
   const addr = addresses.find((a) => a.id === addrId) || null;
-  const pay = PAYMENTS.find((p) => p.id === payId)!;
 
-  const agg = pricing?.aggregate;
-  const mrpSavings = items.reduce((s, it) => s + Math.max(0, it.original - it.price) * it.qty, 0);
-  // Items-based (NOT cartTotal) so a filtered bucket prices only its own lines.
-  const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : items.reduce((s, it) => s + it.price * it.qty, 0);
+  const agg = pricing?.aggregate ?? null;
+  const couponApplied = couponOutcome.state === 'applied';
+
+  /**
+   * The receipt, entirely from the quote.
+   *
+   * Every one of these used to have an `agg ? server : localMath` fallback, and the fallbacks
+   * disagreed with the server in ways the shopper could see: a hardcoded ₹99 Try & Buy fee, a
+   * local `Math.min` for loyalty the backend would have clamped differently, a config-derived
+   * delivery fee, and zero tax. Worse, "Item total" added a locally-computed MRP saving on top
+   * of `itemsSubtotalPaise` — which is already the GROSS line subtotal — so the first row of
+   * the receipt did not agree with the last one.
+   *
+   * Now there is one source. No quote means no numbers, not invented ones.
+   */
+  const subtotal = agg ? toRupees(agg.itemsSubtotalPaise) : 0;
+  /** Retailer + platform promo discount, i.e. the saving off MRP. Server-split. */
+  const mrpSavings = agg ? toRupees(agg.mrpPromoPaise) : 0;
+  const couponOff = agg ? toRupees(agg.couponPaise) : 0;
+  const rewardOff = agg ? toRupees(agg.pointsRedeemedPaise) : 0;
   // Wallet is a tender, so it reduces what the gateway collects rather than the
   // order total. Shown as its own line for that reason.
   const walletApplied = agg ? toRupees(agg.walletAppliedPaise) : 0;
-  const couponApplied = couponOutcome.state === 'applied';
-  // Server-computed, not a local constant.
-  const couponOff = agg ? toRupees(agg.couponPaise) : 0;
-  // Server-decided. The old local Math.min could differ from what the backend
-  // would allow, so the customer saw one saving and was charged another.
-  const rewardOff = agg
-    ? toRupees(agg.pointsRedeemedPaise)
-    : (useReward ? Math.min(rewardPoints, Math.max(0, subtotal - couponOff)) : 0);
-  const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : DELIVERY_META[delivery].fee;
+  const deliveryFee = agg ? toRupees(agg.deliveryFeePaise) : 0;
   const taxAmt = agg ? toRupees(agg.taxPaise) : 0;
-  const tryBuyFee = tryBuy ? 99 : 0;
-  const total = agg ? toRupees(agg.grandTotalPaise) : Math.max(0, subtotal - couponOff - rewardOff + deliveryFee + tryBuyFee);
-  const totalSavings = mrpSavings + (agg ? toRupees(agg.discountPaise) : couponOff + rewardOff);
+  const total = agg ? toRupees(agg.grandTotalPaise) : 0;
+  const totalSavings = agg ? toRupees(agg.discountPaise) : 0;
   /** grandTotal minus the wallet portion — what the gateway actually collects. */
-  const amountDue = agg ? toRupees(agg.amountDuePaise) : total;
+  const amountDue = agg ? toRupees(agg.amountDuePaise) : 0;
+
+  /**
+   * Per-line prices from the quote, keyed by variant so a line can be matched regardless of
+   * which store bucket it landed in. The cart's own `price` is a stale client-side copy; the
+   * engine's `netLinePaise` is what the shopper is charged.
+   */
+  const lineByVariant = useMemo(() => {
+    const m = new Map<string, { unitPricePaise: number; netLinePaise: number }>();
+    for (const st of pricing?.stores ?? []) {
+      for (const l of st.lines) m.set(l.variantId, { unitPricePaise: l.unitPricePaise, netLinePaise: l.netLinePaise });
+    }
+    return m;
+  }, [pricing]);
+
+  /**
+   * What each delivery method would cost for this cart, straight from the quote —
+   * `deliveryOptions` is per store, so a multi-store cart sums its buckets exactly the way
+   * `deliveryFeePaise` aggregates. `null` while no quote exists, so the selector shows a
+   * placeholder instead of a number nobody has agreed to.
+   */
+  const optionFee = (m: DeliveryChoice): number | null =>
+    pricing ? toRupees(pricing.stores.reduce((s, st) => s + (st.deliveryOptions?.[m] ?? 0), 0)) : null;
+
+  /** A quote must exist before anything can be paid. */
+  const canPay = !!agg && allPriceable && items.length > 0;
 
 
   /**
@@ -274,7 +407,21 @@ export default function ReviewOrderScreen() {
    */
   const placeIt = async () => {
     if (placing) return;
-    if (!token) { requireAuth(() => placeIt()); return; }
+    // Live token: requireAuth replays placeIt itself, and the replayed closure captured
+    // `token` while signed out — reading it would bounce the shopper back to the sign-in
+    // sheet at the moment they finally have a session.
+    if (!getToken()) { requireAuth(() => placeIt()); return; }
+    /**
+     * The backend snapshots a buyer name and email onto every order, so it refuses to place one
+     * for a profile that has neither — and a phone-OTP signup starts with neither.
+     *
+     * This used to surface as "Order failed — add your name and email to your profile" at the
+     * very end, after the shopper had chosen a method, a tender and pressed Pay. `profileComplete`
+     * was already on the session the whole time and simply never consulted. Ask for the two
+     * fields here and carry on into the same placement, rather than sending them to a different
+     * screen and losing the order.
+     */
+    if (!profileCompleteRef.current) { setProfileOpen(true); return; }
     // Pickup collects at the counter — no delivery address involved.
     if (apiMethod !== 'pickup' && !addr) {
       showToast('Add an address', 'Add a delivery address', 'map-pin');
@@ -282,14 +429,13 @@ export default function ReviewOrderScreen() {
       return;
     }
     if (!allPriceable || items.length === 0) { showToast('Cart issue', "Some items can't be checked out", 'x'); return; }
-    if (apiMethod === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
-    // Wallet-only must cover the whole order — the server throws "Insufficient
-    // wallet balance" otherwise, and the app used to let the customer get all
-    // the way to Pay before finding out.
-    if (payId === 'wallet' && walletPaise < (agg?.grandTotalPaise ?? total * 100)) {
-      showToast('Not enough balance', 'Pick another method, or use your wallet alongside it', 'x');
+    // No quote, no payment. Placing against a total the server never produced is how a shopper
+    // ends up charged something other than what they read.
+    if (!agg) {
+      showToast('Prices not confirmed', pricingErr ?? 'Fetching the latest prices — try again in a moment', 'x');
       return;
     }
+    if (apiMethod === 'try_and_buy' && payId === 'cod') { showToast('Not allowed', "Try & Buy can't be Cash on Delivery", 'x'); return; }
     if (apiMethod === 'pickup' && (pricing?.stores.length ?? 0) > 1) {
       showToast('One store at a time', 'A pickup slot belongs to a single store — split the bag', 'x');
       return;
@@ -306,7 +452,7 @@ export default function ReviewOrderScreen() {
       const res = await placeGroupOrder({
         items: items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
         deliveryMethod: apiMethod,
-        paymentMethod: payId as any,
+        paymentMethod: effectivePayId,
         ...(apiMethod === 'pickup' ? {} : { addressId: addr!.id }),
         ...(slot ? { pickupSlotId: slot.slotId, pickupSlotStart: slot.startsAt, pickupSlotEnd: slot.endsAt } : {}),
         // THE fix for this screen: the code now reaches placement. Only sent when
@@ -339,7 +485,7 @@ export default function ReviewOrderScreen() {
       }
 
       const count = items.reduce((s, it) => s + it.qty, 0);
-      placeOrder({ method: tryBuy && delivery === 'express' ? 'tryandbuy' : delivery, id: firstOrderId, total, items: count });
+      placeOrder({ method: apiMethod === 'try_and_buy' ? 'tryandbuy' : apiMethod, id: firstOrderId, total, items: count });
       setTimeout(() => nav.navigate('OrderSuccess', { orderId: firstOrderId, method: apiMethod }), 200);
     } catch (e: any) {
       if (gatewayOrderId) {
@@ -386,7 +532,7 @@ export default function ReviewOrderScreen() {
           <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 150 }} showsVerticalScrollIndicator={false}>
             {/* COLLECTION POINT (pickup) — no delivery address is involved, so the
                 address block is replaced by the store and its available windows. */}
-            {delivery === 'pickup' ? (
+            {apiMethod === 'pickup' ? (
               <>
                 <Text style={[T.h3, { marginBottom: 8, textTransform: 'uppercase' }]}>Collect from</Text>
                 <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
@@ -464,35 +610,41 @@ export default function ReviewOrderScreen() {
               </>
             )}
 
-            {/* DELIVERY — the bucket's method (from the Bag), shown inline.
-                Try & Buy stays an express-only add-on. */}
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: SP.xl, marginBottom: 8 }}>
-              <Text style={[T.h3, { textTransform: 'uppercase' }]}>Delivery</Text>
-              {preMethod && (
-                <Pressable onPress={() => nav.goBack()} hitSlop={8}>
-                  <Text style={[T.caption, { color: C.ink, textDecorationLine: 'underline' }]}>Change in bag</Text>
-                </Pressable>
-              )}
+            {/* DELIVERY — selectable here. Each row's fee is the quote's own figure for that
+                method, so switching shows the real difference rather than a guess, and
+                re-prices tax and total with it. */}
+            <Text style={[T.h3, { textTransform: 'uppercase', marginTop: SP.xl, marginBottom: 8 }]}>Delivery</Text>
+            <View style={{ gap: SP.s }}>
+              {methodChoices.map((m) => {
+                const meta = DELIVERY_META[m];
+                const sel = m === apiMethod;
+                const fee = optionFee(m);
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => { if (sel) return; animateNext(); setMethod(m); }}
+                    style={[
+                      { flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: sel ? C.ink : C.white },
+                      BORDER(1),
+                    ]}
+                  >
+                    <Feather name={meta.icon as any} size={16} color={sel ? C.white : C.ink} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{meta.label}</Text>
+                      <Text style={[T.micro, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{meta.sub}</Text>
+                    </View>
+                    {/* Em dash until the quote lands — never a number the server hasn't given. */}
+                    <Text style={[T.price, { color: sel ? C.white : C.ink }]}>
+                      {fee === null ? '—' : fee === 0 ? 'Free' : `₹${fee}`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4' }}>
-                <Feather name={DELIVERY_META[delivery].icon as any} size={16} color={C.ink} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[T.bodyB]}>{DELIVERY_META[delivery].label}</Text>
-                <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>{DELIVERY_META[delivery].sub}</Text>
-              </View>
-              <Text style={[T.price]}>{DELIVERY_META[delivery].fee === 0 ? 'Free' : `₹${DELIVERY_META[delivery].fee}`}</Text>
-            </View>
-            {delivery === 'express' && (
-              <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.s, backgroundColor: C.white }, BORDER(1)]}>
-                <Feather name="home" size={16} color={C.ink} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[T.bodyB]}>Try & Buy</Text>
-                  <Text style={[T.caption, { marginTop: 1 }]}>Try at home first · keep what you love · +₹99</Text>
-                </View>
-                <Toggle on={tryBuy} onPress={() => { animateNext(); setTryBuy((v) => !v); }} />
-              </View>
+            {apiMethod === 'try_and_buy' && (
+              <Text style={[T.micro, { color: C.dim, marginTop: SP.s }]}>
+                Try & Buy is prepaid — you're refunded for whatever you send back at the door.
+              </Text>
             )}
 
             {/* ITEMS — read-only, no qty controls */}
@@ -507,10 +659,25 @@ export default function ReviewOrderScreen() {
                     <Text style={[T.caption]} numberOfLines={1}>{it.brand}</Text>
                     <Text style={[T.productName, { marginTop: 1 }]} numberOfLines={1}>{it.name}</Text>
                     <Text style={[T.caption, { marginTop: 4 }]}>{`Size ${it.size}  ·  Qty ${it.qty}`}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
-                      <Text style={[T.price]}>₹{it.price * it.qty}</Text>
-                      {it.original > it.price && <Text style={[T.mrp]}>₹{it.original * it.qty}</Text>}
-                    </View>
+                    {/* Line price from the quote when it has arrived. The cart's own `price` is
+                        a client-side copy captured when the item was added and can be stale;
+                        `netLinePaise` is what this line is actually charged. The struck-out MRP
+                        stays a display-only figure from the catalogue — the engine returns no
+                        per-line MRP — and is hidden unless it is a real, finite number. */}
+                    {(() => {
+                      const q = it.variantId ? lineByVariant.get(it.variantId) : undefined;
+                      const linePaise = q?.netLinePaise;
+                      const mrp = it.original;
+                      const showMrp = Number.isFinite(mrp) && mrp > it.price;
+                      return (
+                        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                          <Text style={[T.price]}>
+                            {linePaise != null ? `₹${toRupees(linePaise)}` : pricingLoading ? '—' : `₹${it.price * it.qty}`}
+                          </Text>
+                          {showMrp && <Text style={[T.mrp]}>₹{mrp * it.qty}</Text>}
+                        </View>
+                      );
+                    })()}
                   </View>
                 </View>
               ))}
@@ -588,13 +755,13 @@ export default function ReviewOrderScreen() {
 
             {/* WALLET — a partial tender on top of the chosen method. Hidden when
                 the balance is zero, and irrelevant when paying by wallet alone. */}
-            {walletPaise > 0 && payId !== 'wallet' && (
+            {walletPaise > 0 && (
               <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
                 <Feather name="package" size={16} color={C.ink} />
                 <View style={{ flex: 1 }}>
                   <Text style={[T.bodyB]}>Use Trendzo Wallet</Text>
                   <Text style={[T.caption, { marginTop: 1 }]}>
-                    {`₹${Math.round(walletPaise / 100).toLocaleString()} available · the rest goes on ${pay.label.split(' ')[0]}`}
+                    {`₹${Math.round(walletPaise / 100).toLocaleString()} available · the rest goes on ${payId === 'cod' ? 'cash' : 'your online payment'}`}
                   </Text>
                 </View>
                 <Toggle on={applyWallet} onPress={() => { animateNext(); setApplyWallet((v) => !v); }} />
@@ -605,15 +772,33 @@ export default function ReviewOrderScreen() {
             <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Payment method</Text>
             <View style={{ gap: SP.s }}>
               {PAYMENTS.map((p) => {
-                const sel = p.id === payId;
+                // Shown but not selectable, with the reason in place of the usual subtitle.
+                // Hiding the row would leave the shopper wondering where COD went.
+                const blocked = p.id === 'cod' && codBlocked;
+                const sel = p.id === payId && !blocked;
+                // Pickup is collected at the counter, so "on delivery" would be wrong copy for
+                // the same tender. Same value posted either way — only the wording changes.
+                const label = p.id === 'cod' && apiMethod === 'pickup' ? 'Pay at the store' : p.label;
+                const sub = blocked
+                  ? 'Not available on Try & Buy — prepaid only'
+                  : p.id === 'cod' && apiMethod === 'pickup'
+                    ? 'Cash or card at the counter when you collect'
+                    : p.sub;
                 return (
-                  <Pressable key={p.id} onPress={() => { animateNext(); setPayId(p.id); }} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: SP.m, backgroundColor: sel ? C.ink : C.white }, BORDER(1)]}>
+                  <Pressable
+                    key={p.id}
+                    disabled={blocked}
+                    onPress={() => { animateNext(); setPayId(p.id); }}
+                    style={[
+                      { flexDirection: 'row', alignItems: 'center', gap: 12, padding: SP.m, backgroundColor: sel ? C.ink : C.white },
+                      BORDER(1),
+                      blocked ? { opacity: 0.45 } : null,
+                    ]}
+                  >
                     <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />
                     <View style={{ flex: 1 }}>
-                      <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{p.label}</Text>
-                      <Text style={[T.caption, { color: sel ? C.white : C.dim, marginTop: 2 }]}>
-                        {p.id === 'wallet' ? `₹${Math.round(walletPaise / 100).toLocaleString()} balance` : p.sub}
-                      </Text>
+                      <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{label}</Text>
+                      <Text style={[T.caption, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{sub}</Text>
                     </View>
                     <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
                   </Pressable>
@@ -624,18 +809,43 @@ export default function ReviewOrderScreen() {
             {/* PRICE DETAILS */}
             <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Price details</Text>
             <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <Row k="Item total" v={`₹${subtotal + mrpSavings}`} />
-              {mrpSavings > 0 && <Row k="Discount on MRP" v={`− ₹${mrpSavings}`} neg />}
-              {couponOff > 0 && <Row k={`Coupon (${couponCode})`} v={`− ₹${couponOff}`} neg />}
-              {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
-              {walletApplied > 0 && <Row k="Trendzo Wallet" v={`− ₹${walletApplied}`} neg />}
-              <Row k={deliveryFee === 0 ? 'Delivery' : 'Delivery'} v={deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`} />
-              {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
-              {/* Only in the offline fallback — the server quote already prices Try & Buy
-                  INTO deliveryFeePaise, so showing it again would bill it twice on screen. */}
-              {!agg && tryBuyFee > 0 && <Row k="Try & Buy" v={`₹${tryBuyFee}`} />}
-              <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
-              <Row k="Total amount" v={`₹${total}`} bold />
+              {agg ? (
+                <>
+                  {/* `itemsSubtotalPaise` is the GROSS line subtotal; the promo/coupon/loyalty
+                      rows below subtract from it, and the arithmetic on screen adds up to the
+                      Total. It used to have the MRP saving added back onto it, which made the
+                      first row disagree with the last. */}
+                  <Row k="Item total" v={`₹${subtotal}`} />
+                  {mrpSavings > 0 && <Row k="Discount on MRP" v={`− ₹${mrpSavings}`} neg />}
+                  {couponOff > 0 && <Row k={`Coupon (${couponCode})`} v={`− ₹${couponOff}`} neg />}
+                  {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
+                  {walletApplied > 0 && <Row k="Trendzo Wallet" v={`− ₹${walletApplied}`} neg />}
+                  {/* Try & Buy is priced INTO deliveryFeePaise by the engine, so it is never a
+                      separate line — listing it again would bill it twice on screen. */}
+                  <Row k="Delivery" v={deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`} />
+                  {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
+                  <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
+                  <Row k="Total amount" v={`₹${total}`} bold />
+                </>
+              ) : pricingErr ? (
+                <View style={{ alignItems: 'center', gap: SP.s }}>
+                  <Feather name="alert-circle" size={18} color="#c1121f" />
+                  <Text style={[T.caption, { color: '#c1121f', textAlign: 'center' }]}>{pricingErr}</Text>
+                  <Pressable onPress={() => setQuoteNonce((n) => n + 1)} hitSlop={10}>
+                    <Text style={[T.bodyB, { textDecorationLine: 'underline' }]}>Retry</Text>
+                  </Pressable>
+                </View>
+              ) : !allPriceable ? (
+                <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
+                  {items.length === 0
+                    ? 'Nothing to price yet.'
+                    : "Some items can't be priced — remove them from your bag to continue."}
+                </Text>
+              ) : (
+                <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
+                  {pricingLoading ? 'Getting the latest prices…' : 'Prices not confirmed yet.'}
+                </Text>
+              )}
             </View>
 
             {/* SAVINGS BANNER */}
@@ -652,19 +862,101 @@ export default function ReviewOrderScreen() {
               {/* What the CARD/UPI is actually charged. With wallet applied this
                   is less than the order total, and showing the total here would
                   overstate the charge on the button next to it. */}
-              <Text style={[T.h2]}>₹{amountDue}</Text>
+              {/* No quote, no amount — a placeholder rather than ₹0, which reads as free. */}
+              <Text style={[T.h2]}>{agg ? `₹${amountDue}` : '—'}</Text>
               {walletApplied > 0
                 ? <Text style={[T.micro]}>{`₹${walletApplied} from wallet`}</Text>
                 : totalSavings > 0 ? <Text style={[T.micro]}>saved ₹{totalSavings}</Text> : null}
             </View>
             <BrutalButton
-              label={placing ? 'Placing…' : pay.id === 'cod' ? 'Place order' : `Pay via ${pay.label.split(' ')[0]}`}
+              label={
+                placing ? 'Placing…'
+                  : !canPay ? (pricingLoading ? 'Pricing…' : 'Prices unavailable')
+                  : payId === 'cod' ? (apiMethod === 'pickup' ? 'Place order · pay at store' : 'Place order · pay on delivery')
+                  : 'Pay now'
+              }
               iconRight="arrow-right"
-              disabled={placing}
+              // Disabled until the server has priced this order, so Pay can never send a total
+              // the shopper never saw agreed.
+              disabled={placing || !canPay}
               onPress={placeIt}
               style={{ flex: 1 }}
             />
           </View>
+
+          {/* NAME + EMAIL — asked for only when the order cannot be placed without them, and
+              the placement continues straight afterwards so the shopper never loses their
+              basket or their choices. */}
+          <Modal transparent visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
+            <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
+              <View style={[{ backgroundColor: C.white, padding: SP.l, paddingBottom: SP.xl }, BORDER(1)]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={[T.h3, { textTransform: 'uppercase' }]}>One last thing</Text>
+                  <Pressable onPress={() => setProfileOpen(false)} hitSlop={12}>
+                    <Feather name="x" size={18} color={C.ink} />
+                  </Pressable>
+                </View>
+                <Text style={[T.caption, { color: C.dim, marginTop: 6 }]}>
+                  Your order and invoice are made out to a name and an email. We'll save them to
+                  your profile so this is the only time you're asked.
+                </Text>
+                <View style={{ marginTop: SP.m, gap: SP.s }}>
+                  <TextInput
+                    value={pName}
+                    onChangeText={setPName}
+                    placeholder="Full name"
+                    placeholderTextColor={C.dim}
+                    autoCapitalize="words"
+                    style={[{ padding: SP.m, color: C.ink }, BORDER(1)]}
+                  />
+                  <TextInput
+                    value={pEmail}
+                    onChangeText={setPEmail}
+                    placeholder="Email for the invoice"
+                    placeholderTextColor={C.dim}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[{ padding: SP.m, color: C.ink }, BORDER(1)]}
+                  />
+                </View>
+                {profileErr && (
+                  <Text style={[T.micro, { color: '#c1121f', marginTop: 8 }]}>{profileErr}</Text>
+                )}
+                <BrutalButton
+                  label={savingProfile ? 'Saving…' : 'Save & continue'}
+                  iconRight="arrow-right"
+                  disabled={savingProfile}
+                  block
+                  style={{ marginTop: SP.m }}
+                  onPress={async () => {
+                    if (savingProfile) return;
+                    const name = pName.trim();
+                    const email = pEmail.trim();
+                    // Validated here as well as server-side: a 400 from the PATCH would read as
+                    // "order failed" again, which is the exact dead end this replaces.
+                    if (name.length < 2) { setProfileErr('Enter your full name'); return; }
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { setProfileErr('Enter a valid email'); return; }
+                    setProfileErr(null);
+                    setSavingProfile(true);
+                    try {
+                      const updated = await updateMe({ name, email });
+                      await applyConsumer(updated);
+                      // Written before resuming: see the note on profileCompleteRef.
+                      profileCompleteRef.current = !!updated.profileComplete;
+                      setProfileOpen(false);
+                      // Straight back into the placement the shopper already asked for.
+                      placeIt();
+                    } catch (e: any) {
+                      setProfileErr(e?.message ?? 'Could not save your details. Try again.');
+                    } finally {
+                      setSavingProfile(false);
+                    }
+                  }}
+                />
+              </View>
+            </View>
+          </Modal>
         </>
       )}
     </View>

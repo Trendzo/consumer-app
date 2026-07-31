@@ -105,12 +105,26 @@ export function AuthSheet() {
   const [otpErr, setOtpErr] = useState<string | undefined>();
   const [resendIn, setResendIn] = useState(0);
 
+  // In-flight guards. `sending`/`verifying` state cannot do this job: two events dispatched in
+  // the same React batch (keyboard "go" plus a tap; SMS autofill delivering the code twice)
+  // both read the pre-commit value and both proceed. Refs are written synchronously.
+  //
+  // This matters more than a duplicate request. Two sendOtp calls mint two DIFFERENT reqIds
+  // and send two DIFFERENT codes; setReqId keeps the last, the user types whichever SMS they
+  // read first, and verification then fails against the other request — a correct-looking
+  // code rejected every time, with no way out except starting over.
+  const sendingRef = useRef(false);
+  const verifyingRef = useRef(false);
+
   // Reset the form whenever the sheet closes so the next buy attempt (a
   // different product/order) always starts from a clean phone step.
   useEffect(() => {
     if (open) return;
     setStep('phone'); setPhone(''); setOtp(''); setReqId(null);
     setPhoneErr(undefined); setOtpErr(undefined); setResendIn(0);
+    // A request still in flight when the sheet was dismissed must not leave the next
+    // attempt permanently blocked by its own guard.
+    sendingRef.current = false; verifyingRef.current = false;
   }, [open]);
 
   useEffect(() => {
@@ -120,9 +134,11 @@ export function AuthSheet() {
   }, [resendIn]);
 
   const handleSend = async () => {
+    if (sendingRef.current) return;
     setPhoneErr(undefined);
     const national = phone.replace(/\D/g, '');
     if (!NATIONAL_RE.test(national)) { setPhoneErr('Enter a valid mobile number'); return; }
+    sendingRef.current = true;
     setSending(true);
     try {
       const rid = await sendOtp(national, DEFAULT_DIAL_CODE);
@@ -133,28 +149,49 @@ export function AuthSheet() {
     } catch (e: any) {
       setPhoneErr(e?.message ?? 'Could not send OTP. Please try again.');
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
 
   const handleResend = async () => {
-    if (resendIn > 0 || !reqId) return;
+    // Same batching hazard as handleSend: `resendIn` has not committed yet on a double tap.
+    // retryOTP reuses the reqId but issues a fresh code, so a duplicate resend invalidates
+    // the code the user is about to read.
+    if (resendIn > 0 || !reqId || sendingRef.current) return;
+    sendingRef.current = true;
     try {
       await resendOtp(reqId);
       setResendIn(RESEND_SECONDS);
       showToast('OTP resent', `Sent to +${DEFAULT_DIAL_CODE} ${phone}`, 'send');
     } catch (e: any) {
       showToast('Could not resend', e?.message ?? 'Try again in a moment', 'alert-circle');
+    } finally {
+      sendingRef.current = false;
     }
   };
 
   const handleVerify = async (codeArg?: unknown) => {
+    // Two triggers reach this: the 4th digit landing (OtpBoxes.onComplete) and the button.
+    // MSG91 treats a reqId+code pair as single-use, so a second call for the same code is
+    // rejected even when the first one is still in flight and about to succeed — which would
+    // read as "correct code refused". The button is disabled while verifying; this guards
+    // the auto-submit path too.
+    if (verifyingRef.current) return;
     setOtpErr(undefined);
     const code = (typeof codeArg === 'string' ? codeArg : otp).replace(/\D/g, '');
     if (code.length < 4 || !reqId) { setOtpErr('Enter the code we sent you'); return; }
+    verifyingRef.current = true;
     setVerifying(true);
+    // Which leg failed. The two are indistinguishable in the copy the user sees, but they
+    // have completely different causes: `sms` means MSG91 rejected the code itself (wrong,
+    // expired, or never delivered), `server` means MSG91 accepted it and our backend's
+    // re-verification or account lookup failed. Tagged into the error line below so a
+    // screenshot is enough to tell them apart.
+    let leg: 'sms' | 'server' = 'sms';
     try {
       const accessToken = await verifyOtp(reqId, code);
+      leg = 'server';
       const session = await consumerOtpLogin(accessToken);
       await signInWithSession(session);
       const onSuccess = data?.onSuccess;
@@ -162,15 +199,21 @@ export function AuthSheet() {
       showToast('Welcome to Trendzo', undefined, 'check');
       onSuccess?.();
     } catch (e: any) {
-      // Same MSG91/backend token mismatch as the old phone-auth screen — the
-      // code itself was correct, so don't dead-end the user on a retry loop.
-      if (e?.code === 'invalid_credentials') {
+      // A 401 used to close the sheet with an "OTP config" toast — from a period when the
+      // backend rejected every correct code, so retrying was pointless. It isn't a config
+      // signal in general: a plain typo also lands here, and dumping the user out of the
+      // sheet loses their retry. Keep the sheet open and let them retype or resend. Only a
+      // real server-side outage (503) dead-ends, because retrying genuinely cannot help.
+      if (e?.status === 503) {
         hideAuthSheet();
-        showToast('Login unavailable', 'Server rejected the login (OTP config). Browse as guest for now.', 'alert-circle');
+        showToast('Login unavailable', 'OTP service is not available right now. Browse as guest for now.', 'alert-circle');
       } else {
-        setOtpErr(e?.message ?? 'Invalid or expired OTP.');
+        setOtp('');
+        const tag = leg === 'sms' ? 'sms' : [e?.status, e?.code].filter(Boolean).join(' ') || 'server';
+        setOtpErr(`${e?.message ?? 'Invalid or expired OTP.'} (${tag})`);
       }
     } finally {
+      verifyingRef.current = false;
       setVerifying(false);
     }
   };

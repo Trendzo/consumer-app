@@ -13,6 +13,8 @@ import { HERO_IMG, HERO_IMG_2 } from '../data/mockData';
 import { ProductGridSkeleton, CatalogEmpty, CatalogError } from '../components/CatalogState';
 import type { Product } from '../data/mockData';
 import { listProducts, listCategories, isBackendCategoryId } from '../services/catalog';
+import { openLocationPicker, usePlace } from '../state/location';
+import { placeLabel } from '../services/geo';
 
 const { width: W, height: H } = Dimensions.get('window');
 const FILTERS = ['ALL', 'NEW IN', 'TOPS', 'BOTTOMS', 'DRESSES', 'SHOES', 'BAGS'];
@@ -42,6 +44,7 @@ const SORT_PARAM: Record<string, 'newest' | 'price_asc' | 'price_desc' | 'rating
 export default function CategoryScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
+  const place = usePlace();
   const label = route.params?.label || 'Category';
   const isFlash = route.params?.id === 'flash'; // flash-sale page gets a taller Lottie header
   // Carts take TURNS: left plays fully → right plays fully → repeat. Paused off-screen.
@@ -266,10 +269,12 @@ export default function CategoryScreen() {
             </Pressable>
             <View>
               <Text style={[T.h1, { textTransform: 'uppercase' }]}>TRENDZO</Text>
-              <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
+              {/* Same real location as the home header — this said "Bandra, Mumbai 400050"
+                  to every shopper. Tapping re-pins it on the map. */}
+              <Pressable onPress={openLocationPicker} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
                 <Feather name="map-pin" size={11} color={C.ink} />
                 <Text style={[T.micro]}>Deliver to</Text>
-                <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>{placeLabel(place)}</Text>
                 <Feather name="chevron-down" size={13} color={C.ink} />
               </Pressable>
             </View>

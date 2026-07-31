@@ -28,6 +28,14 @@ type AppCtx = {
   updateUser: (patch: Partial<{ name: string; email: string; phone: string; address: string }>) => void;
   // real backend session (phone-OTP). token is the JWT sent as Bearer on API calls.
   token: string | null;
+  /**
+   * The token as of right now, not as of the render that captured it.
+   *
+   * Use this instead of `token` in any handler that can be replayed by
+   * `requireAuth` — a replayed closure captured `token` while signed out, so it
+   * reads null forever and re-triggers its own sign-in guard.
+   */
+  getToken: () => string | null;
   signInWithSession: (session: Session) => Promise<void>;
   applyConsumer: (consumer: Consumer) => Promise<void>;
   // true once the persisted session (if any) has been read from disk
@@ -85,6 +93,18 @@ const Ctx = createContext<AppCtx | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AppCtx['user']>(null);
   const [token, setTokenState] = useState<string | null>(null);
+  // The live token, readable synchronously.
+  //
+  // `requireAuth(cb)` stores `cb` and replays it after sign-in, and `cb` is a closure created
+  // while signed OUT — so every `token` it captured is stale by the time it runs. Guards written
+  // as `if (!token) { requireAuth(() => thisAction()) }` therefore re-enter their own guard on
+  // replay, see the old null, and re-open the sheet: sign-in succeeds and the login sheet
+  // appears never to close. Reading through a ref makes the check see the session that now
+  // exists. Written in the same statement sequence as setTokenState, never later, because the
+  // replay happens before React re-renders.
+  const tokenRef = useRef<string | null>(null);
+  tokenRef.current = token;
+  const getToken = useCallback(() => tokenRef.current, []);
   const [authHydrated, setAuthHydrated] = useState(false);
   const [onboarded, setOnboardedState] = useState(false);
   // Persist the onboarding flag so a returning user never sees onboarding
@@ -132,11 +152,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const hideConfirm = useCallback(() => confirmBus.set(null), []);
   const hideAuthSheet = useCallback(() => authBus.set(null), []);
+  // Depth cap for the replay above. A guard that still reads a captured `token` will call
+  // requireAuth again from inside its own replay; since the live token now says "signed in",
+  // that would run the same stale closure forever. One level only — the action is dropped
+  // rather than recursing, which is a missed replay instead of a stack overflow.
+  const replayingRef = useRef(false);
   const requireAuth = useCallback((onSuccess?: () => void) => {
-    if (token) { onSuccess?.(); return true; }
+    if (tokenRef.current) {
+      if (replayingRef.current) return true;
+      replayingRef.current = true;
+      try { onSuccess?.(); } finally { replayingRef.current = false; }
+      return true;
+    }
     authBus.set({ onSuccess });
     return false;
-  }, [token]);
+  }, []);
   const curveProgress = useSharedValue(0);
   const tabBarOffset = useSharedValue(0);
   // When the GenderSwitch drag settles (or hydration restores a saved value),
@@ -176,6 +206,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (ob === '1') setOnboardedState(true);
         if (t) {
           setAuthToken(t);
+          tokenRef.current = t;
           setTokenState(t);
           if (u) { try { setUser(JSON.parse(u)); } catch { /* ignore corrupt cache */ } }
         }
@@ -236,6 +267,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const signInWithSession = useCallback(async (session: Session) => {
     const u = consumerToUser(session.consumer);
     setAuthToken(session.token);
+    // Before setTokenState, not after: the pending action replays in this same tick, long
+    // before React commits the new state, and it must see a signed-in session.
+    tokenRef.current = session.token;
     setTokenState(session.token);
     setUser(u);
     await Promise.all([
@@ -253,6 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(() => {
     setUser(null);
+    tokenRef.current = null;
     setTokenState(null);
     setAuthToken(null);
     AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]).catch(() => {});
@@ -374,7 +409,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // REAL data change hands consumers the identical value and nothing cascades.
   // Everything not listed in deps is a stable useCallback/ref/SharedValue.
   const value = useMemo<AppCtx>(() => ({
-    user, signIn, signOut, updateUser, token, signInWithSession, applyConsumer,
+    user, signIn, signOut, updateUser, token, getToken, signInWithSession, applyConsumer,
     authHydrated, onboarded, setOnboarded,
     cart, addToCart, removeFromCart, updateQty, updateMethod, clearCart, cartTotal, cartCount,
     favorites, toggleFavorite, isFavorite,
@@ -388,7 +423,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lastOrder,
     gender,
     // stable references, listed for lint-completeness:
-    signIn, signOut, updateUser, signInWithSession, applyConsumer, setOnboarded,
+    signIn, signOut, updateUser, getToken, signInWithSession, applyConsumer, setOnboarded,
     addToCart, removeFromCart, updateQty, updateMethod, clearCart, toggleFavorite,
     setGender, setGenderFromDrag, curveProgress,
     showToast, hideToast, showConfirm, hideConfirm, requireAuth, hideAuthSheet,

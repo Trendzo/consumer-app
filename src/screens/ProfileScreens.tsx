@@ -14,8 +14,11 @@ import { listGiftCards, redeemGiftCard, type GiftCard } from '../services/giftCa
 import { listIssues, createIssue, type IssueRow } from '../services/issues';
 import { listOrders, type OrderListRow } from '../services/orders';
 import { listReviews, isBackendListingId } from '../services/catalog';
+import { ReviewComposer } from '../components/ReviewComposer';
 import { lookupPincode } from '../services/pincode';
 import { captureCurrentLocation } from '../services/geo';
+import { MapPicker } from '../components/MapPicker';
+import { getPlace } from '../state/location';
 import { getReferral, type Referral } from '../services/referrals';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { formatWindow, tierFor, pointsToRupees, type AppConfig } from '../services/appConfig';
@@ -196,19 +199,21 @@ export function SavedAddressesScreen() {
   }, [form.pincode]);
 
   const [locating, setLocating] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
   const useMyLocation = async () => {
     if (locating) return;
     setLocating(true);
     const res = await captureCurrentLocation();
     setLocating(false);
     if (!res.ok) {
+      // A refusal or a dead GPS is not a dead end — coordinates are required to save, so hand
+      // the shopper the map instead of a toast telling them to go and change a system setting.
       showToast(
-        res.reason === 'denied' ? 'Location permission needed' : 'Could not get location',
-        res.reason === 'denied'
-          ? 'Allow location access to pin this address'
-          : 'Move somewhere with a clearer signal and retry',
-        'map-pin',
+        res.reason === 'denied' ? 'No location access' : 'Could not get a fix',
+        'Place the pin on the map instead',
+        'map',
       );
+      setMapOpen(true);
       return;
     }
     setForm((f) => ({
@@ -355,6 +360,11 @@ export function SavedAddressesScreen() {
                         ? 'We use this only to route your order to the nearest store.'
                         : 'We need your location to route orders and check we deliver here.'}
                     </Text>
+                    {form.lat != null && (
+                      <Text style={[T.micro, { color: C.dim, marginTop: 2 }]}>
+                        {`Pinned at ${form.lat.toFixed(5)}, ${form.lng!.toFixed(5)}`}
+                      </Text>
+                    )}
                     <BrutalButton
                       label={locating ? 'Getting location…' : form.lat != null ? 'Update location' : 'Use my current location'}
                       icon="navigation"
@@ -362,6 +372,17 @@ export function SavedAddressesScreen() {
                       block
                       disabled={locating}
                       onPress={useMyLocation}
+                      style={{ marginTop: SP.s }}
+                    />
+                    {/* Always offered, not only after a refusal. GPS gives the shopper's own
+                        position, which is the wrong pin whenever they are adding someone
+                        else's address — or a home address from the office. */}
+                    <BrutalButton
+                      label={form.lat != null ? 'Adjust pin on map' : 'Drop pin on map'}
+                      icon="map"
+                      variant="outline"
+                      block
+                      onPress={() => setMapOpen(true)}
                       style={{ marginTop: SP.s }}
                     />
                   </View>
@@ -374,6 +395,32 @@ export function SavedAddressesScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Pin picker for this address. Opens on the pin already set, else on the shopper's own
+          location if we have one, so they start near where they are rather than mid-ocean.
+          The pin is authoritative for lat/lng; city and pincode are only prefilled where the
+          form is still blank, so a hand-typed pincode is never overwritten by the geocoder. */}
+      <MapPicker
+        visible={mapOpen}
+        initial={
+          form.lat != null && form.lng != null
+            ? { lat: form.lat, lng: form.lng }
+            : getPlace()?.coords ?? null
+        }
+        title="Pin this address"
+        onCancel={() => setMapOpen(false)}
+        onConfirm={(picked) => {
+          setForm((f) => ({
+            ...f,
+            lat: picked.coords.lat,
+            lng: picked.coords.lng,
+            pincode: f.pincode.trim() || picked.postalCode || f.pincode,
+            city: f.city.trim() || picked.city || f.city,
+          }));
+          setMapOpen(false);
+          showToast('Location pinned', 'This address is now pinned for delivery', 'check');
+        }}
+      />
     </PageShell>
   );
 }
@@ -1558,7 +1605,7 @@ export function SustainabilityScreen() {
  * page's "View all", which passes the product. It used to render three invented
  * reviews of unrelated garments, identical for every product in the catalog.
  */
-type ReviewRow = { id: string; author: string; rating: number; text: string; date: string };
+type ReviewRow = { id: string; author: string; rating: number; text: string; date: string; verified: boolean };
 
 const fmtReviewAge = (iso: string): string => {
   const ms = Date.now() - Date.parse(iso);
@@ -1574,10 +1621,14 @@ const fmtReviewAge = (iso: string): string => {
 export function ReviewsScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
+  const { token } = useApp();
   const product = route.params?.product;
   const [filter, setFilter] = useState<'ALL' | '5' | '4' | '3'>('ALL');
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // Bumped after a successful post to re-pull the (verified-only) public list.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const canReview = !!token && isBackendListingId(product?.id);
 
   useEffect(() => {
     const id = product?.id;
@@ -1592,12 +1643,13 @@ export function ReviewsScreen() {
           rating: r.rating,
           text: r.body,
           date: fmtReviewAge(r.createdAt),
+          verified: r.verifiedPurchase,
         })));
       })
       .catch(() => { /* leave empty — an invented review is worse than none */ })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [product?.id]);
+  }, [product?.id, reloadNonce]);
 
   const filtered = rows.filter(r => filter === 'ALL' || r.rating === Number(filter));
   const avg = rows.length ? (rows.reduce((s, r) => s + r.rating, 0) / rows.length).toFixed(1) : '—';
@@ -1634,6 +1686,12 @@ export function ReviewsScreen() {
           ))}
         </View>
 
+        {canReview && (
+          <View style={{ paddingHorizontal: SP.l, marginTop: SP.l }}>
+            <ReviewComposer listingId={product.id} onSubmitted={() => setReloadNonce((n) => n + 1)} />
+          </View>
+        )}
+
         <SectionHead title="Reviews" right={`${filtered.length} shown`} />
         <View style={{ paddingHorizontal: SP.l }}>
           {!loading && rows.length === 0 && (
@@ -1657,6 +1715,12 @@ export function ReviewsScreen() {
                     <Text key={s} style={[T.h3, { color: s <= r.rating ? C.ink : C.hairline }]}>★</Text>
                   ))}
                 </View>
+                {r.verified && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                    <Feather name="check-circle" size={12} color={C.ink} />
+                    <Text style={[T.micro, { color: C.ink }]}>Verified Purchase</Text>
+                  </View>
+                )}
                 <Text style={[T.body, { marginTop: 8 }]}>{r.text}</Text>
                 {/* The "12 helpful" counter and Edit action were invented — there
                     is no helpful-vote endpoint, and these are other people's

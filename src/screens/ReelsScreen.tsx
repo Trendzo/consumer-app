@@ -69,6 +69,14 @@ function adaptReel(r: ApiReel) {
           name: r.product.name,
           brand: '',
           price: r.product.variant ? Math.round(r.product.variant.pricePaise / 100) : 0,
+          // "Add to bag" hands this object straight to addToCart, so it has to carry every
+          // field a cart line needs. `original` (the MRP) was missing, and because the call
+          // casts through `as any` nothing caught it: the line landed in the bag with
+          // original === undefined and Review Order rendered "Item total ₹NaN".
+          //
+          // The reel payload carries no MRP — ReelVariant has pricePaise and nothing else —
+          // so the honest value is the selling price, i.e. no MRP discount claimed.
+          original: r.product.variant ? Math.round(r.product.variant.pricePaise / 100) : 0,
           img: r.product.image ?? '',
           variantId: r.product.variant?.id,
           variantLabel: r.product.variant?.label ?? null,
@@ -112,7 +120,7 @@ export default function ReelsScreen({ route }: { route: any }) {
   // Drops isActive on every player the moment the tab blurs → videos pause
   // instead of looping/decoding in the background on other tabs.
   const isFocused = useIsFocused();
-  const { addToCart, toggleFavorite, isFavorite, showToast, requireAuth, token } = useApp();
+  const { addToCart, toggleFavorite, isFavorite, showToast, requireAuth, token, getToken } = useApp();
   const s = React.useMemo(() => makeS(), []);
   const [active, setActive] = useState(0);
   const [seed, setSeed] = useState(0);
@@ -146,7 +154,10 @@ export default function ReelsScreen({ route }: { route: any }) {
    * recorded — the same lie the comment box told.
    */
   const toggleLike = useCallback((item: FeedItem) => {
-    if (!token) { requireAuth(() => toggleLike(item)); return; }
+    // getToken(), not `token`: requireAuth replays this very function after sign-in, and the
+    // closure it replays captured `token` while signed out. Reading the captured value made the
+    // replay re-open the sign-in sheet instead of liking, so the sheet appeared never to close.
+    if (!getToken()) { requireAuth(() => toggleLike(item)); return; }
     /**
      * Demo reels have no backend row to like. They also no longer carry a product
      * (that was the fake tag), so the old `toggleFavorite(item.product)` fallback
@@ -384,7 +395,7 @@ function ReelVideo({ url, isActive }: { url: string | number; isActive: boolean 
 
 function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct, live }: any) {
   const s = React.useMemo(() => makeS(), []);
-  const { requireAuth, token } = useApp();
+  const { requireAuth, token, getToken } = useApp();
   const { ref: prodRef, open: openProd } = useZoomCard();
 
   // Seeded from the server's per-viewer flag so a saved reel still reads as saved
@@ -394,7 +405,8 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
 
   /** Save/unsave, optimistic and reverted on failure. Needs an account. */
   const toggleSave = () => {
-    if (!token) { requireAuth(() => toggleSave()); return; }
+    // Live token — see the note on toggleLike; this replays itself the same way.
+    if (!getToken()) { requireAuth(() => toggleSave()); return; }
     if (!live) { Alert.alert('Not available', 'This is a sample reel — saving opens once real reels are live.'); return; }
     const next = !saved;
     setSaved(next);

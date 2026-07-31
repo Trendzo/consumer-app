@@ -30,9 +30,11 @@ import { useApp } from '../state/AppState';
 //
 // The LAYOUT is deliberately unchanged: section order still lives in this file's JSX, and
 // every component below is the same one it always was. Only the data moved.
-import { useCmsSections } from '../hooks/useCmsContent';
+import { useCmsRails, useCmsSections } from '../hooks/useCmsContent';
+import { openLocationPicker, usePlace, usePlaceCity } from '../state/location';
+import { placeLabel } from '../services/geo';
 import type { CmsItem, CmsSection } from '../content/types';
-import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, str, num, color, type MediaSource } from '../content/media';
+import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, useLastNonEmpty, str, num, color, type MediaSource } from '../content/media';
 import { openLink } from '../content/links';
 import { IMG } from '../services/images';
 
@@ -144,6 +146,17 @@ const OCC_SECTION_H = Math.round(W * 1.42);
 // photo — keeps white text legible over whatever part of the image is behind it.
 const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
 
+// There is deliberately NO keyed "entrance" wrapper around the gendered sections any more.
+//
+// A key change REMOUNTS the subtree, and a remounted <ExpoImage> renders empty for at least one
+// frame — on Android CachedImage runs with transition={0} and no recyclingKey for bundled art, so
+// there is nothing to cover that frame. Wrapping four sections in a gender-keyed animator
+// therefore blanked half the page on every flip regardless of what was animated, which is the
+// blink. Opacity was never the cause; the remount was.
+//
+// The flip's motion now comes from things that animate WITHOUT unmounting: the category tiles
+// crossfade both rails on a conveyor driven by curveProgress (ExploreCard), and everything else
+// swaps its source in place, which expo-image does instantly from the memory cache.
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
@@ -157,7 +170,11 @@ export default function HomeScreen() {
   const floatSearchRef = useRef<any>(null);
   const openSearch = (_r?: React.RefObject<any>) => nav.navigate('Search');
   const insets = useSafeAreaInsets();
-  const { gender, setGender, curveProgress, showConfirm, tabBarOffset } = useApp();
+  const { gender, curveProgress, showConfirm, tabBarOffset } = useApp();
+  // Where the shopper is. Drives the header line and the CMS city filter — city-targeted rails
+  // were shipped with the payload but nothing ever told the server which city to filter for.
+  const place = usePlace();
+  const city = usePlaceCity();
   // All thirteen home sections from ONE cached payload read.
   //
   // `cmsStatus === 'loading'` means nothing has been confirmed yet — first launch, before any
@@ -165,8 +182,16 @@ export default function HomeScreen() {
   // alternative (render the bundled copy, then swap) flashes a different banner a second into
   // every cold start. The catalog-driven Explore More grid is NOT gated: it has its own fetch
   // and its own loading state.
-  const { sections: cms, status: cmsStatus } = useCmsSections(HOME_SECTION_KEYS, gender);
+  const { sections: cms, status: cmsStatus, gender: cmsGender } = useCmsSections(HOME_SECTION_KEYS, gender, city);
   const cmsLoading = cmsStatus === 'loading';
+  /**
+   * Both rails of the trending-category section, for the tile crossfade.
+   *
+   * Only that one section is asked for — pulling every key twice would double the filter work for
+   * sections that cannot animate anyway. `bothWarm` is false until the other rail's payload has
+   * been prefetched, and the grid falls back to an instant swap for that window.
+   */
+  const exploreRails = useCmsRails(['home.explore_grid'], gender, city);
   const heroSection = cms['home.hero']!;
   const headerSection = cms['home.header']!;
   const marqueeSection = cms['home.marquee']!;
@@ -238,6 +263,8 @@ export default function HomeScreen() {
   // pre-append value on the very next scroll tick — appending the same page twice.
   apiCacheRef.current = apiCache;
   const fetchedAt = useRef<{ her?: number; him?: number }>({});
+  /** Pending other-rail warm-up, cancelled if the effect re-runs before it fires. */
+  const warmTaskRef = useRef<{ cancel: () => void } | null>(null);
   const lastReloadKey = useRef(0);
   useEffect(() => {
     if (!homeArmed) return;
@@ -291,6 +318,11 @@ export default function HomeScreen() {
        */
       const other: 'her' | 'him' = g === 'her' ? 'him' : 'her';
       if (apiCacheRef.current[other].products) return;
+      // AFTER interactions. This lands a setApiCache a second or two post-paint, and HomeScreen
+      // stays mounted under the PDP (no freezeOnBlur), so an un-deferred write can re-render a
+      // ~2,700-line tree in the middle of a zoom or a flip and drop frames. Same guard the
+      // catalog warm-up and `tailMounted` already use.
+      const warmTask = InteractionManager.runAfterInteractions(() => {
       listProducts({ gender: other, limit: EXPLORE_PAGE_SIZE })
         .then((v) => {
           if (cancelled) return;
@@ -313,8 +345,13 @@ export default function HomeScreen() {
         .catch(() => {
           /* the flip will fetch it properly; this is only a head start */
         });
+      });
+      warmTaskRef.current = warmTask;
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      warmTaskRef.current?.cancel();
+    };
   }, [gender, reloadKey, homeArmed]);
 
   // Gender-specific data — backend cache when available, else the mock arrays.
@@ -487,6 +524,16 @@ export default function HomeScreen() {
   // Everything fetched so far, in order. No repetition, no artificial cap — the
   // list simply ends when the catalog does.
   const exploreVisible = exploreSorted;
+  /**
+   * Hold the previous grid while a new rail loads.
+   *
+   * Swapping 20+ cards for a 4-card skeleton is a large, sudden height drop — it is what threw the
+   * feed up into view on a cold flip. Held items keep the height, so there is nothing to jump.
+   * A ref, not state: an extra setState here re-renders the biggest component in the app and can
+   * land mid-transition.
+   */
+  const renderedExplore = useLastNonEmpty(exploreVisible);
+  const showingHeldExplore = renderedExplore !== exploreVisible;
   const exploreExhausted = !!activeSlice.exhausted || !activeSlice.products;
   // Paged feed — bump the page when a scroll gesture ends near the bottom.
   //
@@ -697,7 +744,7 @@ export default function HomeScreen() {
             {cmsLoading ? (
               <View style={{ width: BANNER_W, height: BANNER_H, backgroundColor: '#0e0e0e' }} />
             ) : (
-              <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={gender} section={heroSection} />
+              <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={cmsGender} section={heroSection} />
             )}
 
             {/* Scrim so the header/search stay legible over whichever banner art is
@@ -748,10 +795,11 @@ export default function HomeScreen() {
                       </View>
                     </>
                   )}
-                  {/* Delivery location — tap to change (Myntra-style) */}
-                  <Pressable onPress={() => nav.navigate('SavedAddresses')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
+                  {/* Delivery location — the real one, tap to re-pin on the map. It read
+                      "Bandra, Mumbai 400050" for every shopper in the country. */}
+                  <Pressable onPress={openLocationPicker} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
                     <RealIcon name="marker" size={13} color="#fff" />
-                    <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]} numberOfLines={1}>Bandra, Mumbai 400050</Text>
+                    <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]} numberOfLines={1}>{placeLabel(place)}</Text>
                     <Feather name="chevron-down" size={13} color="#fff" />
                   </Pressable>
                 </View>
@@ -826,7 +874,13 @@ export default function HomeScreen() {
         >
           {/* Bento grid of explore categories — gender-driven (him / her). */}
           {cmsLoading ? null : (
-            <ExploreGrid nav={nav} gender={gender} setGender={setGender} section={exploreSection} />
+            <ExploreGrid
+              nav={nav}
+              gender={gender}
+              section={exploreSection}
+              herSection={exploreRails.her?.['home.explore_grid'] ?? null}
+              himSection={exploreRails.him?.['home.explore_grid'] ?? null}
+            />
           )}
         </View>
 
@@ -837,8 +891,8 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         {cmsLoading ? null : (
+        <>
         <SectionHead title={stealsSection.title ?? 'STEALS'} action={stealsSection.ctaLabel ?? 'ALL'} onAction={() => nav.navigate('Steals')} hideCaret hideBottomDivider />
-        )}
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
           {(() => {
             // First item is the tall tile; the next two stack beside it. That is the layout,
@@ -881,6 +935,8 @@ export default function HomeScreen() {
             );
           })()}
         </View>
+        </>
+        )}
 
         {/*
         ╔══════════════════════════════════════════════╗
@@ -889,12 +945,12 @@ export default function HomeScreen() {
         */}
         {/* Both self-hide when they have no items, so they need no extra gate — an unconfirmed
             payload yields empty sections and they render nothing. */}
-        <TopStories key={gender} nav={nav} gender={gender} section={storiesSection} />
+        <TopStories nav={nav} gender={cmsGender} section={storiesSection} />
 
         {cmsLoading ? null : (
           <ReelsForYouSection
             nav={nav}
-            gender={gender}
+            gender={cmsGender}
             scrollY={lastScrollY}
             focused={homeFocused}
             features={cms['home.reels_features']!}
@@ -1056,28 +1112,42 @@ export default function HomeScreen() {
           <View>
             <View style={{ paddingHorizontal: SP.l, marginBottom: SP.s }}>
               <Text style={[T.micro]}>
-                {exploreLoading ? 'Loading…' : `${exploreMatchCount} results · ${exploreFilter} · ${exploreSort}`}
+                {exploreLoading && !showingHeldExplore
+                  ? 'Loading…'
+                  : `${exploreMatchCount || renderedExplore.length} results · ${exploreFilter} · ${exploreSort}`}
               </Text>
             </View>
 
             {/* 2-col grid — use the shared ProductCard so every tile opens
                 the product with the same smooth zoom morph as elsewhere. */}
-            {exploreLoading ? (
+            {exploreLoading && !showingHeldExplore ? (
               <View style={{ paddingHorizontal: SP.l }}>
                 <ProductGridSkeleton count={4} />
               </View>
             ) : (
-              <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
-                {exploreVisible.map((p, i) => (
+              // Fades in when the rail's own content changes. Keyed on the held flag too, so a
+              // hold does NOT replay the entrance — the point of holding is that nothing moves.
+              <MotiView
+                // Keyed on filter/sort only. Including `gender` restarted this from opacity 0 on
+                // every flip, and since the products swap instantly it blanked the largest block on
+                // the page. A filter or sort change genuinely replaces the list, so a fade there is
+                // honest; a rail swap is not.
+                key={showingHeldExplore ? 'explore-held' : `explore-${exploreFilter}-${exploreSort}`}
+                from={{ opacity: showingHeldExplore ? 1 : 0, translateY: showingHeldExplore ? 0 : 10 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: 'timing', duration: showingHeldExplore ? 0 : 260 }}
+                style={{ paddingHorizontal: SP.l, flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}
+              >
+                {renderedExplore.map((p, i) => (
                   // styles.exploreCard, NOT an inline object: ProductCard is
                   // React.memo'd and a fresh `style={{...}}` each render gave it a
                   // new prop identity every time, so the memo never once held.
                   <ProductCard key={p.id + '-' + i} p={p} style={styles.exploreCard} />
                 ))}
-              </View>
+              </MotiView>
             )}
 
-            {exploreMatchCount > 0 && exploreExhausted && (
+            {!showingHeldExplore && exploreMatchCount > 0 && exploreExhausted && (
               <View style={{ paddingVertical: SP.xl, alignItems: 'center' }}>
                 <Text style={[T.caption, { color: C.dim }]}>
                   {`That's all ${exploreMatchCount} ${exploreFilter === 'ALL' ? 'products' : exploreFilter.toLowerCase()}`}
@@ -1091,7 +1161,7 @@ export default function HomeScreen() {
 
             {/* Two different nothings: the filter excluded everything the store
                 has, or the store has nothing on this rail at all. */}
-            {!exploreLoading && !exploreFailed && exploreMatchCount === 0 && (
+            {!showingHeldExplore && !exploreLoading && !exploreFailed && exploreMatchCount === 0 && (
               <View style={[{ marginHorizontal: SP.l, marginTop: SP.m, padding: SP.xl, alignItems: 'center', backgroundColor: C.white }, BORDER(1)]}>
                 <RealIcon name="search" size={32} color={C.dim} />
                 <Text style={[T.h3, { marginTop: 8 }]}>
@@ -1231,7 +1301,46 @@ const CONTENT_TINT_H = 60 + SP.l + Math.round(BANNER_H / 2);
 const SEAM_OVERLAP = 16;
 
 // ─── CATEGORIES TO EXPLORE — gender-driven bento grid ────────────────────────
-function ExploreCard({ label, img, w, h, onPress, onZoom }: { label: string; img: any; w: number; h: number; onPress: () => void; onZoom?: (frame: { x: number; y: number; w: number; h: number }) => void }) {
+/**
+ * One trending-category tile, crossfading between the two rails.
+ *
+ * Both rails' art is mounted at once and slid across a clipped window on a conveyor driven by
+ * `progress` (AppState's `curveProgress`, 0 = HIM, 1 = HER, sprung on every gender commit). The
+ * label dissolves through a blur rather than cutting: the outgoing glyph fades to transparent over
+ * the FIRST half of the travel leaving only its shadow, and the incoming one sharpens over the
+ * SECOND half — sequenced so the two are never both readable.
+ *
+ * This is the technique `VibeTile` / `QuickCat` used before the redesign, which is the animation
+ * being restored here. It matters that it is driven by a shared value: every frame runs on the UI
+ * thread, so the crossfade survives the JS thread being busy with the rail's data swap.
+ *
+ * `herImg`/`himImg` may be null when only one rail is cached — then the tile just shows whichever
+ * it has and the flip degrades to an instant swap, which is what happens before the other rail's
+ * payload has been prefetched.
+ */
+function ExploreCard({
+  herLabel,
+  himLabel,
+  herImg,
+  himImg,
+  progress,
+  active,
+  w,
+  h,
+  onPress,
+  onZoom,
+}: {
+  herLabel: string;
+  himLabel: string;
+  herImg: MediaSource | null;
+  himImg: MediaSource | null;
+  progress: SharedValue<number>;
+  active: 'her' | 'him';
+  w: number;
+  h: number;
+  onPress: () => void;
+  onZoom?: (frame: { x: number; y: number; w: number; h: number }) => void;
+}) {
   // The colour box only fills the lower ~78%; the model PNG fills the full
   // frame (uncropped) and is layered on top, so its head/shoulders rise out of
   // the box on top.
@@ -1247,22 +1356,74 @@ function ExploreCard({ label, img, w, h, onPress, onZoom }: { label: string; img
       else onPress();
     });
   };
+
+  // Only one rail's art resolved — nothing to crossfade, so render it plainly.
+  const single = herImg === null || himImg === null;
+
+  // Conveyor: HIM sits at rest and slides out left; HER waits off to the right and slides in.
+  const himStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -w * progress.value }] }));
+  const herStyle = useAnimatedStyle(() => ({ transform: [{ translateX: w * (1 - progress.value) }] }));
+
+  const ink = C.ink;
+  const inkClear = `${ink}00`;
+  const himLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.3, 0.5, 1], [1, 1, 0, 0], 'clamp'),
+      color: interpolateColor(p, [0, 0.25, 1], [ink, inkClear, inkClear]),
+      textShadowRadius: interpolate(p, [0, 0.35, 1], [0, 10, 10], 'clamp'),
+    };
+  });
+  const herLblStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0, 0.5, 0.65, 1], [0, 0, 1, 1], 'clamp'),
+      color: interpolateColor(p, [0, 0.75, 1], [inkClear, inkClear, ink]),
+      textShadowRadius: interpolate(p, [0, 0.6, 1], [10, 10, 0], 'clamp'),
+    };
+  });
+
+  const fill = [StyleSheet.absoluteFillObject, { zIndex: 5 }] as any;
+
   return (
     <Pressable onPress={handlePress} style={{ width: w, zIndex: 2 }}>
-      <View ref={boxRef} collapsable={false} style={{ width: w, height: h }}>
+      {/* overflow:hidden is what makes it read as a conveyor rather than two sliding cards */}
+      <View ref={boxRef} collapsable={false} style={{ width: w, height: h, overflow: 'hidden' }}>
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: h * 0.78, backgroundColor: '#f1f1f1' }} />
-        <CachedImage
-          source={img}
-          style={[StyleSheet.absoluteFillObject, { zIndex: 5 }] as any}
-          resizeMode="contain"
-        />
+        {single ? (
+          <CachedImage source={(herImg ?? himImg)!} style={fill} resizeMode="contain" />
+        ) : (
+          <>
+            <Animated.View style={[StyleSheet.absoluteFillObject, { zIndex: 5 }, himStyle]}>
+              <CachedImage source={himImg!} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            </Animated.View>
+            <Animated.View style={[StyleSheet.absoluteFillObject, { zIndex: 5 }, herStyle]}>
+              <CachedImage source={herImg!} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            </Animated.View>
+          </>
+        )}
       </View>
-      <Text
-        numberOfLines={1}
-        style={[T.caption, { width: w, color: C.ink, marginTop: 6, textAlign: 'center' }]}
-      >
-        {label}
-      </Text>
+      {single ? (
+        <Text numberOfLines={1} style={[T.caption, { width: w, color: C.ink, marginTop: 6, textAlign: 'center' }]}>
+          {active === 'her' ? herLabel || himLabel : himLabel || herLabel}
+        </Text>
+      ) : (
+        // Both labels stacked in the same slot so neither moves; only their blur/alpha animates.
+        <View style={{ width: w, height: 16, marginTop: 6 }}>
+          <Animated.Text
+            numberOfLines={1}
+            style={[T.caption, { position: 'absolute', left: 0, right: 0, textAlign: 'center', textShadowColor: C.ink }, himLblStyle]}
+          >
+            {himLabel}
+          </Animated.Text>
+          <Animated.Text
+            numberOfLines={1}
+            style={[T.caption, { position: 'absolute', left: 0, right: 0, textAlign: 'center', textShadowColor: C.ink }, herLblStyle]}
+          >
+            {herLabel}
+          </Animated.Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -1335,17 +1496,59 @@ function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
 // the reference art, then a rotation so neighbouring tiles differ.
 const ZOOM_TINTS = ['#E8A79A', '#A9BFE6', '#BDE3C3', '#E6D3A9', '#D9B8E6', '#A9DEDA', '#E6B8C4'];
 
-function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'her' | 'him'; setGender: (g: 'her' | 'him') => void; section: CmsSection }) {
+function ExploreGrid({ nav, gender, section, herSection, himSection }: {
+  nav: any;
+  gender: 'her' | 'him';
+  section: CmsSection;
+  /** Both rails, when cached — that is what makes the tile crossfade possible. */
+  herSection?: CmsSection | null;
+  himSection?: CmsSection | null;
+}) {
+  const { curveProgress, setGenderFromDrag } = useApp();
   // The grid's shape is fixed at 3 / (1 + headline) / 3, so it needs exactly seven cards.
   // Anything unresolvable is dropped, and the layout below reads defensively rather than
   // indexing blind — a section short of seven now renders a shorter grid instead of crashing.
-  const cats = useMemo(
-    () =>
-      section.items
+  /**
+   * Tiles paired across both rails, so each one can crossfade its own art.
+   *
+   * `item` stays the ACTIVE rail's item — it owns the tap target, the zoom tint and the label the
+   * `Categories` screen receives, so behaviour is unchanged. Only the visuals are doubled up.
+   *
+   * Pairing is by position, which is what the design intends: slot 1 on HER and slot 1 on HIM are
+   * the same shelf, so they are the two faces of one tile. A rail that is short simply yields a
+   * null on that side and the tile renders single-source.
+   */
+  const cats = useMemo(() => {
+    const build = (sec: CmsSection | null | undefined) =>
+      (sec?.items ?? [])
         .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
-        .filter(withSource),
-    [section.items],
-  );
+        .filter(withSource);
+
+    const activeList = build(section);
+    const herList = herSection ? build(herSection) : activeList;
+    const himList = himSection ? build(himSection) : activeList;
+    const n = Math.max(activeList.length, herList.length, himList.length);
+
+    return Array.from({ length: n }, (_, i) => {
+      const her = herList[i] ?? null;
+      const him = himList[i] ?? null;
+      const act = activeList[i] ?? (gender === 'her' ? her : him) ?? her ?? him;
+      return {
+        // Stable across the flip, deliberately: keyed on BOTH rails, so it is the same string
+        // whichever rail is active. Keying on the active item's key (the obvious thing) remounted
+        // every tile on every flip — which blanked the section AND made the conveyor impossible,
+        // because a remounted view has no previous frame to animate from.
+        key: `${her?.item.key ?? 'x'}~${him?.item.key ?? 'x'}`,
+        item: act?.item,
+        label: act?.label ?? '',
+        source: act?.source ?? null,
+        herLabel: her?.label ?? '',
+        himLabel: him?.label ?? '',
+        herImg: her?.source ?? null,
+        himImg: him?.source ?? null,
+      };
+    }).filter((c) => c.item !== undefined && (c.herImg !== null || c.himImg !== null));
+  }, [section, herSection, himSection, gender]);
   const go = (item: CmsItem, label: string) => {
     if (!openLink(nav, item.link)) nav.navigate('Categories', { label });
   };
@@ -1356,13 +1559,19 @@ function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'h
   const goZoom = (c: (typeof cats)[number], i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
     nav.navigate('CategoryZoom', {
       label: c.label,
-      img: c.source,
-      tint: color(c.item.content, 'tint', ZOOM_TINTS[i % ZOOM_TINTS.length]!),
+      // The ACTIVE rail's art, so the hero-morph takes off from what is actually on screen.
+      img: c.source ?? (gender === 'her' ? c.herImg : c.himImg),
+      tint: color(c.item!.content, 'tint', ZOOM_TINTS[i % ZOOM_TINTS.length]!),
       _frame: frame,
     });
   const EX_CW = (W - SP.l * 2 - EX_GAP * 2) / 3; // 3 columns
   const EX_H = Math.round(EX_CW * 1.32);         // every card uses the same image height
   const him = gender === 'him';
+  const flipGender = () => {
+    const next = him ? 'her' : 'him';
+    curveProgress.value = withSpring(next === 'her' ? 1 : 0, GENDER_SPRING);
+    setGenderFromDrag(next);
+  };
   // Headline is authored as one string with newlines; each line keeps its own hand-tuned
   // highlighter geometry below, which is layout rather than content.
   const headlineLines = (section.title ?? '').split('\n').filter(Boolean);
@@ -1377,7 +1586,7 @@ function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'h
       {/* Row 1 — three cards (static, always mounted → no reload on open) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP }}>
         {cats.slice(0, 3).map((c, i) => (
-          <ExploreCard key={c.item.key} label={c.label} img={c.source} w={EX_CW} h={EX_H} onPress={() => go(c.item, c.label)} onZoom={goZoom(c, i)} />
+          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i)} />
         ))}
       </View>
 
@@ -1385,7 +1594,7 @@ function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'h
           The "View <other>" button switches gender. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: EX_GAP, marginTop: SP.l }}>
         {cats[3] ? (
-          <ExploreCard label={cats[3].label} img={cats[3].source} w={EX_CW} h={EX_H} onPress={() => go(cats[3]!.item, cats[3]!.label)} onZoom={goZoom(cats[3], 3)} />
+          <ExploreCard herLabel={cats[3].herLabel} himLabel={cats[3].himLabel} herImg={cats[3].herImg} himImg={cats[3].himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(cats[3]!.item!, cats[3]!.label)} onZoom={goZoom(cats[3], 3)} />
         ) : (
           <View style={{ width: EX_CW, height: EX_H }} />
         )}
@@ -1407,14 +1616,14 @@ function ExploreGrid({ nav, gender, setGender, section }: { nav: any; gender: 'h
             })}
           </View>
           {/* Elastic pull-tab stuck to the right edge — drag & release to flip gender. */}
-          <GenderPullTab him={him} onFlip={() => setGender(him ? 'her' : 'him')} />
+          <GenderPullTab him={him} onFlip={flipGender} />
         </View>
       </View>
 
       {/* Row 3 — three cards (static) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP, marginTop: SP.m }}>
         {cats.slice(4, 7).map((c, i) => (
-          <ExploreCard key={c.item.key} label={c.label} img={c.source} w={EX_CW} h={EX_H} onPress={() => go(c.item, c.label)} onZoom={goZoom(c, i + 4)} />
+          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i + 4)} />
         ))}
       </View>
     </View>
@@ -1444,7 +1653,7 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, section, onTint }: { 
   // Campaign art only — full-bleed, the art carries its own typography.
   // Slides whose art this build cannot resolve (an asset key added after it shipped, with no
   // uploaded URL) are dropped rather than rendered as a black rectangle.
-  const data = useMemo<BannerSlideData[]>(
+  const rawData = useMemo<BannerSlideData[]>(
     () =>
       section.items
         .map((item) => {
@@ -1456,6 +1665,10 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, section, onTint }: { 
         .filter((x): x is BannerSlideData => x !== null),
     [section.items],
   );
+  // Hold the last non-empty set. The hero is full-bleed and BANNER_H tall, so unmounting it —
+  // which is what an empty `data` used to do — collapses the whole page and is the single most
+  // visible part of the reported flip flash. There is now always a poster to crossfade FROM.
+  const data = useLastNonEmpty(rawData);
   const autoplayMs = num(section.config, 'autoplayMs', 3500);
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList>(null);
@@ -1508,11 +1721,14 @@ function BrandBanner({ nav, curveStyle, pausedRef, gender, section, onTint }: { 
   return (
     // Keyed by gender so switching the ALL/MEN/WOMEN tab crossfades the banner
     // in with a gentle zoom instead of the old hard `animated:false` cut.
+    // NOT keyed on gender. A key change remounts the FlatList and every poster inside it, and a
+    // freshly mounted ExpoImage paints nothing for a frame — on a full-bleed hero that is the most
+    // visible part of the blink. The slide list swaps its own data and the effect above resets the
+    // index, so the poster changes with no unmount at all.
     <MotiView
-      key={gender}
-      from={{ opacity: 0, scale: 1.06 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'timing', duration: 460, easing: Easing.out(Easing.cubic) }}
+      from={{ scale: 1.02 }}
+      animate={{ scale: 1 }}
+      transition={{ type: 'timing', duration: 320, easing: Easing.out(Easing.cubic) }}
     >
       <AnimatedFlatList
         ref={listRef}
@@ -1593,7 +1809,7 @@ function StoryCard({ s, i, scrollX, nav, label }: { s: StoryPoster; i: number; s
 }
 
 function TopStories({ nav, gender, section }: { nav: any; gender: 'her' | 'him'; section: CmsSection }) {
-  const stories = useMemo<StoryPoster[]>(
+  const rawStories = useMemo<StoryPoster[]>(
     () =>
       section.items
         .map((item) => {
@@ -1603,6 +1819,8 @@ function TopStories({ nav, gender, section }: { nav: any; gender: 'her' | 'him';
         .filter((s): s is StoryPoster => s !== null),
     [section.items],
   );
+  // Same reason as the hero: never unmount a rail that already had posters.
+  const stories = useLastNonEmpty(rawStories);
   const cardLabel = str(section.config, 'cardLabel', 'Trending Now');
   const storyN = stories.length;
   // Three copies make the row loop seamlessly; the gender key remounts this
@@ -1616,6 +1834,14 @@ function TopStories({ nav, gender, section }: { nav: any; gender: 'her' | 'him';
   const scrollX = useSharedValue(storyMid);
   const listRef = useRef<any>(null);
   const onScroll = useAnimatedScrollHandler({ onScroll: (e) => { scrollX.value = e.contentOffset.x; } });
+
+  // Replaces the old `key={gender}` remount: re-centre on the middle copy when the rail changes,
+  // so the scale interpolation is correct on the first frame without unmounting a single poster.
+  useEffect(() => {
+    setIndex(0);
+    scrollX.value = storyMid;
+    listRef.current?.scrollTo({ x: storyMid, animated: false });
+  }, [gender, storyMid]);
 
   const onSettle = (x: number) => {
     if (storyN === 0) return;

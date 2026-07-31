@@ -20,7 +20,7 @@ type Frame = { x: number; y: number; w: number; h: number };
 
 type ZoomApi = {
   openZoom: (ref: React.RefObject<any> | any, uri: string | number, product: any, params?: any) => void;
-  closeZoom: (frame?: Frame, uri?: string) => void;
+  closeZoom: (frame?: Frame, uri?: string | number) => void;
 };
 
 const ZoomCtx = createContext<ZoomApi>({ openZoom: () => {}, closeZoom: () => {} });
@@ -34,7 +34,7 @@ export function useZoomCard() {
 }
 
 export function ZoomProvider({ navRef, children }: { navRef: any; children: React.ReactNode }) {
-  const [sess, setSess] = useState<{ uri: string; frame: Frame } | null>(null);
+  const [sess, setSess] = useState<{ uri: string | number; frame: Frame } | null>(null);
   const t = useRef(new Animated.Value(1)).current;  // 1 = gallery slot, 0 = card
   const op = useRef(new Animated.Value(0)).current;
   const bgOp = useRef(new Animated.Value(0)).current;
@@ -59,7 +59,7 @@ export function ZoomProvider({ navRef, children }: { navRef: any; children: Reac
     });
   }, [navRef]);
 
-  const closeZoom = useCallback((frame?: Frame, uri?: string) => {
+  const closeZoom = useCallback((frame?: Frame, uri?: string | number) => {
     if (!frame || !uri || !navRef?.isReady?.()) { navRef?.isReady?.() && navRef.goBack(); return; }
     setSess({ uri, frame });
     t.setValue(1);

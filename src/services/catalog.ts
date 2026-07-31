@@ -62,6 +62,8 @@ interface ApiProduct {
   id: string;
   name: string;
   description: string | null;
+  /** Rich-text long description (sanitized HTML). Only shipped by the detail endpoint. */
+  descriptionLong?: string | null;
   gender: Gender;
   /** How the retailer sells it: one SKU, colour/size, or custom option axes. */
   variantMode?: 'single' | 'color_size' | 'custom' | null;
@@ -400,9 +402,21 @@ export type ProductDetailData = Product & {
   variantMode: 'single' | 'color_size' | 'custom';
   variants: ProductVariant[];
   ratingCount: number;
+  /** Live average over visible (verified + active) reviews. 0 when there are none. */
+  ratingAvg: number;
+  /** Sanitized rich-text HTML long description; '' when the listing has none. */
+  descriptionLong: string;
 };
 
-export type Review = { id: string; author: string; rating: number; body: string; createdAt: string };
+export type Review = {
+  id: string;
+  author: string;
+  rating: number;
+  body: string;
+  createdAt: string;
+  /** Only verified-purchase reviews are returned publicly; drives the badge. */
+  verifiedPurchase: boolean;
+};
 
 export type SizeScale = {
   id: string;
@@ -460,6 +474,7 @@ export async function getProductDetail(id: string): Promise<ProductDetailData> {
     listingId: p.id,
     categoryId: p.category?.id ?? null,
     description: p.description ?? '',
+    descriptionLong: p.descriptionLong ?? '',
     gallery: merged.length ? merged.slice(0, 6) : (typeof base.img === 'string' ? [base.img] : []),
     // Mirrors the backend's own default resolution (galleryUrls[0]); '' when the
     // listing has none, which is the same condition that makes try-on 422.
@@ -480,6 +495,7 @@ export async function getProductDetail(id: string): Promise<ProductDetailData> {
       (variants.length <= 1 && swatches.length === 0 && sizes.length <= 1 ? 'single' : 'color_size'),
     variants,
     ratingCount: p.ratingCount ?? 0,
+    ratingAvg: p.ratingAvg ?? 0,
   };
 }
 
@@ -495,8 +511,8 @@ export async function listReviews(id: string): Promise<Review[]> {
 export async function addReview(
   listingId: string,
   body: { rating: number; body?: string; orderId?: string; media?: string[] },
-): Promise<{ id: string }> {
-  return request<{ id: string }>('/consumer/community/reviews', {
+): Promise<{ id: string; verifiedPurchase: boolean }> {
+  return request<{ id: string; verifiedPurchase: boolean }>('/consumer/community/reviews', {
     method: 'POST',
     body: { listingId, ...body },
   });
