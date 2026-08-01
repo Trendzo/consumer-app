@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Animated, Easing, Alert, Modal, TextInput, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Animated, Easing, Alert, Modal, TextInput, RefreshControl, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -11,6 +11,9 @@ import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } fr
 import { useApp } from '../state/AppState';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import { generateTryOn, subscribeTryOnLog, clearTryOnLog, getTryOnLog, TryOnAuthRequiredError } from '../services/tryOn';
 import { getProductDetail, type ProductDetailData } from '../services/catalog';
 import {
@@ -1129,10 +1132,8 @@ function buildGarmentOptions(detail: ProductDetailData): GarmentOption[] {
 export function TryOnScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const initialMode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const incomingProduct = route.params?.product;
   const { showToast, requireAuth } = useApp();
-  const [mode, setMode] = useState<'ar' | 'photo'>(initialMode);
 
   /**
    * Try-on always runs against the product the shopper arrived with.
@@ -1157,6 +1158,7 @@ export function TryOnScreen() {
     setGeneratedPhoto(null);
     setGarmentOptions([]);
     setSelectedGarment(null);
+    genKeyRef.current = null;
     if (!isRealListing) return;
     let cancelled = false;
     setGarmentsLoading(true);
@@ -1178,11 +1180,18 @@ export function TryOnScreen() {
   const [facing, setFacing] = useState<'front' | 'back'>('front');
   const cameraRef = useRef<CameraView>(null);
 
-  // Photo try-on — the user's uploaded photo acts as the mirror. The generated
-  // result replaces the preview in `generatedPhoto`.
+  // The person photo — from the gallery OR captured live. It drives generation:
+  // choosing or snapping one runs the try-on automatically, and the AI result
+  // replaces it in `generatedPhoto`.
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [generatedPhoto, setGeneratedPhoto] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  // A finished attempt that produced no result — lets the UI offer 'Try again'
+  // for the recoverable failures (busy/offline) without a standing regen button.
+  const [attemptFailed, setAttemptFailed] = useState(false);
+  // Guards the auto-generate effect against firing twice for the same
+  // (photo, garment) pair (e.g. dev double-invoke). Manual retry bypasses it.
+  const genKeyRef = useRef<string | null>(null);
 
   // Copyable error inspector — every step logs, errors pop this modal open so
   // the user can copy the full trace instead of chasing disappearing toasts.
@@ -1204,6 +1213,11 @@ export function TryOnScreen() {
         return;
       }
     }
+    // Fresh start — drop any previous photo/result so the live view is clean.
+    setUploadedPhoto(null);
+    setGeneratedPhoto(null);
+    setAttemptFailed(false);
+    genKeyRef.current = null;
     setCameraOn(true);
   };
 
@@ -1227,25 +1241,22 @@ export function TryOnScreen() {
         Alert.alert('Upload failed', `Picker returned: ${JSON.stringify(result.assets?.[0] || null)}`);
         return;
       }
-      setUploadedPhoto(uri);
+      // Clear the flags first, then set the photo LAST so the generation
+      // effect fires against a clean state and runs the try-on automatically.
       setGeneratedPhoto(null);
-      // Force the PHOTO stage so the user can actually see their photo.
-      setMode('photo');
+      setAttemptFailed(false);
       setCameraOn(false);
-      showToast('Photo ready', 'Tap Generate to try on', 'check');
+      genKeyRef.current = null;
+      setUploadedPhoto(uri);
     } catch (e: any) {
       openErrorInspector(`uploadPhoto crash: ${e?.message || String(e)}`);
     }
   };
 
-  const runTryOn = async (personUri?: string) => {
-    // Guard: if this was fired as an onPress handler, `personUri` will actually
-    // be the synthetic press event, not a string. Only trust string inputs.
-    const explicit = typeof personUri === 'string' ? personUri : undefined;
-    const uri = explicit || uploadedPhoto;
+  const runTryOn = async (personUri: string, garment: GarmentOption) => {
     clearTryOnLog();
-    if (!uri || typeof uri !== 'string') {
-      openErrorInspector(`No photo. runTryOn got: ${JSON.stringify(uri)}`);
+    if (!personUri) {
+      openErrorInspector(`No photo. runTryOn got: ${JSON.stringify(personUri)}`);
       return;
     }
     // Try-on runs on the backend against a REAL store product. Mock catalogue
@@ -1254,19 +1265,19 @@ export function TryOnScreen() {
       showToast('Not available', 'Try-on works on store products only', 'x');
       return;
     }
-    if (!selectedGarment) {
-      showToast('No image to try on', 'This product has no picture to work from', 'x');
-      return;
-    }
+    setAttemptFailed(false);
     setGenerating(true);
     setGeneratedPhoto(null);
     try {
       // A REFERENCE, never a URL — the server resolves the real garment file.
       // Omitting variantId asks for the listing's default image.
-      const outUrl = await generateTryOn(uri, listingId, selectedGarment.variantId);
+      const outUrl = await generateTryOn(personUri, listingId, garment.variantId);
       setGeneratedPhoto(outUrl);
       showToast('Try-on ready', `${pick?.name ?? 'Look'} on you`, 'check');
     } catch (e: any) {
+      // Every failure leaves `attemptFailed` set so the stage offers a one-tap
+      // retry instead of stranding the shopper on a photo with no result.
+      setAttemptFailed(true);
       /**
        * Guests get the real sign-in sheet, not a dead-end toast. `requireAuth`
        * opens it and runs the callback once a session exists, so the shopper
@@ -1274,10 +1285,10 @@ export function TryOnScreen() {
        */
       if (e instanceof TryOnAuthRequiredError) {
         showToast('Sign in required', 'Sign in to try this on', 'lock');
-        requireAuth(() => { void runTryOn(uri); });
+        requireAuth(() => { void runTryOn(personUri, garment); });
         return;
       }
-      // Friendly copy for the one failure the shopper can act on; everything else
+      // Friendly copy for the failures the shopper can act on; everything else
       // goes to the copyable inspector.
       if (e?.code === 'rate_limited') {
         showToast('Try-on is busy', 'Give it a moment and try again', 'clock');
@@ -1297,17 +1308,72 @@ export function TryOnScreen() {
     }
   };
 
-  // AR: snap a photo from the live camera and pipe it through the same model
-  const captureAndTryOn = async () => {
+  /**
+   * Auto-generate. Providing a photo (gallery or camera) or switching the garment
+   * runs the try-on with no extra tap — "click the picture and it's on you". The
+   * ref stops the identical (photo, garment) pair from re-running; a manual
+   * "Try again" bypasses it by calling runTryOn directly.
+   */
+  React.useEffect(() => {
+    if (!uploadedPhoto || !selectedGarment || !isRealListing || generating) return;
+    const key = `${uploadedPhoto}::${selectedGarment.key}`;
+    if (genKeyRef.current === key) return;
+    genKeyRef.current = key;
+    void runTryOn(uploadedPhoto, selectedGarment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadedPhoto, selectedGarment?.key, isRealListing]);
+
+  // Snap a still from the live camera; the generation effect runs it through the
+  // same backend model as a gallery photo. No separate flow.
+  const capturePhoto = async () => {
     try {
       const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7, skipProcessing: true });
       if (!photo?.uri) return;
-      setUploadedPhoto(photo.uri);
+      setGeneratedPhoto(null);
+      setAttemptFailed(false);
       setCameraOn(false);
-      setMode('photo');
-      runTryOn(photo.uri);
+      genKeyRef.current = null;
+      setUploadedPhoto(photo.uri);
     } catch (e: any) {
       showToast('Capture failed', e?.message || 'Try again', 'x');
+    }
+  };
+
+  // Pull the remote result to a local file once, reused by save + share.
+  const cacheResult = async (): Promise<string | null> => {
+    if (!generatedPhoto) return null;
+    const dest = `${FileSystem.cacheDirectory}trendzo-tryon-${Date.now()}.jpg`;
+    const dl = await FileSystem.downloadAsync(generatedPhoto, dest);
+    return dl?.uri ?? null;
+  };
+
+  const saveLook = async () => {
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      if (!perm.granted) {
+        showToast('Photo access needed', 'Allow saving to your gallery in Settings', 'image');
+        return;
+      }
+      const local = await cacheResult();
+      if (!local) return;
+      await MediaLibrary.saveToLibraryAsync(local);
+      showToast('Saved', 'Look saved to your gallery', 'check');
+    } catch (e: any) {
+      showToast('Save failed', e?.message || 'Try again', 'x');
+    }
+  };
+
+  const shareLook = async () => {
+    try {
+      const local = await cacheResult();
+      // Prefer the OS share sheet with the actual image; fall back to a link.
+      if (local && (await Sharing.isAvailableAsync())) {
+        await Sharing.shareAsync(local, { mimeType: 'image/jpeg', dialogTitle: 'Share your try-on' });
+      } else if (generatedPhoto) {
+        await Share.share({ message: `My Trendzo try-on: ${generatedPhoto}` });
+      }
+    } catch (e: any) {
+      showToast('Share failed', e?.message || 'Try again', 'x');
     }
   };
 
@@ -1323,7 +1389,7 @@ export function TryOnScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
         <BrutalStatusBar />
-        <ScreenHeader title="Virtual Try-On" onBack={() => nav.goBack()} />
+        <ScreenHeader title="Virtual Try On" onBack={() => nav.goBack()} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: SP.xl }}>
           <Feather name="camera-off" size={26} color={C.dim} />
           <Text style={[T.h3, { marginTop: 12, textAlign: 'center' }]}>Pick something to try on</Text>
@@ -1339,153 +1405,111 @@ export function TryOnScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      <ScreenHeader title="Virtual Try-On" onBack={() => nav.goBack()} />
+      <ScreenHeader title="Virtual Try On" onBack={() => nav.goBack()} />
       <ScrollView contentContainerStyle={{ padding: SP.l, paddingBottom: 80 }} showsVerticalScrollIndicator={false}>
-        {/* Mode switcher */}
-        <View style={[{ flexDirection: 'row' }, BORDER(1)]}>
-          {(['ar', 'photo'] as const).map(m => (
-            <Pressable key={m} onPress={() => { setMode(m); if (m === 'photo') setCameraOn(false); }} style={{ flex: 1, paddingVertical: SP.m, alignItems: 'center', backgroundColor: mode === m ? C.ink : C.white }}>
-              <Text style={[T.caption, { color: mode === m ? C.white : C.ink }]}>
-                {m === 'ar' ? 'AR · Live camera' : 'Photo · Upload'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Stage — live camera when AR+cameraOn, otherwise a mocked mirror preview */}
-        <View style={[{ marginTop: SP.l, height: 420, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-          {mode === 'ar' && cameraOn ? (
+        {/* STAGE — live camera, the AI result, or the chosen photo. One flow. */}
+        <View style={[{ marginTop: SP.l, height: 460, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
+          {cameraOn ? (
             <>
+              {/* Live camera — NO garment overlay; the person is captured clean
+                  and the garment is composited server-side. */}
               <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject as any} facing={facing} />
-              {/* Garment overlay — the chosen product hovers over the user's torso area */}
-              <View pointerEvents="none" style={{ position: 'absolute', top: '18%', left: '10%', right: '10%', bottom: '22%' }}>
-                <CachedImage
-                  source={{ uri: pick.img }}
-                  style={{ width: '100%', height: '100%', opacity: 0.88 }}
-                  resizeMode="contain"
-                />
-              </View>
-              {/* In-camera HUD */}
-              <View style={{ position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between' }}>
-                <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.micro, { color: C.ink }]}>Live · tracking</Text>
-                </View>
-                <Pressable onPress={() => setFacing(f => (f === 'front' ? 'back' : 'front'))} hitSlop={8} style={[{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                  <Feather name="refresh-cw" size={14} color={C.ink} />
-                </Pressable>
-              </View>
-              {/* Capture & generate — the live-camera answer to "just run try-on now" */}
-              <View style={{ position: 'absolute', bottom: 70, left: 0, right: 0, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
-                <Pressable onPress={() => setCameraOn(false)} hitSlop={8} style={[{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.caption, { color: C.ink }]}>Close</Text>
-                </Pressable>
-                <Pressable onPress={() => captureAndTryOn()} hitSlop={8} style={[{ paddingHorizontal: 16, paddingVertical: 10, backgroundColor: C.ink }, BORDER(1)]}>
-                  <Text style={[T.caption, { color: C.white }]}>Capture & try-on</Text>
+              <Pressable onPress={() => setCameraOn(false)} hitSlop={8} style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.caption, { color: C.ink }]}>Close</Text>
+              </Pressable>
+              <Pressable onPress={() => setFacing(f => (f === 'front' ? 'back' : 'front'))} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                <Feather name="refresh-cw" size={15} color={C.ink} />
+              </Pressable>
+              {/* Shutter — take the picture then and there */}
+              <View style={{ position: 'absolute', bottom: 22, left: 0, right: 0, alignItems: 'center' }}>
+                <Pressable onPress={capturePhoto} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.9)', borderWidth: 3, borderColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: C.white, borderWidth: 1, borderColor: C.ink }} />
                 </Pressable>
               </View>
             </>
-          ) : mode === 'photo' && uploadedPhoto ? (
+          ) : generatedPhoto ? (
             <>
-              {/* Generated try-on wins over the quick overlay preview when ready */}
-              {generatedPhoto ? (
-                <CachedImage
-                  source={{ uri: generatedPhoto }}
-                  style={StyleSheet.absoluteFillObject as any}
-                  resizeMode="cover"
-                  onError={(e: any) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
-                />
-              ) : (
-                <>
-                  <CachedImage
-                    source={{ uri: uploadedPhoto }}
-                    style={StyleSheet.absoluteFillObject as any}
-                    resizeMode="cover"
-                    onError={(e: any) => openErrorInspector(`Uploaded photo failed to load: ${e.nativeEvent?.error || 'unknown'}\nURI: ${uploadedPhoto}`)}
-                  />
-                  <View pointerEvents="none" style={{ position: 'absolute', top: '18%', left: '10%', right: '10%', bottom: '22%' }}>
-                    <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%', opacity: 0.88 }} resizeMode="contain" />
-                  </View>
-                </>
-              )}
-              {/* Visible confirmation that the photo is loaded */}
-              {!generating && !generatedPhoto && (
-                <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.micro, { color: C.ink }]}>Photo loaded</Text>
-                </View>
-              )}
-              {/* Loading overlay while Vertex generates the try-on (~10-30s) */}
+              <CachedImage
+                source={{ uri: generatedPhoto }}
+                style={StyleSheet.absoluteFillObject as any}
+                resizeMode="cover"
+                onError={(e: any) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
+              />
+              <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>AI try-on</Text>
+              </View>
+              {/* Clear → back to the chooser (gallery / camera). */}
+              <Pressable onPress={() => { setGeneratedPhoto(null); setUploadedPhoto(null); setAttemptFailed(false); genKeyRef.current = null; }} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                <Feather name="x" size={14} color={C.ink} />
+              </Pressable>
+            </>
+          ) : uploadedPhoto ? (
+            <>
+              <CachedImage
+                source={{ uri: uploadedPhoto }}
+                style={StyleSheet.absoluteFillObject as any}
+                resizeMode="cover"
+                onError={(e: any) => openErrorInspector(`Photo failed to load: ${e.nativeEvent?.error || 'unknown'}\nURI: ${uploadedPhoto}`)}
+              />
               {generating && (
                 <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' }}>
-                  <Text style={[T.h1, { color: C.white }]}>Generating...</Text>
+                  <Text style={[T.h1, { color: C.white }]}>Generating…</Text>
                   <Text style={[T.micro, { color: C.white, marginTop: 6, opacity: 0.8, textAlign: 'center' }]}>{'AI is dressing your photo\nCan take 15–60s'}</Text>
                 </View>
               )}
-              <Pressable onPress={() => { setUploadedPhoto(null); setGeneratedPhoto(null); }} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                <Feather name="x" size={14} color={C.ink} />
-              </Pressable>
-              {generatedPhoto && !generating && (
-                <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-                  <Text style={[T.micro, { color: C.ink }]}>AI try-on</Text>
-                </View>
+              {!generating && (
+                <Pressable onPress={() => { setUploadedPhoto(null); setAttemptFailed(false); genKeyRef.current = null; }} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
+                  <Feather name="x" size={14} color={C.ink} />
+                </Pressable>
               )}
             </>
           ) : (
-            <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            <>
+              {/* Nothing chosen yet — show the garment so the box is never empty. */}
+              <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              <View style={[{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>Add a photo or open the camera</Text>
+              </View>
+            </>
           )}
           {/* Corner frame — thin hairline ticks */}
           {[{top:6,left:8},{top:6,right:8},{bottom:6,left:8},{bottom:6,right:8}].map((pos, i) => (
             <View key={i} pointerEvents="none" style={{ position: 'absolute', ...pos, width: 14, height: 14, borderColor: C.ink, borderTopWidth: i < 2 ? 2 : 0, borderBottomWidth: i >= 2 ? 2 : 0, borderLeftWidth: i % 2 === 0 ? 2 : 0, borderRightWidth: i % 2 === 1 ? 2 : 0 }} />
           ))}
-          {/* Static badge — hidden while live camera / uploaded preview is running */}
-          {!(mode === 'ar' && cameraOn) && !(mode === 'photo' && uploadedPhoto) && (
-            <View style={[{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
-              <Text style={[T.micro, { color: C.ink }]}>{mode === 'ar' ? 'Tap open camera' : 'Tap upload photo'}</Text>
+          {/* Product caption — hidden over the live camera so it never covers the shutter. */}
+          {!cameraOn && (
+            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.m, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline }}>
+              <Text style={[T.micro, { color: C.ink }]}>{pick.brand}</Text>
+              <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={1}>{pick.name}</Text>
             </View>
           )}
-          {/* Product caption */}
-          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: SP.m, backgroundColor: C.white, borderTopWidth: 1, borderColor: C.hairline }}>
-            <Text style={[T.micro, { color: C.ink }]}>{pick.brand}</Text>
-            <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={1}>{pick.name}</Text>
-          </View>
         </View>
 
-        {/* Action buttons */}
-        <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.m }}>
-          <BrutalButton
-            label={
-              mode === 'ar'
-                ? (cameraOn ? 'Stop camera' : 'Open camera')
-                : (uploadedPhoto ? 'Change photo' : 'Upload photo')
-            }
-            icon={mode === 'ar' ? 'camera' : 'upload'}
-            onPress={() => {
-              if (mode === 'ar') {
-                if (cameraOn) setCameraOn(false);
-                else openCamera();
-              } else {
-                uploadPhoto();
-              }
-            }}
-            variant={mode === 'photo' && uploadedPhoto ? 'outline' : undefined}
-            style={{ flex: 1 }}
-          />
-          {mode === 'photo' && uploadedPhoto ? (
-            <BrutalButton
-              label={generating ? 'Generating…' : generatedPhoto ? 'Regenerate' : 'Generate try-on'}
-              icon="zap"
-              onPress={() => runTryOn()}
-              // Nothing to send: no backend listing, or the product has no image.
-              disabled={generating || !isRealListing || !selectedGarment}
-              style={{ flex: 1 }}
-            />
-          ) : (
-            <BrutalButton label="Save look" icon="bookmark" variant="outline" onPress={() => showToast('Saved', `${pick.name} saved to your closet`, 'bookmark')} style={{ flex: 1 }} />
-          )}
-        </View>
+        {/* CONTROLS — one row, driven by state rather than a mode tab. */}
+        {!isRealListing ? (
+          <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: '#F4F4F4', flexDirection: 'row', alignItems: 'center', gap: 10 }, BORDER(1)]}>
+            <Feather name="info" size={16} color={C.dim} />
+            <Text style={[T.micro, { flex: 1, color: C.dim }]}>Virtual try-on works on store products only.</Text>
+          </View>
+        ) : cameraOn ? null : generatedPhoto ? (
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <BrutalButton label="Save" icon="bookmark" onPress={saveLook} style={{ flex: 1 }} />
+            <BrutalButton label="Share" icon="share-2" variant="outline" onPress={shareLook} style={{ flex: 1 }} />
+          </View>
+        ) : attemptFailed && uploadedPhoto && !generating ? (
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <BrutalButton label="Try again" icon="zap" onPress={() => { if (selectedGarment) runTryOn(uploadedPhoto, selectedGarment); }} disabled={!selectedGarment} style={{ flex: 1 }} />
+            <BrutalButton label="New photo" icon="image" variant="outline" onPress={uploadPhoto} style={{ flex: 1 }} />
+          </View>
+        ) : !generating ? (
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+            <BrutalButton label="Choose photo" icon="image" onPress={uploadPhoto} style={{ flex: 1 }} />
+            <BrutalButton label="Open camera" icon="camera" variant="outline" onPress={openCamera} style={{ flex: 1 }} />
+          </View>
+        ) : null}
 
         {/* WHICH IMAGE — the default, plus any variant with its own picture.
-            Only rendered when there is a genuine choice to make: a single-image
-            product needs no picker, and a product with no images at all says so. */}
+            Tapping a different one re-renders the look automatically. */}
         {isRealListing && (
           <>
             <Text style={[T.caption, { marginTop: SP.xl }]}>{'Try on which one'}</Text>
@@ -1502,7 +1526,7 @@ export function TryOnScreen() {
                   return (
                     <Pressable
                       key={g.key}
-                      onPress={() => { setSelectedGarment(g); setGeneratedPhoto(null); }}
+                      onPress={() => setSelectedGarment(g)}
                       style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, on ? BORDER(2) : BORDER(1)]}
                     >
                       <CachedImage source={{ uri: g.thumb }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
@@ -1521,8 +1545,8 @@ export function TryOnScreen() {
         <Text style={[T.caption, { marginTop: SP.l }]}>{'How it works'}</Text>
         <View style={{ marginTop: SP.s, gap: 8 }}>
           {[
-            mode === 'ar' ? { icon: 'video', title: 'Point camera', desc: 'Stand in frame — we track your body.' } : { icon: 'image', title: 'Upload a pic', desc: 'Full-body shot works best.' },
-            { icon: 'layers', title: 'Pick a fit', desc: 'Swap clothes in real time.' },
+            { icon: 'image', title: 'Add your photo', desc: 'Pick from gallery or snap one live — full-body works best.' },
+            { icon: 'layers', title: 'Pick a fit', desc: 'Switch the colour or style and it re-renders.' },
             { icon: 'shopping-bag', title: 'Love it? Bag it', desc: '60-min delivery in your city.' },
           ].map((step, i) => (
             <View key={i} style={[{ flexDirection: 'row', alignItems: 'center', padding: SP.m, backgroundColor: C.white, gap: 12 }, BORDER(1)]}>
