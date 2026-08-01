@@ -259,7 +259,7 @@ export default function CartScreen() {
           </View>
         </View>
       </View>
-      <Ticker text={'60-min delivery  //  free returns  //  easy exchanges  //  secure checkout  //  '} />
+      <Ticker text={'60-min delivery  //  free returns  //  free doorstep pickup  //  secure checkout  //  '} />
 
       {cart.length === 0 ? (
         /* ── EMPTY STATE — ghost wordmark, bordered tile, slab CTA, starter rail ── */

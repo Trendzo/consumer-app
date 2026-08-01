@@ -17,7 +17,7 @@ const TILE = '#F4F4F4';
 const buildInfo = (windowLabel: string, returnDays: number) => [
   { icon: 'zap', title: '60-Minute Delivery', body: 'Order from your nearest store and get it in under an hour. Express delivery is ₹99 — fast, tracked, door-to-door.' },
   { icon: 'rotate-ccw', title: 'Returns & Refunds', body: `Easy ${returnDays}-day returns on everything. Request a return from your order and we pick it up from your door — no questions asked.` },
-  { icon: 'credit-card', title: 'Refunds', body: 'Refunds are processed within 3–5 business days to your original payment method. Trendzo Wallet refunds are instant.' },
+  { icon: 'credit-card', title: 'Refunds', body: 'Card and UPI refunds are processed within 3–5 business days to the original payment method. Wallet refunds land right away. Cash-on-delivery orders are refunded in cash — handed to you when we collect the return, or at the store counter.' },
   { icon: 'home', title: 'Try & Buy', body: `The courier waits up to ${windowLabel} while you try your order on. Keep what fits, hand back the rest on the spot — pay only for what you keep.` },
   { icon: 'map', title: 'Store Pickup', body: 'Reserve online and collect from a store near you in ~45 minutes, with zero delivery fee.' },
   { icon: 'wind', title: 'Sustainability', body: 'Every order is carbon-neutral. We use recycled packaging and partner with eco-conscious brands.' },

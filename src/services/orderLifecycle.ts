@@ -117,12 +117,27 @@ export function activeStep(steps: Step[], status: string): number {
 export type Exception = { tone: 'bad' | 'warn'; title: string; body: string; icon: string };
 
 /**
+ * Money context the exception copy needs to stay honest.
+ *
+ * `amountPaidPaise` is the server's authoritative "was the shopper charged" — the
+ * sum of succeeded payments. `hasRefund` says a refund row already exists (its
+ * real status is shown by the RefundBlock, so the banner must NOT restate it).
+ *
+ * The bug this closes: the banners promised "you've been refunded" from order
+ * status alone, so a cancelled/returned order whose prepaid payment FAILED — no
+ * money ever captured, no refund row — still told the shopper their money was on
+ * its way back. Refund wording now fires only when something was actually paid.
+ */
+export type RefundContext = { amountPaidPaise: number; hasRefund: boolean };
+
+/**
  * A banner replacing the "on track" reading of the timeline. Returns null on the
  * happy path. These are real backend states, not UI inventions — `undelivered` and
  * `returning_to_store` are reachable for every door method, `returned_to_store` only
  * after a failed delivery or a door rejection.
  */
-export function exceptionFor(status: string, method: Method): Exception | null {
+export function exceptionFor(status: string, method: Method, refund: RefundContext): Exception | null {
+  const wasCharged = refund.amountPaidPaise > 0;
   switch (status) {
     case 'payment_failed':
       return {
@@ -134,7 +149,14 @@ export function exceptionFor(status: string, method: Method): Exception | null {
       return {
         tone: 'bad', icon: 'x-circle',
         title: 'Order cancelled',
-        body: 'Any amount already charged is refunded to the original payment method.',
+        // Only speak of a refund when money actually moved. When a refund row
+        // exists, defer to the RefundBlock for its real status rather than
+        // asserting "refunded" (it may still be pending, or have failed).
+        body: !wasCharged
+          ? 'Nothing was charged, so there is nothing to refund.'
+          : refund.hasRefund
+            ? 'Your refund is shown below.'
+            : 'Your refund is being processed — it goes back the way you paid.',
       };
     case 'undelivered':
       return {
@@ -146,15 +168,24 @@ export function exceptionFor(status: string, method: Method): Exception | null {
       return {
         tone: 'warn', icon: 'corner-up-left',
         title: 'On its way back to the store',
-        body: method === 'try_and_buy'
-          ? 'The items you did not keep are heading back. Your refund starts once the store receives them.'
-          : 'The order is going back to the store. Your refund starts once it arrives.',
+        // The refund promise is conditional on having paid. A try-and-buy order
+        // whose payment failed still routes items back, but there is nothing to
+        // refund.
+        body: !wasCharged
+          ? (method === 'try_and_buy'
+              ? 'The items you did not keep are heading back.'
+              : 'The order is going back to the store.')
+          : method === 'try_and_buy'
+            ? 'The items you did not keep are heading back. Your refund starts once the store receives them.'
+            : 'The order is going back to the store. Your refund starts once it arrives.',
       };
     case 'returned_to_store':
       return {
         tone: 'warn', icon: 'corner-up-left',
         title: 'Back at the store',
-        body: 'The store has the items. Refunds for anything returned are being processed.',
+        body: wasCharged
+          ? 'The store has the items. Refunds for anything returned are being processed.'
+          : 'The store has the items.',
       };
     default:
       return null;

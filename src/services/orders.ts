@@ -147,6 +147,11 @@ export type OrderDetail = {
   deliveryFeePaise?: number;
   grandTotalPaise?: number;
   loyaltyEarnedPoints?: number;
+  /** Money actually captured from the shopper — sum of SUCCEEDED payments, in
+   *  paise. 0 means nothing was ever charged (e.g. a failed/abandoned prepaid
+   *  payment). The single source of truth for whether refund copy is even
+   *  meaningful; do NOT infer "charged" from order status. */
+  amountPaidPaise?: number;
   /** Consumer→driver handover proof for door deliveries — read it to the driver. */
   deliveryOtp?: string | null;
   /** Counter code for pickup orders — show at the store. */
@@ -175,6 +180,23 @@ export type OrderDetail = {
     reason: string | null;
     createdAt: string;
     completedAt: string | null;
+    /**
+     * Per-leg truth: where each slice of the money is going and whether it landed.
+     * A COD refund is paid back as CASH by hand, so "back on your original payment
+     * method" is simply false for it — the app needs the destination to say what
+     * actually happens. Optional so an older backend still renders.
+     */
+    disbursements?: {
+      id: string;
+      destination: 'original_tender' | 'wallet' | 'cash' | 'manual_payout' | string;
+      amountPaise: number;
+      status: 'pending' | 'succeeded' | 'failed' | string;
+      settledAt: string | null;
+      cashChannel: 'driver_reverse_pickup' | 'store_counter' | null;
+    }[];
+    /** Largest leg — drives the one-line summary. */
+    primaryDestination?: 'original_tender' | 'wallet' | 'cash' | 'manual_payout' | null;
+    primaryCashChannel?: 'driver_reverse_pickup' | 'store_counter' | null;
   }[];
   placedAt?: string;
   acceptedAt?: string | null;

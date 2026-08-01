@@ -1133,7 +1133,7 @@ function buildSupportRows(
 
 const SUPPORT_TOPICS = [
   { label: 'Track my order', icon: 'package' },
-  { label: 'Return or exchange', icon: 'rotate-ccw' },
+  { label: 'Return an item', icon: 'rotate-ccw' },
   { label: 'Payment & refunds', icon: 'credit-card' },
   { label: 'Size & fit help', icon: 'maximize' },
 ];
@@ -1141,7 +1141,7 @@ const SUPPORT_TOPICS = [
 const SUPPORT_FAQ = [
   { q: 'How long does delivery take?', a: 'Standard delivery lands in 3–5 days. Metro cities often get it next-day. Try & Buy orders are delivered the following day.' },
   { q: 'What is the return window?', a: 'You have 7 days from delivery to start a free return. We schedule a doorstep pickup and refund within 3–5 days of receiving the item.' },
-  { q: 'When will I get my refund?', a: 'Refunds hit the original payment method 3–5 working days after we collect the return. Wallet refunds are instant.' },
+  { q: 'When will I get my refund?', a: 'Once the store checks your return: card and UPI refunds take 3–5 working days, wallet refunds land right away, and cash-on-delivery orders are refunded in cash when we collect the items.' },
   { q: 'How do I use a gift card or coupon?', a: 'Apply it at checkout under “Apply code”. Gift cards never expire and can be combined with most offers.' },
   { q: 'Can I change my delivery address?', a: 'Yes — as long as the order has not shipped. Head to Orders, open the order, and tap “Change address”.' },
 ];

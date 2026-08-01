@@ -238,7 +238,7 @@ export function OrderReturnScreen() {
 
           <View style={[{ marginHorizontal: SP.l, marginTop: SP.l, padding: SP.m, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
             <Text style={[T.caption, { color: C.ink }]}>
-              7-day return window from delivery. Free doorstep pickup. Refunds go back to the original payment method once the store checks the items.
+              7-day return window from delivery. Free doorstep pickup. Once the store checks the items you are refunded the way you paid — card, UPI, wallet, or cash handed back at collection for cash-on-delivery orders.
             </Text>
           </View>
 

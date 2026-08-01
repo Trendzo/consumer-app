@@ -122,7 +122,11 @@ export function OrderTrackingScreen() {
   const status = order?.status ?? '';
   const steps = useMemo(() => stepsFor(method), [method]);
   const active = activeStep(steps, status);
-  const exception = exceptionFor(status, method);
+  // Refund copy is gated on the server's authoritative "was the shopper charged"
+  // (amountPaidPaise) plus whether a refund row exists — never on status alone.
+  const amountPaidPaise = order?.amountPaidPaise ?? 0;
+  const hasRefund = (order?.refunds?.length ?? 0) > 0;
+  const exception = exceptionFor(status, method, { amountPaidPaise, hasRefund });
   const proof = order ? handoverProof(order, method) : null;
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
@@ -131,11 +135,15 @@ export function OrderTrackingScreen() {
 
   const doCancel = () => {
     if (!order) return;
+    // "Nothing to refund" when COD OR when no money was ever captured (a prepaid
+    // order still awaiting/with a failed payment). Only promise a refund when the
+    // shopper has actually paid.
+    const wasCharged = (order.amountPaidPaise ?? 0) > 0;
     showConfirm({
       title: 'Cancel this order?',
-      msg: order.paymentMethod === 'cod'
+      msg: !wasCharged
         ? 'Nothing was charged, so there is nothing to refund.'
-        : 'Anything already charged is refunded to the original payment method.',
+        : 'Anything already charged is refunded — your order page shows where it goes.',
       confirmLabel: 'Cancel order',
       cancelLabel: 'Keep it',
       danger: true,
@@ -144,7 +152,12 @@ export function OrderTrackingScreen() {
         setBusy(true);
         try {
           await cancelOrder(order.id);
-          showToast('Order cancelled', 'Refunds start right away', 'check');
+          // Don't claim a refund is starting when nothing was captured.
+          showToast(
+            'Order cancelled',
+            wasCharged ? 'Your refund has started' : 'Nothing was charged',
+            'check',
+          );
           await load();
         } catch (e: any) {
           showToast('Could not cancel', e?.message || 'The store may have already packed it', 'x');
@@ -399,14 +412,73 @@ export function OrderTrackingScreen() {
   );
 }
 
-/** Refund status -> customer-facing copy. Mirrors the refund_status enum. */
-const REFUND_COPY: Record<string, { label: string; note: string; color: string }> = {
-  pending: { label: 'Refund initiated', note: 'We have raised it with your bank.', color: '#B0740A' },
-  processing: { label: 'Refund processing', note: 'Usually 3-5 working days.', color: '#B0740A' },
-  partially_disbursed: { label: 'Refund partly paid', note: 'The rest is still on its way.', color: '#B0740A' },
-  succeeded: { label: 'Refund complete', note: 'Back on your original payment method.', color: '#1B8A5A' },
-  failed: { label: 'Refund failed', note: 'Contact support and we will sort it out.', color: '#C1121F' },
+/**
+ * Refund copy is split in two: the STATUS gives the headline, the DESTINATION gives
+ * the note.
+ *
+ * It used to be one map keyed on status alone, so every completed refund claimed
+ * "Back on your original payment method" — wrong for a wallet credit, and outright
+ * false for a COD refund, which is handed over as physical cash.
+ */
+const REFUND_COPY: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Refund initiated', color: '#B0740A' },
+  processing: { label: 'Refund processing', color: '#B0740A' },
+  partially_disbursed: { label: 'Refund partly paid', color: '#B0740A' },
+  succeeded: { label: 'Refund complete', color: '#1B8A5A' },
+  failed: { label: 'Refund failed', color: '#C1121F' },
 };
+
+/** Where the money goes, and whether that leg has landed yet. */
+const DESTINATION_NOTE: Record<string, { done: string; pending: string }> = {
+  original_tender: {
+    done: 'Back on your original payment method.',
+    pending: 'On its way back to your original payment method — usually 3-5 working days.',
+  },
+  wallet: {
+    done: 'Added to your ClosetX Wallet.',
+    pending: 'Being added to your ClosetX Wallet.',
+  },
+  cash: {
+    done: 'Paid to you in cash.',
+    pending: 'Cash — handed to you when your return is collected.',
+  },
+  manual_payout: {
+    done: 'Paid out by our team.',
+    pending: 'Our team is arranging your payout and will be in touch.',
+  },
+};
+
+/** Cash is the one destination where WHO hands it over matters. */
+const CASH_NOTE: Record<string, { done: string; pending: string }> = {
+  driver_reverse_pickup: {
+    done: 'Cash handed to you by the driver at pickup.',
+    pending: 'Cash from the driver when they collect your return.',
+  },
+  store_counter: {
+    done: 'Cash paid at the store counter.',
+    pending: 'Collect your cash at the store counter.',
+  },
+};
+
+/** Short per-leg label for a split refund. */
+const DESTINATION_LABEL: Record<string, string> = {
+  original_tender: 'To your card / UPI',
+  wallet: 'To your wallet',
+  cash: 'In cash',
+  manual_payout: 'Paid out by our team',
+};
+
+function refundNote(r: NonNullable<OrderDetail['refunds']>[number]): string {
+  const landed = r.status === 'succeeded';
+  const key = landed ? 'done' : 'pending';
+  if (r.primaryDestination === 'cash' && r.primaryCashChannel) {
+    return CASH_NOTE[r.primaryCashChannel]?.[key] ?? CASH_NOTE.store_counter![key];
+  }
+  // Falls back to the original-tender wording so an older backend (which sends no
+  // destination at all) still reads exactly as it always did.
+  const dest = r.primaryDestination ?? 'original_tender';
+  return (DESTINATION_NOTE[dest] ?? DESTINATION_NOTE.original_tender!)[key];
+}
 
 /**
  * Refunds raised against this order.
@@ -423,7 +495,11 @@ function RefundBlock({ refunds }: { refunds: NonNullable<OrderDetail['refunds']>
       <Text style={[T.label]}>{refunds.length > 1 ? 'Refunds' : 'Refund'}</Text>
       <View style={[{ marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
         {refunds.map((r, i) => {
-          const meta = REFUND_COPY[r.status] ?? { label: r.status, note: '', color: C.dim };
+          const meta = REFUND_COPY[r.status] ?? { label: r.status, color: C.dim };
+          const note = refundNote(r);
+          // Only break the amount down when it genuinely splits across tenders —
+          // e.g. part back to the wallet, part as cash.
+          const legs = (r.disbursements ?? []).length > 1 ? r.disbursements! : [];
           return (
             <View key={r.id} style={{ padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -433,7 +509,25 @@ function RefundBlock({ refunds }: { refunds: NonNullable<OrderDetail['refunds']>
                 </View>
                 <Text style={[T.price]}>{`₹${rupees(r.amountPaise).toLocaleString()}`}</Text>
               </View>
-              {!!meta.note && <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{meta.note}</Text>}
+              {!!note && <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>{note}</Text>}
+              {legs.map((d) => (
+                <View
+                  key={d.id}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    marginTop: 4,
+                  }}
+                >
+                  <Text style={[T.micro, { color: C.dim }]}>
+                    {DESTINATION_LABEL[d.destination] ?? d.destination}
+                    {d.status === 'succeeded' ? '' : ' · pending'}
+                  </Text>
+                  <Text style={[T.micro, { color: C.dim }]}>
+                    {`₹${rupees(d.amountPaise).toLocaleString()}`}
+                  </Text>
+                </View>
+              ))}
               <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>
                 {r.completedAt ? `Completed ${fmtTime(r.completedAt)}` : `Raised ${fmtTime(r.createdAt)}`}
               </Text>
