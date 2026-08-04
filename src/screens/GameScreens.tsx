@@ -1223,12 +1223,8 @@ export function TryOnScreen() {
 
   const uploadPhoto = async () => {
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      console.log('[tryOn] perm=', perm);
-      if (!perm.granted) {
-        Alert.alert('Gallery blocked', 'Enable photo access in Settings to upload an image.');
-        return;
-      }
+      // The Android photo picker needs no media permission — it returns only the
+      // file the user picked (see the note in CreateReelScreen.pickVideo).
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         quality: 0.7,

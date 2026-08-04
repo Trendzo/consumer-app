@@ -156,7 +156,7 @@ export function tileUrl(z: number, x: number, y: number): string {
  * instead, put it in the URL; sending this along too is harmless.
  */
 export const TILE_HEADERS: Record<string, string> = {
-  'User-Agent': 'Trendzo/1.0.1 (Android; com.moon.closetx)',
+  'User-Agent': 'Trendzo/1.0.2 (Android; com.trendzo.app)',
 };
 
 /**

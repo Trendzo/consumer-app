@@ -85,13 +85,9 @@ export function ImageSearchScreen() {
       setStage('camera');
       return;
     }
-    // Gallery — pick a real photo from the user's library
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Gallery blocked', 'Enable photo access in Settings to upload an image.');
-      setPickerOpen(true);
-      return;
-    }
+    // Gallery — pick a real photo from the user's library. The Android photo
+    // picker returns just the chosen file, so no media permission is requested
+    // (see the note in CreateReelScreen.pickVideo).
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.7,

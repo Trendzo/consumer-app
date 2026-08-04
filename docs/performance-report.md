@@ -442,11 +442,11 @@ to two cores.
   confirm that adding an item to the bag does not re-render the entire tree.
 - **GPU overdraw.** Developer options, "Debug GPU overdraw". Green is acceptable, red is not.
   Check the top of Home and the category tile grid.
-- **Memory.** `adb shell dumpsys meminfo com.moon.closetx` before and after scrolling Home to
+- **Memory.** `adb shell dumpsys meminfo com.trendzo.app` before and after scrolling Home to
   page 10. Growth that never comes back down confirms the unbounded Explore grid.
 - **Network.** Flipper or a proxy on the review-order screen; confirm the pricing POST fires once
   rather than continuously.
-- **Startup.** `adb shell am start -W com.moon.closetx/.MainActivity` for `TotalTime`, repeated
+- **Startup.** `adb shell am start -W com.trendzo.app/.MainActivity` for `TotalTime`, repeated
   five times from cold.
 - **APK size.** Compare before and after Phase 1. The debug build measured 100.5 MB.
 

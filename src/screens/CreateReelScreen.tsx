@@ -61,11 +61,10 @@ export default function CreateReelScreen() {
   }, [route.params?.pickToken]);
 
   const pickVideo = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Gallery blocked', 'Enable photo access in Settings to pick a video.');
-      return;
-    }
+    // No permission request: launchImageLibraryAsync goes through the Android
+    // photo picker, which hands back only the file the user chose and needs no
+    // media permission. Asking for one would put READ_MEDIA_IMAGES back in the
+    // manifest, which Play only grants to gallery/editor apps.
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
       quality: 1,
