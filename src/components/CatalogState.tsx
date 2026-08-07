@@ -24,7 +24,13 @@ import { CARD } from './Brutal';
  * sections must not render bundled content while the published content is still in flight, so
  * the gap has to look like a wait rather than like an answer.
  */
-export function Shimmer({ w, h, style }: { w?: number | string; h: number; style?: any }) {
+export function Shimmer({ w, h, style, animated = true }: { w?: number | string; h: number; style?: any; animated?: boolean }) {
+  // animated=false renders a static block with the same footprint — used while
+  // a screen-transition animation is in flight so a dozen looping shimmers
+  // don't compete with it for frames.
+  if (!animated) {
+    return <MotiView style={[{ width: (w ?? '100%') as any, height: h, backgroundColor: C.hairline, opacity: 0.6 }, style]} />;
+  }
   return (
     <MotiView
       from={{ opacity: 0.45 }}
@@ -36,20 +42,20 @@ export function Shimmer({ w, h, style }: { w?: number | string; h: number; style
 }
 
 /** Card-shaped placeholder: image box + the two text lines under it. */
-function CardSkeleton({ w = CARD.w, imgH = CARD.imgH }: { w?: number; imgH?: number }) {
+function CardSkeleton({ w = CARD.w, imgH = CARD.imgH, animated = true }: { w?: number; imgH?: number; animated?: boolean }) {
   return (
     <View style={{ width: w }}>
-      <Shimmer h={imgH} style={BORDER(1)} />
-      <Shimmer w={'55%'} h={9} style={{ marginTop: 8 }} />
-      <Shimmer w={'85%'} h={12} style={{ marginTop: 6 }} />
-      <Shimmer w={'35%'} h={12} style={{ marginTop: 6 }} />
+      <Shimmer h={imgH} style={BORDER(1)} animated={animated} />
+      <Shimmer w={'55%'} h={9} style={{ marginTop: 8 }} animated={animated} />
+      <Shimmer w={'85%'} h={12} style={{ marginTop: 6 }} animated={animated} />
+      <Shimmer w={'35%'} h={12} style={{ marginTop: 6 }} animated={animated} />
     </View>
   );
 }
 
 /** 2-column grid placeholder. `count` should match the page size being fetched. */
-export function ProductGridSkeleton({ count = 4, cardW = CARD.w, imgH = CARD.imgH }: {
-  count?: number; cardW?: number; imgH?: number;
+export function ProductGridSkeleton({ count = 4, cardW = CARD.w, imgH = CARD.imgH, animated = true }: {
+  count?: number; cardW?: number; imgH?: number; animated?: boolean;
 }) {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -63,12 +69,12 @@ export function ProductGridSkeleton({ count = 4, cardW = CARD.w, imgH = CARD.img
 }
 
 /** Horizontal rail placeholder — same card, laid out the way a rail lays out. */
-export function ProductRailSkeleton({ count = 3, cardW = CARD.w * 0.86, imgH = CARD.imgH }: {
-  count?: number; cardW?: number; imgH?: number;
+export function ProductRailSkeleton({ count = 3, cardW = CARD.w * 0.86, imgH = CARD.imgH, animated = true }: {
+  count?: number; cardW?: number; imgH?: number; animated?: boolean;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} scrollEnabled={false} contentContainerStyle={{ gap: SP.s, paddingHorizontal: SP.l }}>
-      {Array.from({ length: count }, (_, i) => <CardSkeleton key={i} w={cardW} imgH={imgH} />)}
+      {Array.from({ length: count }, (_, i) => <CardSkeleton key={i} w={cardW} imgH={imgH} animated={animated} />)}
     </ScrollView>
   );
 }

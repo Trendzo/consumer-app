@@ -18,7 +18,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { C, T, SP, BORDER, HELV, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, HELV, rf, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { uploadMedia, createReel } from '../services/reels';
@@ -126,7 +126,7 @@ export default function CreateReelScreen() {
       <BrutalStatusBar />
 
       {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
         <Pressable onPress={() => nav.goBack()} hitSlop={10}>
           <Feather name="x" size={22} color={C.ink} />
         </Pressable>
@@ -189,7 +189,7 @@ export default function CreateReelScreen() {
         {product ? (
           <View style={[{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: SP.m, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
             <View style={[{ width: 56, height: 70, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-              <CachedImage source={{ uri: product.image }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              <CachedImage source={{ uri: product.image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[T.productName]} numberOfLines={2}>{product.name}</Text>

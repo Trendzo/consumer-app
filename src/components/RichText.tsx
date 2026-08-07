@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Linking } from 'react-native';
-import { C, T, SP, HELV } from '../theme/brutal';
+import { C, T, SP, HELV, rf } from '../theme/brutal';
 
 /**
  * Dependency-free renderer for the product long-description rich text.
@@ -203,7 +203,7 @@ export function RichText({ html }: { html?: string | null }) {
 }
 
 const styles = StyleSheet.create({
-  p: { ...T.body, color: C.inkSoft, marginTop: SP.s, lineHeight: 21 },
+  p: { ...T.body, color: C.inkSoft, marginTop: SP.s, lineHeight: rf(21) },
   bold: { fontFamily: HELV, fontWeight: '700', color: C.ink },
   italic: { fontStyle: 'italic' },
   underline: { textDecorationLine: 'underline' },

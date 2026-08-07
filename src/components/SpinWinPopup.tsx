@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, Modal, Animated, Easing, Dimensions, Vibration } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf, HELV } from '../theme/brutal';
 import { useApp } from '../state/AppState';
@@ -320,6 +321,20 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
               </MotiView>
             )}
 
+            {/* The claimed code, tappable to copy — it existed only inside a toast
+                before, with no way to get it onto the clipboard. */}
+            {claimed?.code && (
+              <Pressable
+                onPress={() => {
+                  void Clipboard.setStringAsync(claimed.code!)
+                    .then(() => showToast('Copied', `${claimed.code} — paste it at checkout`, 'copy'));
+                }}
+                style={[{ marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F4F4F4' }, BORDER(1)]}
+              >
+                <Text style={[T.monoB, { letterSpacing: 2 }]}>{claimed.code}</Text>
+                <Feather name="copy" size={13} color={C.ink} />
+              </Pressable>
+            )}
             <Text style={[T.micro, { color: C.dim, marginTop: SP.m }]}>
               {claimed?.code ? 'Saved to your coupons · apply it at checkout' : 'Prizes apply at checkout'}
             </Text>

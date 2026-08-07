@@ -245,7 +245,7 @@ export default function CartScreen() {
               <View style={{ flexDirection: 'row' }}>
                 {cart.slice(0, 3).map((it, i) => (
                   <View key={it.id + it.size} style={[{ width: 34, height: 42, backgroundColor: '#F4F4F4', overflow: 'hidden', marginLeft: i ? -10 : 0 }, BORDER(1)]}>
-                    <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   </View>
                 ))}
                 {cart.length > 3 && (
@@ -342,7 +342,7 @@ export default function CartScreen() {
                       <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.m }}>
                         {/* image */}
                         <View style={[{ width: 82, height: 102, overflow: 'hidden', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
-                          <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                          <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                         </View>
                         {/* details */}
                         <View style={{ flex: 1 }}>

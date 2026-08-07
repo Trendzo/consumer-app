@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, StatusBar, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, StatusBar, Alert, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
+import { DeliveryTermsSheet } from '../components/DeliveryTermsSheet';
 import { useApp } from '../state/AppState';
 
 const ADDRESSES = [
@@ -15,7 +17,7 @@ const ADDRESSES = [
 const PAYMENTS = [
   { id: 'p1', icon: 'smartphone', label: 'UPI', sub: 'pay@okhdfcbank' },
   { id: 'p2', icon: 'credit-card', label: 'Card', sub: '•••• 4242' },
-  { id: 'p3', icon: 'dollar-sign', label: 'COD', sub: 'Cash on delivery' },
+  { id: 'p3', icon: 'rupee', label: 'COD', sub: 'Cash on delivery' },
   { id: 'p4', icon: 'package', label: 'Wallet', sub: '₹1,240 balance' },
 ];
 
@@ -49,6 +51,7 @@ const STEP_NAMES = ['Address', 'Delivery', 'Payment', 'Confirm'];
 export default function CheckoutScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
+  const cInsets = useSafeAreaInsets();
   const preMethod: Method | undefined = route.params?.preMethod;
   const { cart, cartTotal, placeOrder, showToast, requireAuth } = useApp();
   const s = React.useMemo(() => makeS(), []);
@@ -58,6 +61,7 @@ export default function CheckoutScreen() {
   const [slot, setSlot] = useState('ASAP');
   const [pay, setPay] = useState('p1');
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [showTerms, setShowTerms] = useState(false);
   const pickupCode = React.useMemo(() => genPickupCode(), []);
 
   const total = cartTotal || 2499;
@@ -172,15 +176,16 @@ export default function CheckoutScreen() {
                         <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>{m.label}</Text>
                         {isExpress && (
                           <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : '#F4F4F4' }}>
-                            <Text style={[T.caption, { fontSize: 9, color: C.ink }]}>Fastest</Text>
+                            <Text style={[T.caption, { fontSize: rf(9), color: C.ink }]}>Fastest</Text>
                           </View>
                         )}
                       </View>
                       <Text style={[T.caption, { color: on ? C.white : C.dim, marginTop: 2 }]}>{m.desc}</Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                      <Text style={[T.price, { color: on ? C.white : C.ink }]}>{m.fee === 0 ? 'Free' : `₹${m.fee}`}</Text>
-                      <Text style={[T.caption, { fontSize: 8, color: on ? C.white : C.dim }]}>{m.time}</Text>
+                    {/* Zomato-style: the card sells the SPEED; the fee appears
+                        only in the bill at the end (with full terms behind ⓘ). */}
+                    <View style={[{ paddingHorizontal: 9, paddingVertical: 5, backgroundColor: on ? C.white : '#F4F4F4' }]}>
+                      <Text style={[T.caption, { color: C.ink }]}>{m.time}</Text>
                     </View>
                   </View>
                 </Pressable>
@@ -201,14 +206,23 @@ export default function CheckoutScreen() {
                       <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>{m.label}</Text>
                       <Text style={[T.caption, { color: on ? C.white : C.dim, marginTop: 2 }]}>{m.desc}</Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 3 }}>
-                      <Text style={[T.price, { color: on ? C.white : C.ink }]}>{m.fee === 0 ? 'Free' : `₹${m.fee}`}</Text>
-                      <Text style={[T.caption, { fontSize: 8, color: on ? C.white : C.dim }]}>{m.time}</Text>
+                    {/* Zomato-style: the card sells the SPEED; the fee appears
+                        only in the bill at the end (with full terms behind ⓘ). */}
+                    <View style={[{ paddingHorizontal: 9, paddingVertical: 5, backgroundColor: on ? C.white : '#F4F4F4' }]}>
+                      <Text style={[T.caption, { color: C.ink }]}>{m.time}</Text>
                     </View>
                   </View>
                 </Pressable>
               );
             })}
+
+            {/* Charges live in the final bill (with terms behind ⓘ), not on the cards. */}
+            <Pressable onPress={() => setShowTerms(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SP.m }}>
+              <Feather name="info" size={12} color={C.dim} />
+              <Text style={[T.micro, { color: C.dim, flex: 1 }]}>
+                Delivery & Try-at-home charges are added in your final bill · <Text style={{ textDecorationLine: 'underline' }}>Terms & policies</Text>
+              </Text>
+            </Pressable>
 
             {/* Store picker — only shown for pickup */}
             {method === 'pickup' && (
@@ -227,7 +241,7 @@ export default function CheckoutScreen() {
                         <Text style={[T.micro, { color: on ? C.white : C.dim, marginTop: 1, opacity: 0.7 }]}>{`Hrs · ${st.hours}`}</Text>
                       </View>
                       <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: on ? C.white : '#F4F4F4' }]}>
-                        <Text style={[T.caption, { fontSize: 9, color: C.ink }]}>{st.eta}</Text>
+                        <Text style={[T.caption, { fontSize: rf(9), color: C.ink }]}>{st.eta}</Text>
                       </View>
                     </Pressable>
                   );
@@ -291,7 +305,7 @@ export default function CheckoutScreen() {
             {PAYMENTS.map(p => (
               <Pressable key={p.id} onPress={() => setPay(p.id)} style={[{ marginTop: SP.m, padding: SP.m, flexDirection: 'row', alignItems: 'center', backgroundColor: pay === p.id ? C.ink : C.white }, BORDER(1)]}>
                 <View style={[{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }, BORDER(1), { borderColor: pay === p.id ? C.white : C.ink }]}>
-                  <Feather name={p.icon as any} size={16} color={pay === p.id ? C.white : C.ink} />
+                  {p.icon === 'rupee' ? <Text style={{ fontSize: rf(15), fontWeight: '700', color: pay === p.id ? C.white : C.ink }}>₹</Text> : <Feather name={p.icon as any} size={16} color={pay === p.id ? C.white : C.ink} />}
                 </View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={[T.bodyB, { color: pay === p.id ? C.white : C.ink }]}>{p.label}</Text>
@@ -311,7 +325,13 @@ export default function CheckoutScreen() {
               <Text style={[T.h3, { textTransform: 'uppercase' }]}>{'Order summary'}</Text>
               <View style={{ height: 1, backgroundColor: C.hairline, marginTop: 8 }} />
               <View style={s.row}><Text style={[T.body, { color: C.dim }]}>Items ({cart.length || 1})</Text><Text style={T.bodyB}>₹{total}</Text></View>
-              <View style={s.row}><Text style={[T.body, { color: C.dim }]}>{activeMethod.label}</Text><Text style={T.bodyB}>{fee === 0 ? 'Free' : `₹${fee}`}</Text></View>
+              <View style={s.row}>
+                <Pressable onPress={() => setShowTerms(true)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Text style={[T.body, { color: C.dim }]}>{activeMethod.label}</Text>
+                  <Feather name="info" size={13} color={C.dim} />
+                </Pressable>
+                <Text style={T.bodyB}>{fee === 0 ? 'Free' : `₹${fee}`}</Text>
+              </View>
               <View style={s.row}><Text style={[T.body, { color: C.dim }]}>Tax</Text><Text style={T.bodyB}>₹{tax}</Text></View>
               <View style={{ height: 1, backgroundColor: C.hairline }} />
               <View style={s.row}>
@@ -370,7 +390,7 @@ export default function CheckoutScreen() {
           <Text style={[T.micro]}>{step === 4 ? 'Total · tax incl.' : `Running total · step ${step}/4`}</Text>
           <Text style={[T.h2]}>₹{grand}</Text>
         </View>
-        <View style={{ padding: SP.m, paddingBottom: 28, flexDirection: 'row', gap: SP.s }}>
+        <View style={{ padding: SP.m, paddingBottom: Platform.OS === 'ios' ? 28 : cInsets.bottom + SP.m, flexDirection: 'row', gap: SP.s }}>
           {step > 1 && <BrutalButton label="Back" icon="arrow-left" variant="outline" onPress={() => setStep((step - 1) as any)} />}
           {step < 4 ? (
             <BrutalButton
@@ -384,6 +404,8 @@ export default function CheckoutScreen() {
           )}
         </View>
       </View>
+
+      <DeliveryTermsSheet open={showTerms} onClose={() => setShowTerms(false)} />
     </View>
   );
 }

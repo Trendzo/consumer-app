@@ -4,9 +4,12 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import Animated, { useDerivedValue, useAnimatedStyle, withTiming, interpolateColor, Easing } from 'react-native-reanimated';
-import { C, T, SP, BORDER } from '../theme/brutal';
-import { BrutalStatusBar, CachedImage, BrutalButton } from '../components/Brutal';
+import { C, T, SP, BORDER, HEADER_TOP, rf } from '../theme/brutal';
+import { BrutalStatusBar, CachedImage, BrutalButton, OptionSheet, useKeyboardHeight } from '../components/Brutal';
+import { listRewards, type Reward } from '../services/spin';
+import { DeliveryTermsSheet } from '../components/DeliveryTermsSheet';
 import { useApp } from '../state/AppState';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 import {
   placeGroupOrder, newIdempotencyKey, listPickupSlots, verifyPayment, reportPaymentFailed,
@@ -34,7 +37,7 @@ import { getLoyalty } from '../services/loyalty';
  */
 const PAYMENTS = [
   { id: 'upi', icon: 'smartphone', label: 'Pay online', sub: 'UPI, card or netbanking' },
-  { id: 'cod', icon: 'dollar-sign', label: 'Cash on Delivery', sub: 'Pay when it arrives' },
+  { id: 'cod', icon: 'rupee', label: 'Cash on Delivery', sub: 'Pay when it arrives' },
 ] as const;
 
 type PayId = (typeof PAYMENTS)[number]['id'];
@@ -137,6 +140,8 @@ export default function ReviewOrderScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const { cart, placeOrder, showToast, token, getToken, user, applyConsumer, requireAuth } = useApp();
+  const rInsets = useSafeAreaInsets();
+  const kbH = useKeyboardHeight();
   // Launched from a Bag bucket → only that bucket's items + its delivery
   // method. Launched from Buy Now (no param) → whole bag, express.
   const preMethod = route.params?.preMethod as BagMethod | undefined;
@@ -151,6 +156,9 @@ export default function ReviewOrderScreen() {
    * bucket that launched the screen.
    */
   const [method, setMethod] = useState<DeliveryChoice>(preMethod ?? 'express');
+  // Charges/terms bottom sheet — opened from the ⓘ next to the bill's delivery
+  // line and the note under the method cards.
+  const [showTerms, setShowTerms] = useState(false);
   /**
    * Express, Try & Buy and store pickup. Standard is offered only when the shopper arrived on
    * it, so an existing standard bag is never silently switched to a different fee.
@@ -165,9 +173,12 @@ export default function ReviewOrderScreen() {
   // computing it inline made a new array identity on every render, so priceCart →
   // setPricing → re-render → new `items` → priceCart looped a POST /pricing/cart
   // for as long as this screen was open.
+  // Buy Now hands its ONE line in via params — the bag is not consulted and
+  // not touched. Bucket checkouts filter the bag; plain checkout takes it all.
+  const buyNow = route.params?.buyNow as any | undefined;
   const items = useMemo(
-    () => (preMethod ? cart.filter((it: any) => ((it.method || 'express') as BagMethod) === preMethod) : cart),
-    [cart, preMethod],
+    () => (buyNow ? [buyNow] : preMethod ? cart.filter((it: any) => ((it.method || 'express') as BagMethod) === preMethod) : cart),
+    [cart, preMethod, buyNow],
   );
 
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -179,6 +190,17 @@ export default function ReviewOrderScreen() {
   const [couponInput, setCouponInput] = useState('');
   const [couponCode, setCouponCode] = useState<string | null>(null);
   const [couponOutcome, setCouponOutcome] = useState<CouponOutcome>({ state: 'none' });
+  // Myntra-style one-tap apply: every held coupon in a sheet with its own Apply,
+  // instead of copy → navigate → paste. The manual input stays for typed codes.
+  const [couponSheet, setCouponSheet] = useState(false);
+  const [heldCoupons, setHeldCoupons] = useState<Reward[]>([]);
+  const openCouponSheet = () => {
+    setCouponSheet(true);
+    if (!getToken()) return; // sheet shows the sign-in hint
+    listRewards()
+      .then((rs) => setHeldCoupons(rs.filter((r) => r.state === 'available' && !!r.code)))
+      .catch(() => { /* keep whatever list is showing */ });
+  };
   const [useReward, setUseReward] = useState(false);
   // Payment is picked INLINE on the page (was a bottom-sheet modal).
   const [payId, setPayId] = useState<PayId>('upi');
@@ -485,7 +507,7 @@ export default function ReviewOrderScreen() {
       }
 
       const count = items.reduce((s, it) => s + it.qty, 0);
-      placeOrder({ method: apiMethod === 'try_and_buy' ? 'tryandbuy' : apiMethod, id: firstOrderId, total, items: count });
+      placeOrder({ method: apiMethod === 'try_and_buy' ? 'tryandbuy' : apiMethod, id: firstOrderId, total, items: count, keepCart: !!buyNow });
       setTimeout(() => nav.navigate('OrderSuccess', { orderId: firstOrderId, method: apiMethod }), 200);
     } catch (e: any) {
       if (gatewayOrderId) {
@@ -514,7 +536,7 @@ export default function ReviewOrderScreen() {
       <BrutalStatusBar />
 
       {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg }}>
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg }}>
         <Pressable onPress={() => nav.goBack()} hitSlop={10}>
           <Feather name="arrow-left" size={22} color={C.ink} />
         </Pressable>
@@ -575,7 +597,7 @@ export default function ReviewOrderScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: C.ink }}>
-                    <Text style={[T.caption, { color: C.white, fontSize: 9 }]}>{addr?.label || 'Address'}</Text>
+                    <Text style={[T.caption, { color: C.white, fontSize: rf(9) }]}>{addr?.label || 'Address'}</Text>
                   </View>
                   <Text style={[T.bodyB]}>{user?.name || 'You'}</Text>
                 </View>
@@ -633,10 +655,14 @@ export default function ReviewOrderScreen() {
                       <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{meta.label}</Text>
                       <Text style={[T.micro, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{meta.sub}</Text>
                     </View>
-                    {/* Em dash until the quote lands — never a number the server hasn't given. */}
-                    <Text style={[T.price, { color: sel ? C.white : C.ink }]}>
-                      {fee === null ? '—' : fee === 0 ? 'Free' : `₹${fee}`}
-                    </Text>
+                    {/* No fee on the card (Zomato pattern) — the charge appears in Price
+                        details below, with the full terms behind its ⓘ. Free stays a
+                        selling point worth surfacing here. */}
+                    {fee === 0 ? (
+                      <Text style={[T.price, { color: sel ? C.white : C.ink }]}>Free</Text>
+                    ) : (
+                      <Feather name={sel ? 'check-circle' : 'circle'} size={16} color={sel ? C.white : C.dim} />
+                    )}
                   </Pressable>
                 );
               })}
@@ -646,6 +672,14 @@ export default function ReviewOrderScreen() {
                 Try & Buy is prepaid — you're refunded for whatever you send back at the door.
               </Text>
             )}
+            {/* Charges live in the bill, not on the cards — this line says so and
+                opens the full terms for every method. */}
+            <Pressable onPress={() => setShowTerms(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SP.s }}>
+              <Feather name="info" size={12} color={C.dim} />
+              <Text style={[T.micro, { color: C.dim, flex: 1 }]}>
+                Delivery & Try-at-home charges are added in the bill below · <Text style={{ textDecorationLine: 'underline' }}>Terms & policies</Text>
+              </Text>
+            </Pressable>
 
             {/* ITEMS — read-only, no qty controls */}
             <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>{`Your items · ${items.length}`}</Text>
@@ -653,7 +687,7 @@ export default function ReviewOrderScreen() {
               {items.map((it, i) => (
                 <View key={it.id + '-' + i} style={{ flexDirection: 'row', gap: SP.m, padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
                   <View style={[{ width: 64, height: 80, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
-                    <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[T.caption]} numberOfLines={1}>{it.brand}</Text>
@@ -732,7 +766,50 @@ export default function ReviewOrderScreen() {
               {couponOutcome.state === 'rejected' && (
                 <Text style={[T.caption, { marginTop: 6, color: '#C1121F' }]}>{couponOutcome.message}</Text>
               )}
+              {/* One-tap path — opens the held-coupons sheet. */}
+              {!couponCode && (
+                <Pressable onPress={openCouponSheet} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+                  <Feather name="tag" size={12} color={C.ink} />
+                  <Text style={[T.caption, { color: C.ink, textDecorationLine: 'underline' }]}>View your coupons</Text>
+                </Pressable>
+              )}
             </View>
+
+            {/* COUPON SHEET — every held code, one Apply per row (Myntra-style). */}
+            <OptionSheet visible={couponSheet} title="Your coupons" onClose={() => setCouponSheet(false)}>
+              <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
+                {!token ? (
+                  <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
+                    Sign in to see the coupons you hold.
+                  </Text>
+                ) : heldCoupons.length === 0 ? (
+                  <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
+                    No coupons yet — win them in Spin & Win and Push & Win.
+                  </Text>
+                ) : (
+                  heldCoupons.map((r) => (
+                    <View key={r.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                      <Feather name="tag" size={16} color={C.ink} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[T.monoB, { letterSpacing: 1 }]}>{r.code}</Text>
+                        <Text style={[T.micro, { color: C.dim, marginTop: 1 }]} numberOfLines={1}>{r.name}</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => {
+                          animateNext();
+                          setCouponInput(r.code);
+                          setCouponCode(r.code); // repriced server-side, same as a typed code
+                          setCouponSheet(false);
+                        }}
+                        style={[{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}
+                      >
+                        <Text style={[T.caption, { color: C.white }]}>Apply</Text>
+                      </Pressable>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            </OptionSheet>
 
             {/* MYTRENDZ REWARDS */}
             <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
@@ -795,7 +872,7 @@ export default function ReviewOrderScreen() {
                       blocked ? { opacity: 0.45 } : null,
                     ]}
                   >
-                    <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />
+                    {p.icon === 'rupee' ? <Text style={{ fontSize: rf(17), fontWeight: '700', color: sel ? C.white : C.ink }}>₹</Text> : <Feather name={p.icon as any} size={18} color={sel ? C.white : C.ink} />}
                     <View style={{ flex: 1 }}>
                       <Text style={[T.bodyB, { color: sel ? C.white : C.ink }]}>{label}</Text>
                       <Text style={[T.caption, { color: sel ? C.white : C.dim, marginTop: 2 }]}>{sub}</Text>
@@ -821,8 +898,17 @@ export default function ReviewOrderScreen() {
                   {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
                   {walletApplied > 0 && <Row k="Trendzo Wallet" v={`− ₹${walletApplied}`} neg />}
                   {/* Try & Buy is priced INTO deliveryFeePaise by the engine, so it is never a
-                      separate line — listing it again would bill it twice on screen. */}
-                  <Row k="Delivery" v={deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`} />
+                      separate line — listing it again would bill it twice on screen.
+                      The ⓘ opens the full charges/terms sheet for every method. */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 }}>
+                    <Pressable onPress={() => setShowTerms(true)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <Text style={[T.body, { color: C.dim }]}>
+                        {apiMethod === 'try_and_buy' ? 'Delivery & Try at home' : 'Delivery'}
+                      </Text>
+                      <Feather name="info" size={13} color={C.dim} />
+                    </Pressable>
+                    <Text style={[T.bodyB]}>{deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`}</Text>
+                  </View>
                   {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
                   <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
                   <Row k="Total amount" v={`₹${total}`} bold />
@@ -857,7 +943,7 @@ export default function ReviewOrderScreen() {
           </ScrollView>
 
           {/* STICKY PAY BAR — pays directly from the page (no modal step) */}
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }}>
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: SP.m, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: Platform.OS === 'ios' ? 28 : rInsets.bottom + SP.m }}>
             <View>
               {/* What the CARD/UPI is actually charged. With wallet applied this
                   is less than the order total, and showing the total here would
@@ -887,9 +973,11 @@ export default function ReviewOrderScreen() {
           {/* NAME + EMAIL — asked for only when the order cannot be placed without them, and
               the placement continues straight afterwards so the shopper never loses their
               basket or their choices. */}
-          <Modal transparent visible={profileOpen} animationType="slide" onRequestClose={() => setProfileOpen(false)}>
+          <Modal transparent visible={profileOpen} animationType="slide" statusBarTranslucent onRequestClose={() => setProfileOpen(false)}>
             <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' }}>
-              <View style={[{ backgroundColor: C.white, padding: SP.l, paddingBottom: SP.xl }, BORDER(1)]}>
+              {/* Lifted by the measured keyboard height — the name/email inputs
+                  sat hidden behind the keyboard (Modal windows never resize). */}
+              <View style={[{ backgroundColor: C.white, padding: SP.l, paddingBottom: SP.xl + kbH }, BORDER(1)]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Text style={[T.h3, { textTransform: 'uppercase' }]}>One last thing</Text>
                   <Pressable onPress={() => setProfileOpen(false)} hitSlop={12}>
@@ -959,6 +1047,8 @@ export default function ReviewOrderScreen() {
           </Modal>
         </>
       )}
+
+      <DeliveryTermsSheet open={showTerms} onClose={() => setShowTerms(false)} />
     </View>
   );
 }

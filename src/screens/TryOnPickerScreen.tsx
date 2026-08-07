@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER, HELV} from '../theme/brutal';
+import { C, T, SP, BORDER, HELV, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, CARD } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
@@ -55,7 +55,7 @@ export default function TryOnPickerScreen() {
       <BrutalStatusBar />
 
       {/* HEADER */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.bg }}>
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.bg }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
           <Pressable onPress={() => nav.goBack()} hitSlop={10}><Feather name="arrow-left" size={22} color={C.ink} /></Pressable>
           <View style={{ flex: 1 }}>
@@ -99,7 +99,7 @@ export default function TryOnPickerScreen() {
             {results.map((p) => (
               <Pressable key={p.id} onPress={() => nav.navigate('TryOn', { mode, product: p })} style={{ width: CARD.w, marginBottom: SP.m }}>
                 <View style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   {/* CTA overlay — black is allowed for call-to-action */}
                   <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, backgroundColor: C.ink }}>
                     <Feather name="camera" size={12} color={C.white} />

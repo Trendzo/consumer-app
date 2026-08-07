@@ -1,5 +1,10 @@
 [
   {
+    "key": "adaptive-icon",
+    "category": "root",
+    "kind": "image"
+  },
+  {
     "key": "banners/her-60min",
     "category": "banners",
     "kind": "image"
@@ -277,6 +282,11 @@
   {
     "key": "category-banners/him/tops",
     "category": "category-banners",
+    "kind": "image"
+  },
+  {
+    "key": "favicon",
+    "category": "root",
     "kind": "image"
   },
   {
@@ -620,8 +630,43 @@
     "kind": "image"
   },
   {
+    "key": "icon",
+    "category": "root",
+    "kind": "image"
+  },
+  {
     "key": "login",
     "category": "root",
+    "kind": "image"
+  },
+  {
+    "key": "models/cargos",
+    "category": "models",
+    "kind": "image"
+  },
+  {
+    "key": "models/graphic-tshirt",
+    "category": "models",
+    "kind": "image"
+  },
+  {
+    "key": "models/matching-set",
+    "category": "models",
+    "kind": "image"
+  },
+  {
+    "key": "models/skirt",
+    "category": "models",
+    "kind": "image"
+  },
+  {
+    "key": "models/sneakers",
+    "category": "models",
+    "kind": "image"
+  },
+  {
+    "key": "models/tanks",
+    "category": "models",
     "kind": "image"
   },
   {
@@ -678,6 +723,11 @@
     "key": "reels/men2",
     "category": "reels",
     "kind": "video"
+  },
+  {
+    "key": "splash-icon",
+    "category": "root",
+    "kind": "image"
   },
   {
     "key": "steals/her/beauty",
@@ -752,6 +802,11 @@
   {
     "key": "story-posters/him-friday",
     "category": "story-posters",
+    "kind": "image"
+  },
+  {
+    "key": "trendzo-logo",
+    "category": "root",
     "kind": "image"
   },
   {

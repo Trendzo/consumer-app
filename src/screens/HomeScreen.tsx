@@ -13,6 +13,8 @@ import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/n
 import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
 import { BrutalButton, CachedImage, CARD, Chip, FadeInUp, OptionSheet, ProductCard, SectionHead, useGenderCurve } from '../components/Brutal';
 import { RealIcon, RealIconName, categoryIconName } from '../components/RealIcon';
+import { TrendzoLogo } from '../components/TrendzoLogo';
+import { useZoom } from '../navigation/ZoomTransition';
 import {
   GAMES, HERO_IMG, HERO_IMG_2,
   HER_CATEGORIES, HIM_CATEGORIES, HER_HERO, HIM_HERO,
@@ -405,7 +407,6 @@ export default function HomeScreen() {
   const catSectionY = useSharedValue(999999);
   const pinP = useSharedValue(0);
   const wasPinned = useSharedValue(false);
-  const [catPinned, setCatPinned] = useState(false);
   const lastScrollY = useSharedValue(0);
   // Home stays mounted when another tab is on screen (no freezeOnBlur), so
   // anything holding a scarce resource — video decoders — must pause on blur
@@ -443,7 +444,11 @@ export default function HomeScreen() {
       if (nowPinned !== wasPinned.value) {
         wasPinned.value = nowPinned;
         pinP.value = withTiming(nowPinned ? 1 : 0, { duration: 220 });
-        runOnJS(setCatPinned)(nowPinned);
+        // No runOnJS here any more. setCatPinned lived in THIS handler and its
+        // only consumer was the StatusBar style — but the setState re-rendered
+        // the whole 3000-line HomeScreen at exactly the Category→Steals scroll
+        // boundary, which was the hero's boundary jitter. The status bar now
+        // flips inside its own tiny component (HomeStatusBarFlip below).
       }
     },
   });
@@ -502,6 +507,10 @@ export default function HomeScreen() {
   // this push-down, so they stay perfectly in sync.
   const playExpand = useSharedValue(0);
   const feedPushStyle = useAnimatedStyle(() => ({ transform: [{ translateY: playExpand.value * (OPEN_PH - CLOSED_PH) }] }));
+  // Content-y of the feedPush container — LazySections inside it measure y
+  // relative to IT, not the scroll content, so they add this base. The translateY
+  // transform above doesn't affect layout, so onLayout y stays valid.
+  const feedBaseY = useSharedValue(0);
 
   // ─── EXPLORE MORE state — infinite scroll + filters ───
   const [exploreFilter, setExploreFilter] = useState<'ALL' | 'Tops' | 'Bottomwear' | 'Footwear' | 'Accessories' | 'Dresses'>('ALL');
@@ -595,9 +604,11 @@ export default function HomeScreen() {
   const scrollResumeT = useRef<any>(null);
   const markScrollStart = () => {
     scrollingRef.current = true;
-    // Hide the floating search bar the moment scrolling starts.
+    // Hide the floating search bar the moment scrolling starts (visual only —
+    // the state flip is DEFERRED so it can't re-render the whole screen on the
+    // first frame of every drag, which read as a jerk at scroll start).
     floatSearch.value = withTiming(0, { duration: 140 });
-    if (floatSearchOn) setFloatSearchOn(false);
+    if (floatSearchOn) InteractionManager.runAfterInteractions(() => setFloatSearchOn(false));
     if (scrollResumeT.current) clearTimeout(scrollResumeT.current);
     if (menuRevealT.current) clearTimeout(menuRevealT.current);
   };
@@ -693,7 +704,7 @@ export default function HomeScreen() {
           a transparent header overlaid on it, so status bar icons stay legible over
           the photo. (Was adaptive per night mode; the old dark/light logic is
           commented below in case the hero goes back to a white top section.) */}
-      <StatusBar barStyle={catPinned ? 'dark-content' : 'light-content'} />
+      <HomeStatusBarFlip scrollY={lastScrollY} boundaryY={catSectionY} />
       {/* <StatusBar barStyle={night ? 'light-content' : 'dark-content'} /> */}
 
       {/* ═══ ADAPTIVE-TINT STRIP behind the status bar — commented out per redesign
@@ -717,6 +728,12 @@ export default function HomeScreen() {
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 120 }}
           overScrollMode="never"
+          // Long, loose glide: one flick carries far down the page. The default
+          // deceleration made the page feel "tight" — momentum died after a
+          // section or two. No edge bounce anywhere.
+          bounces={false}
+          alwaysBounceVertical={false}
+          decelerationRate={0.992}
           showsVerticalScrollIndicator={false}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
@@ -785,7 +802,7 @@ export default function HomeScreen() {
                     </>
                   ) : (
                     <>
-                      <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>{headerSection.title ?? 'TRENDZO'}</Text>
+                      <TrendzoLogo height={20} />
                       {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line.
                           Still editorial copy, not a live estimate: nothing measures it. Making it
                           CMS-editable at least means ops can correct it without a release. */}
@@ -816,7 +833,10 @@ export default function HomeScreen() {
                 <Text style={[T.body, { flex: 1, color: '#fff' }]}>
                   {cmsLoading ? '' : str(headerSection.config, 'searchPlaceholder', 'Search 60-min drops...')}
                 </Text>
-                <RealIcon name="mic" size={16} color="#fff" />
+                {/* Was a bare icon — not tappable at all. Voice input rides the
+                    keyboard's own mic key, so this opens Search focused. */}
+                <Pressable onPress={() => openSearch(heroSearchRef)} hitSlop={8}>
+                </Pressable>
                 <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
                   <RealIcon name="camera" size={16} color="#fff" />
                 </Pressable>
@@ -891,7 +911,9 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         {cmsLoading ? null : (
-        <>
+        // Culled when off-screen (see LazySection). Note the FlashTimer-style fake
+        // countdown inside restarts on remount — it is editorial, not a real clock.
+        <LazySection scrollY={lastScrollY}>
         <SectionHead title={stealsSection.title ?? 'STEALS'} action={stealsSection.ctaLabel ?? 'ALL'} onAction={() => nav.navigate('Steals')} hideCaret hideBottomDivider />
         <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
           {(() => {
@@ -935,7 +957,7 @@ export default function HomeScreen() {
             );
           })()}
         </View>
-        </>
+        </LazySection>
         )}
 
         {/*
@@ -944,8 +966,11 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         {/* Both self-hide when they have no items, so they need no extra gate — an unconfirmed
-            payload yields empty sections and they render nothing. */}
-        <TopStories nav={nav} gender={cmsGender} section={storiesSection} />
+            payload yields empty sections and they render nothing. Culling also stops
+            the carousel's auto-advance interval while it is off-screen. */}
+        <LazySection scrollY={lastScrollY}>
+          <TopStories nav={nav} gender={cmsGender} section={storiesSection} />
+        </LazySection>
 
         {cmsLoading ? null : (
           <ReelsForYouSection
@@ -964,6 +989,7 @@ export default function HomeScreen() {
         ║  SHOP BY OCCASION — seasonal hero + card row  ║
         ╚══════════════════════════════════════════════╝
         */}
+        <LazySection scrollY={lastScrollY}>
         <View style={{ marginTop: SP.xl }}>
           {(() => {
             const bg = resolveConfigMedia(occasionSection.config, 'backgroundAssetKey', 'backgroundImageUrl', IMG.hero);
@@ -1010,13 +1036,16 @@ export default function HomeScreen() {
             );
           })()}
         </View>
+        </LazySection>
 
         {/*
         ╔══════════════════════════════════════════════╗
         ║  FLASH FIT OF THE DAY — bundle grid (fit)     ║
         ╚══════════════════════════════════════════════╝
         */}
-        <FlashFitBundle section={flashFitSection} onOpen={() => nav.navigate('FlashFit')} />
+        <LazySection scrollY={lastScrollY}>
+          <FlashFitBundle section={flashFitSection} onOpen={() => nav.navigate('FlashFit')} />
+        </LazySection>
 
         {/* ═══════════ SHOP BY VIBE — commented out for now (redesign request).
             Kept intact below so it can be restored later; not deleted.
@@ -1039,7 +1068,7 @@ export default function HomeScreen() {
         </View>
         ═══════════ */}
 
-        <Animated.View style={feedPushStyle}>
+        <Animated.View style={feedPushStyle} onLayout={(e) => { feedBaseY.value = e.nativeEvent.layout.y; }}>
         {tailMounted && (<>
 
         {/*
@@ -1048,6 +1077,7 @@ export default function HomeScreen() {
         ╚══════════════════════════════════════════════╝
         */}
         {cmsLoading ? null : (
+        <LazySection scrollY={lastScrollY} baseY={feedBaseY}>
         <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
           {/* centred section heading (like Shop by Occasion) */}
           <View style={{ alignItems: 'center', marginBottom: SP.m }}>
@@ -1075,6 +1105,7 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+        </LazySection>
         )}
 
         {/*
@@ -1082,6 +1113,11 @@ export default function HomeScreen() {
         ║  EXPLORE MORE — Filters + infinite product grid ║
         ╚══════════════════════════════════════════════╝
         */}
+        {/* Culled like the rest — the biggest single block on the page (20+ product
+            cards per page). Load-more only fires near the bottom, where this is
+            live by definition, and the frozen placeholder keeps contentSize stable
+            so maybeLoadMoreExplore's metrics are unaffected while it is culled. */}
+        <LazySection scrollY={lastScrollY} baseY={feedBaseY}>
         <View>
           {/* heading with Sort & Filter controls on the right */}
           <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, marginBottom: SP.m }}>
@@ -1176,6 +1212,7 @@ export default function HomeScreen() {
             )}
           </View>
         </View>
+        </LazySection>
 
         {/* ═══════════ FOOTER ═══════════ */}
         {cmsLoading ? null : (
@@ -1189,11 +1226,14 @@ export default function HomeScreen() {
         </AnimatedScrollView>
 
         {/* Viewport fades — content appears to emerge at the top and dissolve at
-            the bottom while scrolling. Non-interactive. */}
-        <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: 54 }, topFadeStyle]}>
+            the bottom while scrolling. Non-interactive. The status-bar band is
+            SOLID white (content scrolled straight under the clock/battery icons
+            and collided with them); the fade starts below the bar. */}
+        <Animated.View pointerEvents="none" style={[{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 44 }, topFadeStyle]}>
+          <View style={{ height: insets.top, backgroundColor: '#FFFFFF' }} />
           <LinearGradient
-            colors={['rgba(255,255,255,0.9)', 'rgba(255,255,255,0)']}
-            style={StyleSheet.absoluteFillObject}
+            colors={['rgba(255,255,255,0.95)', 'rgba(255,255,255,0)']}
+            style={{ flex: 1 }}
           />
         </Animated.View>
         <LinearGradient
@@ -1211,7 +1251,9 @@ export default function HomeScreen() {
           <AnimatedPressable ref={floatSearchRef} onPress={() => openSearch(floatSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white }, curveStyle]}>
             <RealIcon name="search" size={20} color={C.ink} />
             <Text style={[T.body, { flex: 1, color: C.dim }]}>Search 60-min drops...</Text>
-            <RealIcon name="mic" size={16} color={C.ink} />
+            {/* Was a bare icon — see the hero bar's mic note. */}
+            <Pressable onPress={() => openSearch(floatSearchRef)} hitSlop={8}>
+            </Pressable>
             <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
               <RealIcon name="camera" size={16} color={C.ink} />
             </Pressable>
@@ -1237,6 +1279,77 @@ export default function HomeScreen() {
         onSelect={(v) => { setExploreSort(v as typeof exploreSort); setSortSheet(false); }}
         onClose={() => setSortSheet(false)}
       />
+    </View>
+  );
+}
+
+// ─── STATUS-BAR FLIP — isolated so the light↔dark icon flip at the category
+//     boundary re-renders ONLY this (a <StatusBar/> and nothing else), not the
+//     whole HomeScreen. The full-page re-render at that exact scroll offset was
+//     the hero's Category→Steals boundary jitter. ───
+function HomeStatusBarFlip({ scrollY, boundaryY }: {
+  scrollY: SharedValue<number>;
+  boundaryY: SharedValue<number>;
+}) {
+  const [dark, setDark] = useState(false);
+  useAnimatedReaction(
+    () => scrollY.value >= boundaryY.value - 1,
+    (pinned, prev) => { if (pinned !== prev) runOnJS(setDark)(pinned); },
+    [],
+  );
+  return <StatusBar barStyle={dark ? 'dark-content' : 'light-content'} />;
+}
+
+// ─── LAZY SECTION — viewport culling for Home's below-fold sections ───
+// Home is ONE ScrollView with removeClippedSubviews={false} (see the note on the
+// scroll props), so every section is drawn on EVERY frame no matter how far
+// off-screen — measured on a Galaxy A34, a fling produced a frame only every
+// ~42ms (~24fps), ~30ms of it render-thread sync and ~22ms GPU. This wrapper is
+// the same viewport gate ReelsForYouSection already uses, generalised: children
+// render only within ±1–2 screens of the viewport; culled sections leave behind
+// a fixed-height placeholder so the content size, sibling onLayout y's
+// (catSectionY etc.) and the scroll position never shift.
+//
+// The comparison runs as a worklet and runOnJS fires only on a crossing, so it
+// costs nothing per scroll frame. Sections start LIVE and cull only after their
+// first real onLayout (h.value guard) — first paint is exactly as before.
+// `baseY` is for sections whose parent is not the scroll content itself (the
+// feedPush Animated.View): their onLayout y is parent-relative, so the parent's
+// own content y is added.
+function LazySection({ scrollY, baseY, children }: {
+  scrollY: SharedValue<number>;
+  baseY?: SharedValue<number>;
+  children: React.ReactNode;
+}) {
+  const [live, setLive] = useState(true);
+  // Last height measured while live — becomes the placeholder height on cull.
+  const liveH = useRef(0);
+  const [ph, setPh] = useState(0);
+  const y = useSharedValue(0);
+  const h = useSharedValue(0);
+  const flip = (vis: boolean) => {
+    if (!vis) setPh(liveH.current);
+    setLive(vis);
+  };
+  useAnimatedReaction(
+    () => {
+      if (h.value === 0) return true; // unmeasured — never cull before first layout
+      const top = (baseY ? baseY.value : 0) + y.value;
+      return top + h.value > scrollY.value - SCREEN_H && top < scrollY.value + SCREEN_H * 2;
+    },
+    (vis, prev) => { if (vis !== prev) runOnJS(flip)(vis); },
+    [],
+  );
+  return (
+    <View
+      onLayout={(e) => {
+        y.value = e.nativeEvent.layout.y;
+        h.value = e.nativeEvent.layout.height;
+        if (live) liveH.current = e.nativeEvent.layout.height;
+      }}
+      style={live ? undefined : { height: ph }}
+    >
+      {live ? children : null}
     </View>
   );
 }
@@ -1324,6 +1437,7 @@ function ExploreCard({
   herImg,
   himImg,
   progress,
+  dirSign,
   active,
   w,
   h,
@@ -1335,6 +1449,9 @@ function ExploreCard({
   herImg: MediaSource | null;
   himImg: MediaSource | null;
   progress: SharedValue<number>;
+  /** +1 = incoming art enters from the RIGHT, -1 = from the LEFT — set per flip
+   *  from the swipe direction, so the conveyor always follows the finger. */
+  dirSign: SharedValue<number>;
   active: 'her' | 'him';
   w: number;
   h: number;
@@ -1346,13 +1463,18 @@ function ExploreCard({
   // the box on top.
   // onZoom: measure the tile's on-screen frame and hand it to the caller so
   // the CategoryZoom hero-morph can take off from EXACTLY this rect.
+  // measureToRoot, NOT raw measureInWindow: raw window-y may or may not include
+  // the status bar depending on the Android device, which made the morph take
+  // off and land a status-bar height ABOVE the tapped card. The provider-root
+  // normalisation is the same one product-card zooms already use.
   const boxRef = useRef<View>(null);
+  const { measureToRoot } = useZoom();
   const handlePress = () => {
     if (!onZoom) return onPress();
     const node = boxRef.current;
     if (!node) return onPress();
-    node.measureInWindow((x, y, mw, mh) => {
-      if (mw && mh) onZoom({ x, y, w: mw, h: mh });
+    measureToRoot(node, (f) => {
+      if (f) onZoom(f);
       else onPress();
     });
   };
@@ -1360,9 +1482,13 @@ function ExploreCard({
   // Only one rail's art resolved — nothing to crossfade, so render it plainly.
   const single = herImg === null || himImg === null;
 
-  // Conveyor: HIM sits at rest and slides out left; HER waits off to the right and slides in.
-  const himStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -w * progress.value }] }));
-  const herStyle = useAnimatedStyle(() => ({ transform: [{ translateX: w * (1 - progress.value) }] }));
+  // Conveyor, direction-aware: the incoming tile enters from dirSign's side and
+  // the outgoing one exits through the opposite edge. dirSign is flipped at
+  // flip time (see flipGender) so the same formulas serve both travel
+  // directions — swipe left brings art in from the right, swipe right from the
+  // left, and repeated same-direction swipes always enter from the same side.
+  const himStyle = useAnimatedStyle(() => ({ transform: [{ translateX: -dirSign.value * w * progress.value }] }));
+  const herStyle = useAnimatedStyle(() => ({ transform: [{ translateX: dirSign.value * w * (1 - progress.value) }] }));
 
   const ink = C.ink;
   const inkClear = `${ink}00`;
@@ -1425,70 +1551,6 @@ function ExploreCard({
         </View>
       )}
     </Pressable>
-  );
-}
-
-// ─── GENDER PULL TAB — elastic drag-to-switch, stuck to the right edge of the
-// category section. Pull it left like a rubber band: it stretches with real
-// resistance (the further you pull, the harder it fights), and on release it
-// snaps back with a bouncy spring. Pull past ~half the travel → flips HIM/HER.
-function GenderPullTab({ him, onFlip }: { him: boolean; onFlip: () => void }) {
-  const tx = useSharedValue(0);      // rubber-banded pull distance (0 … -LIMIT)
-  const boxW = useSharedValue(80);   // measured tab width — needed to pin the right edge
-  const LIMIT = 96; // max visual travel — the rubber band asymptotes here
-  const buzz = () => Vibration.vibrate(8);
-  const pan = Gesture.Pan()
-    // Horizontal pulls only — vertical moves stay with the page scroll.
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-14, 14])
-    .onUpdate((e) => {
-      const mag = Math.max(0, -e.translationX); // only pull LEFT (outward)
-      // Rubber-band resistance: displacement asymptotes toward LIMIT.
-      tx.value = -(LIMIT * mag) / (mag + LIMIT);
-    })
-    .onEnd((e) => {
-      // Two ways to flip, like real elastic:
-      //  • a NORMAL steady pull past ~55% of the stretch, or
-      //  • a STRONG fast yank (high leftward velocity) even if shorter.
-      // Tiny idle tugs still just bounce back.
-      const strongYank = e.velocityX < -900 && tx.value <= -LIMIT * 0.28;
-      const willFlip = tx.value <= -LIMIT * 0.55 || strongYank;
-      if (willFlip) runOnJS(buzz)(); // instant haptic acknowledgement
-      // Smooth springy snap-back — softer spring so the return to normal reads
-      // as a relaxed glide (~0.8s) rather than a hard snap; the gender flip fires
-      // only in the spring's completion callback, i.e. strictly AFTER it settles.
-      tx.value = withSpring(0, { damping: 17, stiffness: 200, mass: 0.9 }, (finished) => {
-        if (willFlip && finished) runOnJS(onFlip)();
-      });
-    });
-  // The tab does NOT move — its right edge stays glued to the screen edge and
-  // the body STRETCHES leftward (scale around the pinned right edge), so the
-  // pull reads as forcing a stuck piece of elastic, never a sliding box.
-  const boxStyle = useAnimatedStyle(() => {
-    const mag = -tx.value;
-    const s = 1 + mag / boxW.value;          // left edge extends exactly by the pull
-    const p = Math.min(1, mag / LIMIT);
-    return {
-      transform: [
-        { translateX: -(boxW.value * (s - 1)) / 2 }, // re-pin the RIGHT edge while scaling
-        { scaleX: s },
-        { scaleY: 1 - p * 0.14 },                    // thins as it strains, like real rubber
-      ],
-    };
-  });
-  return (
-    <GestureDetector gesture={pan}>
-      <Animated.View
-        onLayout={(e) => { boxW.value = e.nativeEvent.layout.width; }}
-        style={[{ position: 'absolute', right: -SP.l, bottom: 0 }, boxStyle]}
-      >
-        {/* fixed width — the HER↔HIM label swap must not relayout mid-bounce */}
-        <View style={{ width: 96, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.ink, paddingVertical: 10, paddingLeft: 10, paddingRight: SP.l + 4 }}>
-          <Feather name="chevrons-left" size={14} color={C.white} />
-          <Text style={[T.caption, { color: C.white, fontFamily: HELV, fontWeight: '700', letterSpacing: 0.5 }]} numberOfLines={1}>{him ? 'HER' : 'HIM'}</Text>
-        </View>
-      </Animated.View>
-    </GestureDetector>
   );
 }
 
@@ -1557,6 +1619,11 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
   // item when set, so a new card brings its own instead of inheriting whatever ZOOM_TINTS
   // happened to sit at its index.
   const goZoom = (c: (typeof cats)[number], i: number) => (frame: { x: number; y: number; w: number; h: number }) =>
+    // The frame arrives from ExploreCard's measureToRoot ALREADY in the zoom
+    // root's space — the one and only coordinate correction. Do NOT rebase it
+    // again here: stacking rebaseFrame on top shifted every flight down by
+    // exactly one status-bar height (the "opens/closes a little below the
+    // tile" bug, twice).
     nav.navigate('CategoryZoom', {
       label: c.label,
       // The ACTIVE rail's art, so the hero-morph takes off from what is actually on screen.
@@ -1567,11 +1634,31 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
   const EX_CW = (W - SP.l * 2 - EX_GAP * 2) / 3; // 3 columns
   const EX_H = Math.round(EX_CW * 1.32);         // every card uses the same image height
   const him = gender === 'him';
-  const flipGender = () => {
+  // Conveyor entry side: +1 = incoming art enters from the right, -1 from the
+  // left. The button uses +1; a swipe passes the side the finger came from.
+  const dirSign = useSharedValue(1);
+  // dir = edge the NEW content should enter from. The conveyor formulas run on
+  // `progress` in a fixed him↔her direction, so the sign flips for the 1→0
+  // (her→him) transition to keep the art entering through the requested edge.
+  const flipGenderDir = (dir: 1 | -1) => {
     const next = him ? 'her' : 'him';
+    dirSign.value = next === 'her' ? dir : -dir;
     curveProgress.value = withSpring(next === 'her' ? 1 : 0, GENDER_SPRING);
     setGenderFromDrag(next);
   };
+  const flipGender = () => flipGenderDir(1);
+  // Swipe anywhere over the grid to flip — fires on finger LIFT (mid-drag
+  // re-render dropped frames), direction-aware: swipe left brings the next
+  // set in from the right and vice versa. Vertical movement fails instantly
+  // so page scroll is untouched; taps still land on the cards. The VIEW
+  // HIM/HER button below stays as the discoverable affordance.
+  const swipeFlip = Gesture.Pan()
+    .activeOffsetX([-16, 16])
+    .failOffsetY([-14, 14])
+    .onEnd((e) => {
+      const v = e.velocityX !== 0 ? e.velocityX : e.translationX;
+      runOnJS(flipGenderDir)(v < 0 ? 1 : -1);
+    });
   // Headline is authored as one string with newlines; each line keeps its own hand-tuned
   // highlighter geometry below, which is layout rather than content.
   const headlineLines = (section.title ?? '').split('\n').filter(Boolean);
@@ -1582,11 +1669,12 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
     { left: 10, right: -10 },
   ];
   return (
+    <GestureDetector gesture={swipeFlip}>
     <View style={{ paddingHorizontal: SP.l, paddingTop: SP.m }}>
       {/* Row 1 — three cards (static, always mounted → no reload on open) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP }}>
         {cats.slice(0, 3).map((c, i) => (
-          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i)} />
+          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} dirSign={dirSign} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i)} />
         ))}
       </View>
 
@@ -1594,7 +1682,7 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
           The "View <other>" button switches gender. */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: EX_GAP, marginTop: SP.l }}>
         {cats[3] ? (
-          <ExploreCard herLabel={cats[3].herLabel} himLabel={cats[3].himLabel} herImg={cats[3].herImg} himImg={cats[3].himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(cats[3]!.item!, cats[3]!.label)} onZoom={goZoom(cats[3], 3)} />
+          <ExploreCard herLabel={cats[3].herLabel} himLabel={cats[3].himLabel} herImg={cats[3].herImg} himImg={cats[3].himImg} progress={curveProgress} dirSign={dirSign} active={gender} w={EX_CW} h={EX_H} onPress={() => go(cats[3]!.item!, cats[3]!.label)} onZoom={goZoom(cats[3], 3)} />
         ) : (
           <View style={{ width: EX_CW, height: EX_H }} />
         )}
@@ -1615,18 +1703,32 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
               );
             })}
           </View>
-          {/* Elastic pull-tab stuck to the right edge — drag & release to flip gender. */}
-          <GenderPullTab him={him} onFlip={flipGender} />
+          {/* Swipe affordance — the gesture is invisible without a hint. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: SP.s }}>
+            <Feather name="chevrons-left" size={12} color={C.dim} />
+            <Text style={[T.micro, { color: C.dim, textTransform: 'uppercase', letterSpacing: 1 }]}>Swipe to switch</Text>
+            <Feather name="chevrons-right" size={12} color={C.dim} />
+          </View>
         </View>
       </View>
 
       {/* Row 3 — three cards (static) */}
       <View style={{ flexDirection: 'row', gap: EX_GAP, marginTop: SP.m }}>
         {cats.slice(4, 7).map((c, i) => (
-          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i + 4)} />
+          <ExploreCard key={c.key} herLabel={c.herLabel} himLabel={c.himLabel} herImg={c.herImg} himImg={c.himImg} progress={curveProgress} dirSign={dirSign} active={gender} w={EX_CW} h={EX_H} onPress={() => go(c.item!, c.label)} onZoom={goZoom(c, i + 4)} />
         ))}
       </View>
+
+      {/* Gender switch — the section's own full-width CTA, standard app button. */}
+      <BrutalButton
+        label={him ? 'VIEW HER' : 'VIEW HIM'}
+        iconRight="refresh-cw"
+        onPress={flipGender}
+        block
+        style={{ marginTop: SP.l }}
+      />
     </View>
+    </GestureDetector>
   );
 }
 
@@ -1912,9 +2014,19 @@ function Marquee({ text }: { text: string }) {
   // and the Bag. Cancel it on blur.
   useFocusEffect(useCallback(() => {
     if (!segW) return;
-    tx.value = 0;
-    tx.value = withRepeat(withTiming(-segW, { duration: segW * 22, easing: Easing.linear }), -1, false);
-    return () => { cancelAnimation(tx); };
+    // Deferred start: with freezeOnBlur on the tabs, the focus event fires while
+    // the screen is still thawing — starting the repeat in the same tick left the
+    // ticker permanently stuck after returning from another tab or a pushed
+    // screen. Waiting for interactions (and one more frame) starts it only once
+    // the screen is live again and the nav transition is done.
+    let raf = 0;
+    const task = InteractionManager.runAfterInteractions(() => {
+      raf = requestAnimationFrame(() => {
+        tx.value = 0;
+        tx.value = withRepeat(withTiming(-segW, { duration: segW * 22, easing: Easing.linear }), -1, false);
+      });
+    });
+    return () => { task.cancel(); cancelAnimationFrame(raf); cancelAnimation(tx); };
   }, [segW, tx]));
   const style = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
   const seg = (
@@ -2494,8 +2606,16 @@ function PortraitReelCard({ img, video, active, label, onPress }: {
 }) {
   return (
     <Pressable onPress={onPress} style={{ width: REEL_PORTRAIT_W, height: REEL_PORTRAIT_H, overflow: 'hidden', backgroundColor: '#111' }}>
-      {video ? (
-        <LocalReelPreview source={video} active={!!active} />
+      {/* MOUNT the player only while it is actually playing. It used to render
+          <LocalReelPreview> whenever `video` existed and merely pause() it off-screen
+          — but a paused expo-video still holds its ExoPlayer + a native surface, and
+          Android re-composites that surface on EVERY scroll frame. With Home's
+          ScrollView on removeClippedSubviews={false} nothing detaches, so two idle
+          decoders sat in the tree hitching the whole page. Unmounting releases both.
+          The viewport gate has a full screen of slack, so this remounts well before
+          the tile is ever visible. */}
+      {active && video ? (
+        <LocalReelPreview source={video} active />
       ) : img ? (
         <CachedImage source={img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
       ) : null}
@@ -2508,7 +2628,7 @@ function PortraitReelCard({ img, video, active, label, onPress }: {
 }
 
 /** Icons for the delivery banner's chips, matched by position. Visual language, not content. */
-const REEL_CHIP_ICONS = ['heart', 'zap', 'rotate-ccw'] as const;
+const REEL_CHIP_ICONS = ['heart', 'map-pin', 'rotate-ccw'] as const;
 
 /** Two hexes from a "#aaa,#bbb" config string, falling back when it is missing or malformed. */
 function gradientPair(raw: string, fallback: readonly [string, string]): readonly [string, string] {
@@ -2534,7 +2654,13 @@ function ReelDeliveryBanner({ her, section, onPress }: { her: boolean; section: 
           </View>
           <View style={{ flex: 1, height: 42, marginLeft: SP.s, justifyContent: 'center' }}>
             <Text style={[T.h3, { fontFamily: 'Inter_900Black', color: fg }]}>{section.title ?? '60-Minute Delivery'}</Text>
-            <Text numberOfLines={1} style={[T.micro, { color: 'rgba(0,0,0,0.6)', marginTop: 1 }]}>{section.subtitle ?? ''}</Text>
+            {/* TEMP copy fix-up until the CMS row is updated: the served subtitle
+                is the old "Your style. Now, not later." — replaced with a line
+                that actually sells the promise. Loose match so punctuation
+                variants are caught. */}
+            <Text numberOfLines={1} style={[T.micro, { color: 'rgba(0,0,0,0.6)', marginTop: 1 }]}>
+              {/not later/i.test(section.subtitle ?? '') ? 'Wear it within the hour' : section.subtitle ?? ''}
+            </Text>
           </View>
           <View style={{ height: 42, backgroundColor: '#111', paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Text style={[T.caption, { color: '#fff' }]}>{section.ctaLabel ?? 'SHOP NOW'}</Text>
@@ -2548,7 +2674,13 @@ function ReelDeliveryBanner({ her, section, onPress }: { her: boolean; section: 
           {section.items.map((chip, i) => (
             <View key={chip.key} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, borderLeftWidth: i ? 1 : 0, borderLeftColor: divider }}>
               <Feather name={(REEL_CHIP_ICONS[i % REEL_CHIP_ICONS.length] ?? 'check') as any} size={10} color={fg} />
-              <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '400', fontSize: rf(10), color: fg }}>{str(chip.content, 'label')}</Text>
+              {/* TEMP: server still says "Lightning Fast" — meaningless next to a
+                  60-minute headline; Live Tracking is the real value prop. Loose
+                  match so punctuation/case variants are caught too. Delete once
+                  the CMS row is updated. */}
+              <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '400', fontSize: rf(10), color: fg }}>
+                {/lightning/i.test(str(chip.content, 'label')) ? 'Live Tracking' : str(chip.content, 'label')}
+              </Text>
             </View>
           ))}
         </View>
@@ -2571,7 +2703,15 @@ function ReelsForYouSection({ nav, gender, scrollY, focused, features, previews,
   // Only two tiles render, so only the first two clips are resolved — the section allows at
   // most two anyway, and pulling more would mount video decoders nothing displays.
   const activeReels = useMemo(
-    () => previews.items.slice(0, 2).map((item) => ({ item, source: resolveVideo(item) })),
+    () => previews.items.slice(0, 2).map((item) => ({
+      item,
+      source: resolveVideo(item),
+      // Still shown while the clip is unmounted. Only an UPLOADED image works here:
+      // for a bundled clip resolveMedia falls through to the same assetKey and would
+      // hand back the .mp4 itself, which is not a valid image source. Without one the
+      // tile is the card's own #111, which is what sits behind the clip anyway.
+      poster: item.imageUrl ? resolveMedia(item, IMG.card) : null,
+    })),
     [previews.items],
   );
   const featureItems = features.items.slice(0, 2);
@@ -2580,17 +2720,28 @@ function ReelsForYouSection({ nav, gender, scrollY, focused, features, previews,
   // Home's scroll offset on the UI thread; `runOnJS` fires only on a crossing,
   // not on every scroll frame, so this costs nothing while scrolling past.
   const [inView, setInView] = useState(false);
+  const inViewTimer = useRef<any>(null);
+  // Defined BEFORE the reaction below — its worklet closure captures this
+  // function at render time (defining it after crashed with a TDZ error).
+  const setInViewDeferred = (visible: boolean) => {
+    if (inViewTimer.current) { clearTimeout(inViewTimer.current); inViewTimer.current = null; }
+    if (!visible) { setInView(false); return; }
+    // Mount the players ~260ms AFTER the boundary crossing — ExoPlayer
+    // creation is a main-thread hit that used to land exactly mid-momentum.
+    inViewTimer.current = setTimeout(() => setInView(true), 260);
+  };
   const rowY = useSharedValue(Number.MAX_SAFE_INTEGER);
   const rowH = useSharedValue(0);
   useAnimatedReaction(
     () => {
       const top = rowY.value;
       const bottom = top + rowH.value;
-      // One screen of slack on each side so playback starts a beat before the
-      // tiles slide in rather than popping the first frame at the boundary.
-      return bottom > scrollY.value - SCREEN_H && top < scrollY.value + SCREEN_H * 2;
+      // Tight window: playback starts only when the tiles are ABOUT to enter
+      // (~40% of a screen away). The old two-screen look-ahead spun both video
+      // decoders up mid-scroll, which was the jerk on approach.
+      return bottom > scrollY.value - SCREEN_H * 0.3 && top < scrollY.value + SCREEN_H * 1.4;
     },
-    (visible, prev) => { if (visible !== prev) runOnJS(setInView)(visible); },
+    (visible, prev) => { if (visible !== prev) runOnJS(setInViewDeferred)(visible); },
     [],
   );
   const playing = focused && inView;
@@ -2653,6 +2804,7 @@ function ReelsForYouSection({ nav, gender, scrollY, focused, features, previews,
               <PortraitReelCard
                 key={reel.item.key}
                 video={reel.source}
+                img={reel.poster}
                 active={playing}
                 onPress={() => openSelectedReel(i)}
               />

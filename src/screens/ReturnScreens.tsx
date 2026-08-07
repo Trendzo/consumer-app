@@ -219,19 +219,26 @@ export function OrderReturnScreen() {
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: 80 }}>
           {/* Step rail */}
-          <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, marginTop: SP.l }}>
+          {/* Circles joined by FLEX connector segments — the old rail drew the
+              lines with negative-percentage absolute offsets, which rendered
+              across the number circles on some devices. */}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: SP.l, marginTop: SP.l, justifyContent: 'center' }}>
             {['Order', 'Items', 'Reason'].map((label, i) => {
               const active = i === stepIndex;
               const done = i < stepIndex;
               const reached = active || done;
               return (
-                <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                  {i > 0 && <View style={{ position: 'absolute', top: 13, right: '50%', left: '-50%', height: 2, backgroundColor: reached ? C.ink : C.hairline }} />}
-                  <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: reached ? C.ink : '#fff' }, BORDER(1)]}>
-                    {done ? <Feather name="check" size={13} color="#fff" /> : <Text style={[T.micro, { color: active ? '#fff' : C.dim }]}>{i + 1}</Text>}
+                <React.Fragment key={label}>
+                  {i > 0 && (
+                    <View style={{ flex: 1, height: 2, backgroundColor: reached ? C.ink : C.hairline, marginTop: 13, marginHorizontal: 6, maxWidth: 90 }} />
+                  )}
+                  <View style={{ alignItems: 'center', width: 72 }}>
+                    <View style={[{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: reached ? C.ink : '#fff' }, BORDER(1)]}>
+                      {done ? <Feather name="check" size={13} color="#fff" /> : <Text style={[T.micro, { color: active ? '#fff' : C.dim }]}>{i + 1}</Text>}
+                    </View>
+                    <Text style={[T.micro, { color: reached ? C.ink : C.dim, marginTop: 6, textTransform: 'uppercase' }]}>{label}</Text>
                   </View>
-                  <Text style={[T.micro, { color: reached ? C.ink : C.dim, marginTop: 6, textTransform: 'uppercase' }]}>{label}</Text>
-                </View>
+                </React.Fragment>
               );
             })}
           </View>
@@ -275,7 +282,7 @@ export function OrderReturnScreen() {
                       <View style={{ flexDirection: 'row', alignItems: 'center', padding: SP.m, gap: SP.m }}>
                         <View style={[{ width: 44, height: 56, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                           {primary?.image
-                            ? <CachedImage source={{ uri: primary.image }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                            ? <CachedImage source={{ uri: primary.image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                             : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Feather name="shopping-bag" size={16} color={C.dim} /></View>}
                         </View>
                         <View style={{ flex: 1 }}>
@@ -316,7 +323,7 @@ export function OrderReturnScreen() {
                         <Pressable onPress={() => toggle(it.id)} style={[{ marginTop: SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white, flexDirection: 'row', alignItems: 'center', gap: SP.m }, BORDER(1)]}>
                           <View style={[{ width: 48, height: 60, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                             {it.galleryImageSnap
-                              ? <CachedImage source={{ uri: it.galleryImageSnap }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                              ? <CachedImage source={{ uri: it.galleryImageSnap }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                               : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Feather name="shopping-bag" size={16} color={C.dim} /></View>}
                           </View>
                           <View style={{ flex: 1 }}>
@@ -474,7 +481,7 @@ function OpenReturns({ returns, refreshing, onRefresh }: {
               <View style={{ flexDirection: 'row', gap: SP.m, padding: SP.m }}>
                 <View style={[{ width: 52, height: 66, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                   {r.itemImage
-                    ? <CachedImage source={{ uri: r.itemImage }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    ? <CachedImage source={{ uri: r.itemImage }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                     : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Feather name="shopping-bag" size={18} color={C.dim} /></View>}
                 </View>
                 <View style={{ flex: 1 }}>

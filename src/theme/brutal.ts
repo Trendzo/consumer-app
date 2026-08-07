@@ -2,7 +2,8 @@
 // Reactive palette: C is a Proxy that resolves at access time, so styles
 // built inside components (re-evaluated on `night` toggle) flip instantly.
 
-import { Dimensions, Platform } from 'react-native';
+import { Dimensions, Platform, PixelRatio } from 'react-native';
+import { initialWindowMetrics } from 'react-native-safe-area-context';
 
 // ── Responsive scaling ──────────────────────────────────────────────
 // Baseline 390pt ≈ iPhone 13/14 logical width. On screens NARROWER than
@@ -21,13 +22,33 @@ export const SCREEN = {
   isSmall: SHORT_SIDE < 360,
 };
 
-// Responsive font/size. Damped (0.7) so small screens shrink gently rather
-// than collapsing. Never upscales beyond the tuned baseline size.
+// ── OS font-scale cap ────────────────────────────────────────────────
+// Android's accessibility "Font size" setting multiplies EVERY Text by
+// PixelRatio.getFontScale(). At Large/Huge (1.15–1.3+) the tuned scale
+// blows past its containers and overlaps. Rather than disabling scaling
+// (an accessibility regression), rf() compensates so the EFFECTIVE
+// multiplier never exceeds MAX_FONT_SCALE — text still grows a little
+// with the user's setting, but can no longer break the layout.
+const FONT_SCALE = PixelRatio.getFontScale();
+const MAX_FONT_SCALE = 1.1;
+const FONT_SCALE_COMP = FONT_SCALE > MAX_FONT_SCALE ? MAX_FONT_SCALE / FONT_SCALE : 1;
+
+// Responsive font/size. FULLY proportional below the 390dp baseline — earlier
+// damping (0.7, then 0.85) kept leaving 360dp phones with type that read
+// oversized against their narrower columns, most visibly on the category
+// pages. Never upscales beyond the tuned baseline size.
 export const rf = (size: number) => {
   const ratio = SHORT_SIDE / BASE_WIDTH;
+  const damped = ratio >= 1 ? 1 : ratio;
+  return Math.round(size * damped * FONT_SCALE_COMP);
+};
+
+// Responsive spacing — gentler than rf (0.75 damping): paddings/margins keep
+// their proportions on small screens instead of eating the saved font space.
+const rs = (size: number) => {
+  const ratio = SHORT_SIDE / BASE_WIDTH;
   if (ratio >= 1) return size;
-  const damped = 1 - (1 - ratio) * 0.7;
-  return Math.round(size * damped);
+  return Math.round(size * (1 - (1 - ratio) * 0.75));
 };
 
 export type Palette = {
@@ -91,7 +112,24 @@ export const C: Palette = new Proxy({} as Palette, {
   },
 });
 
-export const SP = { xs: 4, s: 8, m: 12, l: 16, xl: 24, xxl: 32, huge: 48 };
+export const SP = { xs: rs(4), s: rs(8), m: rs(12), l: rs(16), xl: rs(24), xxl: rs(32), huge: rs(48) };
+
+// Header top offset = system inset + breathing room. iOS keeps its tuned 56.
+//
+// The flat "+10" this used to add assumed the note below — that an Android inset is
+// just a ~24-30dp status bar. On a punch-hole device it is not: the inset is inflated
+// to clear the CAMERA. A Galaxy S10e reports a 116px cutout = 38.7dp, so +10 landed
+// every header at 48.7dp — measured on-device, and the reason the Category search bar
+// read as floating well below the status bar instead of sitting in the header.
+//
+// So the gap now tapers: a short inset still gets the full 10dp, a tall one gets as
+// little as 2dp because the inset is already the breathing room. The max() floor
+// keeps the total above the inset itself — drop below it and content slides under
+// the cutout, which on this device means the search button behind the camera.
+const ANDROID_TOP = initialWindowMetrics?.insets.top ?? 24;
+export const HEADER_TOP = Platform.OS === 'ios'
+  ? 56
+  : Math.round(Math.max(ANDROID_TOP + 2, Math.min(ANDROID_TOP + 10, 41)));
 
 export const RADIUS = { none: 0, sm: 0, md: 0, lg: 0 };
 
@@ -154,12 +192,18 @@ export const HAIRLINE = { borderWidth: 1, get borderColor() { return C.hairline;
  * makes `fontWeight` unreliable: Android cannot pick a weight within a family it
  * cannot find, so bold text often rendered regular.
  *
- * `undefined` = the platform default (Roboto), which is what Android was already
- * showing — but now the weights actually resolve. iOS keeps the intended face.
+ * Android now ships the real Helvetica Neue faces as a native XML font family
+ * (see the expo-font plugin config in app.json), so both platforms render the
+ * same family and fontWeight resolves to a true face, not synthetic bolding.
  * Exported so screens stop hardcoding the string inline.
  */
 export const HELV = Platform.select<string | undefined>({
   ios: 'Helvetica Neue',
+  // Android now bundles the real Helvetica Neue faces (Regular/Medium/Bold)
+  // as a native XML font family via the expo-font config plugin (app.json),
+  // so the same family name resolves with true per-weight faces instead of
+  // falling back to Roboto.
+  android: 'Helvetica Neue',
   default: undefined,
 });
 const buildT = (P: Palette) => ({

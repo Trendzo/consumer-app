@@ -30,6 +30,10 @@ export type ToastData = {
   msg?: string;
   icon?: string;
   action?: { label: string; onPress: () => void };
+  /** Screen-bottom offset override. Default 108 clears the tab bar; the PDP
+      passes a smaller value so its "Added to bag" toast lands just below the
+      floating Try On button instead of colliding with it. */
+  bottom?: number;
 } | null;
 
 export type ConfirmData = {

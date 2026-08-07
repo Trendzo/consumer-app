@@ -4,15 +4,17 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect, StackActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
+import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, ProductCard, OptionSheet } from '../components/Brutal';
+import { TrendzoLogo } from '../components/TrendzoLogo';
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
-import { HERO_IMG, HERO_IMG_2 } from '../data/mockData';
 import { ProductGridSkeleton, CatalogEmpty, CatalogError } from '../components/CatalogState';
-import type { Product } from '../data/mockData';
+import type { Product, Category } from '../data/mockData';
 import { listProducts, listCategories, isBackendCategoryId } from '../services/catalog';
+import { resolveAsset } from '../content/media';
 import { openLocationPicker, usePlace } from '../state/location';
 import { placeLabel } from '../services/geo';
 
@@ -41,6 +43,37 @@ const SORT_PARAM: Record<string, 'newest' | 'price_asc' | 'price_desc' | 'rating
   RATING: 'rating',
 };
 
+// Same text shadow the Home hero uses for white copy over photos.
+const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
+
+/**
+ * Category label → the bundled banner art shipped under category-banners/.
+ * Keyword match, not slugs: labels arrive as free text ("Tank Tops", "Mini
+ * Skirts", "Sneakers") from a dozen call sites. Null = no art for this label →
+ * the hero falls back to the ink editorial band, which still matches the app.
+ */
+const bannerFor = (label: string, gender: 'her' | 'him'): number | null => {
+  const l = label.toLowerCase();
+  const pick = (name: string) =>
+    resolveAsset(`category-banners/${gender}/${name}`) ?? resolveAsset(`category-banners/${gender === 'her' ? 'him' : 'her'}/${name}`);
+  if (/dress/.test(l)) return pick('dresses');
+  if (/shoe|sneaker|heel|boot|footwear/.test(l)) return pick('shoes');
+  if (/bag|tote|clutch/.test(l)) return pick('bags');
+  if (/jean|denim|cargo|trouser|pant|bottom|skirt|short/.test(l)) return pick('denim') ?? pick('bottoms');
+  if (/jacket|coat|overshirt|outerwear|hoodie|blazer/.test(l)) return pick('outerwear');
+  if (/jewel|necklace|ring|earring/.test(l)) return pick('jewelry');
+  if (/active|gym|sport|athleisure/.test(l)) return pick('active');
+  if (/swim/.test(l)) return pick('swim');
+  if (/lounge|sleep|night/.test(l)) return pick('lounge');
+  if (/accessor|belt|cap|watch|shade|scarf/.test(l)) return pick('accessories');
+  if (/beauty|makeup|skin/.test(l)) return pick('beauty');
+  if (/ethnic|kurta|traditional/.test(l)) return pick('ethnic');
+  if (/formal|suit/.test(l)) return pick('formal');
+  if (/co-?ord|matching|set/.test(l)) return pick('coords');
+  if (/top|shirt|tee|tank|blouse|polo|sweater|knit/.test(l)) return pick('tops');
+  return pick('tops');
+};
+
 export default function CategoryScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
@@ -66,7 +99,6 @@ export default function CategoryScreen() {
   const [filter, setFilter] = useState('ALL');
   const [sort, setSort] = useState('NEWEST');
   const [grid, setGrid] = useState<2 | 1>(2);
-  const [activeOption, setActiveOption] = useState<string | null>(null);
   const [genderTab, setGenderTab] = useState<'MEN' | 'WOMEN'>('MEN');
   const [sheet, setSheet] = useState<null | 'sort' | 'gender' | 'filter'>(null);
   const insets = useSafeAreaInsets();
@@ -163,6 +195,36 @@ export default function CategoryScreen() {
   const openSheet = (s: 'sort' | 'gender' | 'filter') => setSheet(s);
   const closeSheet = () => setSheet(null);
 
+  // Real category tree for the quick-switch chips under the hero — tapping one
+  // swaps this page in place (setParams re-runs the product effect above).
+  const [chips, setChips] = useState<Category[]>([]);
+  useEffect(() => {
+    let dead = false;
+    listCategories(gender).then((c) => { if (!dead) setChips(c); }).catch(() => {});
+    return () => { dead = true; };
+  }, [gender]);
+
+  // Per-category hero art (bundled webp) — ink band when nothing matches.
+  const bannerArt = isFlash ? null : bannerFor(label, gender);
+  const goBag = () => {
+    nav.dispatch(StackActions.popToTop());
+    setTimeout(() => nav.navigate('Tabs', { screen: 'CartTab' }), 0);
+  };
+
+  // Collapsing header: the hero scrolls AWAY with the list; once it is mostly
+  // gone a compact white bar (logo row + search) slides in and stays pinned.
+  // Slimmer now that the hero carries only the title (search moved to the
+  // pinned bar, kicker dropped in favor of the logo row).
+  const HERO_H = Math.round(H * 0.21) + insets.top;
+  const [compact, setCompact] = useState(false);
+  const compactRef = useRef(false);
+  const onListScroll = useCallback((e: any) => {
+    // Fires only once the hero — its own search bar included — has FULLY
+    // scrolled off-screen, so two search bars are never visible at once.
+    const on = e.nativeEvent.contentOffset.y > HERO_H;
+    if (on !== compactRef.current) { compactRef.current = on; setCompact(on); }
+  }, [HERO_H]);
+
   /**
    * Backend rows, decorated only with what can be derived from them.
    *
@@ -218,13 +280,8 @@ export default function CategoryScreen() {
       /* LIST VIEW — horizontal rows */
       <FadeInUp delay={(i % 6) * 30} style={S.listItem}>
         <Pressable onPress={() => openZoom(zoomRefs.current['l' + p.id], p.img, p, { brand: label })} style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-          <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 160, backgroundColor: C.hairline, borderRightWidth: 1, borderColor: C.hairline }}>
-            <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-            {p.tag && (
-              <View style={[{ position: 'absolute', top: 0, left: 0, paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.ink }]}>
-                <Text style={[T.caption, { color: C.white }]}>{p.tag}</Text>
-              </View>
-            )}
+          <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 160, backgroundColor: C.white, borderRightWidth: 1, borderColor: C.hairline }}>
+            <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
           </View>
           <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
             <View>
@@ -257,18 +314,93 @@ export default function CategoryScreen() {
     )
   ), [grid, label, sort, cardRadius, openZoom]);
 
+  // ═══ HERO — home's visual language: the category's own art, dark scrims,
+  // white type, frosted search. Rendered INSIDE the list so it scrolls away;
+  // the compact pinned bar below takes over. Flash sale keeps its Lottie header.
+  const heroBlock = !isFlash && (
+        <View style={{ height: HERO_H, backgroundColor: C.ink, overflow: 'hidden' }}>
+          {bannerArt !== null && (
+            <CachedImage source={bannerArt} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+          )}
+          <LinearGradient colors={['rgba(0,0,0,0.75)', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0)']} locations={[0, 0.65, 1]} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 90 }} pointerEvents="none" />
+          <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 150 }} pointerEvents="none" />
+
+          {/* Top row — back · logo · grid/list toggle · bag, white over the scrim */}
+          <View style={{ position: 'absolute', top: insets.top + SP.s, left: SP.l, right: SP.l, flexDirection: 'row', alignItems: 'center' }}>
+            <Pressable onPress={() => nav.goBack()} hitSlop={12}>
+              <Feather name="arrow-left" size={22} color="#fff" />
+            </Pressable>
+            <TrendzoLogo height={19} style={{ marginLeft: SP.m }} />
+            <View style={{ flex: 1 }} />
+            <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
+              <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color="#fff" />
+            </Pressable>
+            <Pressable onPress={goBag} hitSlop={10}>
+              <Feather name="shopping-bag" size={20} color="#fff" />
+            </Pressable>
+          </View>
+
+          {/* Title block, bottom-anchored like the home hero. No kicker (the
+              logo already brands the top row) and no in-hero search — search
+              lives in the compact pinned bar that arrives on scroll. */}
+          <View style={{ position: 'absolute', left: SP.l, right: SP.l, bottom: SP.m }}>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={[T.display, { color: '#fff', textTransform: 'uppercase', ...HERO_SHADOW }]}>
+              {label}
+            </Text>
+            <Text style={[T.micro, { color: 'rgba(255,255,255,0.85)', marginTop: 3, ...HERO_SHADOW }]}>
+              {status === 'ready' && sorted.length > 0 ? `${sorted.length} styles · 60-min delivery` : '60-min delivery · door to door'}
+            </Text>
+          </View>
+        </View>
+  );
+
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
       <BrutalStatusBar />
-      {/* ═══ HEADER — exact same as Home: TRENDZO wordmark + location + theme/cart ═══ */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.white }}>
+
+      {/* ═══ COMPACT PINNED BAR — slides in once the hero has scrolled away:
+          just the logo row and the search, white surface like the app's bars. ═══ */}
+      {!isFlash && (
+        <MotiView
+          pointerEvents={compact ? 'auto' : 'none'}
+          from={{ translateY: -160, opacity: 0 }}
+          animate={{ translateY: compact ? 0 : -160, opacity: compact ? 1 : 0 }}
+          transition={{ type: 'timing', duration: 200 }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 30, backgroundColor: C.white, paddingTop: insets.top + 6, paddingBottom: SP.s, paddingHorizontal: SP.l, borderBottomWidth: 1, borderColor: C.hairline }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Pressable onPress={() => nav.goBack()} hitSlop={12}>
+              <Feather name="arrow-left" size={22} color={C.ink} />
+            </Pressable>
+            <TrendzoLogo height={19} tint={C.ink} style={{ marginLeft: SP.m }} />
+            <View style={{ flex: 1 }} />
+            <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
+              <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color={C.ink} />
+            </Pressable>
+            <Pressable onPress={goBag} hitSlop={10}>
+              <Feather name="shopping-bag" size={20} color={C.ink} />
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => nav.navigate('Search')}
+            style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: SP.s, paddingHorizontal: SP.m, paddingVertical: 10, backgroundColor: '#F4F4F4' }, BORDER(1)]}
+          >
+            <Feather name="search" size={16} color={C.ink} />
+            <Text style={[T.body, { flex: 1, color: C.dim }]} numberOfLines={1}>{`Search in ${label}...`}</Text>
+          </Pressable>
+        </MotiView>
+      )}
+
+      {/* ═══ FLASH-SALE HEADER — unchanged: white bar, logo, location, Lottie carts ═══ */}
+      {isFlash && (
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m, backgroundColor: C.white }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, flex: 1 }}>
             <Pressable onPress={() => nav.goBack()} hitSlop={10} style={{ paddingTop: 4 }}>
               <Feather name="arrow-left" size={22} color={C.ink} />
             </Pressable>
             <View>
-              <Text style={[T.h1, { textTransform: 'uppercase' }]}>TRENDZO</Text>
+              <TrendzoLogo height={20} tint={C.ink} style={{ marginTop: 4 }} />
               {/* Same real location as the home header — this said "Bandra, Mumbai 400050"
                   to every shopper. Tapping re-pins it on the map. */}
               <Pressable onPress={openLocationPicker} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>
@@ -283,13 +415,7 @@ export default function CategoryScreen() {
             {/* ONE bag only — pop to the real Tabs first, then switch to the
                 Bag tab (direct navigate from over a transparentModal makes iOS
                 present a second Tabs as a sheet). */}
-            <BrutalIconBtn
-              icon="shopping-bag"
-              onPress={() => {
-                nav.dispatch(StackActions.popToTop());
-                setTimeout(() => nav.navigate('Tabs', { screen: 'CartTab' }), 0);
-              }}
-            />
+            <BrutalIconBtn icon="shopping-bag" onPress={goBag} />
           </View>
         </View>
 
@@ -314,7 +440,8 @@ export default function CategoryScreen() {
           </View>
         )}
       </View>
-      <View style={{ height: 1, backgroundColor: C.hairline }} />
+      )}
+      {isFlash && <View style={{ height: 1, backgroundColor: C.hairline }} />}
 
       {/* Virtualised: the grid used to mount all 60 cards at once, each wrapped in
           a Moti animation. numColumns cannot change on a live FlatList, so `key`
@@ -325,37 +452,41 @@ export default function CategoryScreen() {
         renderItem={renderProduct}
         keyExtractor={keyExtractor}
         numColumns={grid === 2 ? 2 : 1}
-        {...(grid === 2 ? { columnWrapperStyle: { gap: SP.s } } : {})}
+        {...(grid === 2 ? { columnWrapperStyle: { gap: SP.s, paddingHorizontal: SP.l } } : {})}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={Platform.OS === 'android'}
         windowSize={5}
         initialNumToRender={6}
         maxToRenderPerBatch={6}
         updateCellsBatchingPeriod={60}
-        contentContainerStyle={{ paddingBottom: 120, ...(grid === 2 ? { paddingHorizontal: SP.l } : {}) }}
+        onScroll={onListScroll}
+        scrollEventThrottle={32}
+        contentContainerStyle={{ paddingBottom: 120 }}
         ListHeaderComponent={
       <View>
-        {/* ═══ QUICK OPTIONS — Myntra-style tiles (above the banner) ═══ */}
-        <View style={{ flexDirection: 'row', paddingHorizontal: SP.l, paddingTop: SP.m, gap: SP.s }}>
-          {[
-            { key: 'express', icon: 'zap', label: 'Express\nDelivery' },
-            { key: 'top', icon: 'award', label: 'Top\nBrands' },
-            { key: 'best', icon: 'trending-up', label: 'Best\nSellers' },
-          ].map(o => {
-            const on = activeOption === o.key;
-            return (
-              <Pressable key={o.key} onPress={() => setActiveOption(on ? null : o.key)} style={{ flex: 1 }}>
-                <View style={[{ paddingVertical: SP.m, alignItems: 'center', gap: 6, backgroundColor: on ? C.ink : C.white }, BORDER(1), { borderRadius: cardRadius }]}>
-                  <Feather name={o.icon as any} size={18} color={on ? C.white : C.ink} />
-                  <Text style={[T.micro, { color: on ? C.white : C.ink, textAlign: 'center' }]}>{o.label}</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* ═══ STORE BANNER CAROUSEL — swipable, auto-rotating (below the tiles) ═══ */}
-        <CategoryBanner label={label} cardRadius={cardRadius} />
+        {/* Full-bleed hero scrolls away with the list; the pinned bar takes over. */}
+        {heroBlock}
+        {/* ═══ CATEGORY CHIPS — the real tree; tap swaps this page in place ═══ */}
+        {chips.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: SP.l, paddingTop: SP.m, gap: SP.s }}
+          >
+            {chips.map((c) => {
+              const on = c.label.toLowerCase() === label.toLowerCase();
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() => { if (!on) nav.setParams({ label: c.label, id: c.id, slug: undefined, search: undefined }); }}
+                  style={[{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}
+                >
+                  <Text style={[T.caption, { color: on ? C.white : C.ink }]}>{c.label}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
         <View style={{ height: SP.l }} />
       </View>
         }
@@ -432,70 +563,6 @@ export default function CategoryScreen() {
   );
 }
 
-// ─── STORE BANNER CAROUSEL — swipable, auto-rotating banners for the category/brand ───
-const CAT_BANNER_3 = 'https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=900&q=80&auto=format&fit=crop';
-function CategoryBanner({ label, cardRadius }: { label: string; cardRadius: number }) {
-  const slides = [
-    { img: HERO_IMG, kicker: 'Trendzo · Store', title: label },
-    { img: HERO_IMG_2, kicker: 'Limited offer', title: 'Extra 10% off' },
-    { img: CAT_BANNER_3, kicker: '60-min delivery', title: 'Free shipping' },
-  ];
-  const [index, setIndex] = useState(0);
-  const listRef = useRef<FlatList>(null);
-  // Auto-rotate only while focused (no GPU waste off-screen).
-  useFocusEffect(useCallback(() => {
-    const t = setInterval(() => {
-      setIndex(prev => {
-        const next = (prev + 1) % slides.length;
-        listRef.current?.scrollToOffset({ offset: next * W, animated: true });
-        return next;
-      });
-    }, 3500);
-    return () => clearInterval(t);
-  }, [slides.length]));
-
-  return (
-    <View style={{ marginTop: SP.m }}>
-      <FlatList
-        ref={listRef}
-        data={slides}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(_, i) => String(i)}
-        getItemLayout={(_, i) => ({ length: W, offset: W * i, index: i })}
-        onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / W))}
-        renderItem={({ item }) => (
-          <View style={{ width: W }}>
-            <View style={[{ marginHorizontal: SP.l, height: 110, overflow: 'hidden', backgroundColor: C.ink }, BORDER(1), { borderRadius: cardRadius }]}>
-              <CachedImage source={{ uri: item.img }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
-              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.42)' }} />
-              <View style={{ flex: 1, padding: SP.m, justifyContent: 'flex-end' }}>
-                <Text style={[T.caption, { color: C.white, opacity: 0.85 }]}>{item.kicker}</Text>
-                <Text style={[T.h1, { color: C.white, letterSpacing: -1, marginTop: 2 }]} numberOfLines={1}>{item.title}</Text>
-              </View>
-            </View>
-          </View>
-        )}
-      />
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: SP.s }}>
-        {slides.map((_, i) => (
-          <View key={i} style={{ width: i === index ? 18 : 6, height: 5, backgroundColor: i === index ? C.ink : C.faint }} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-// ─── Small helpers for the stats strip inside the hero ────────
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <View style={{ flex: 1, alignItems: 'center' }}>
-      <Text style={[T.h3, { color: C.white }]}>{value}</Text>
-      <Text style={[T.micro, { color: C.white, opacity: 0.5, marginTop: 2 }]}>{label}</Text>
-    </View>
-  );
-}
 function StatDivider() {
   return <View style={{ width: 1, backgroundColor: C.white, opacity: 0.3, marginVertical: 4 }} />;
 }

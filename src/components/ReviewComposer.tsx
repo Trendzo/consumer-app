@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { FontAwesome } from '@expo/vector-icons';
 import { C, T, SP, BORDER } from '../theme/brutal';
 import { BrutalButton } from './Brutal';
 import { useApp } from '../state/AppState';
@@ -59,7 +59,13 @@ export function ReviewComposer({
       <View style={{ flexDirection: 'row', gap: 6, marginTop: SP.s }}>
         {[1, 2, 3, 4, 5].map((n) => (
           <Pressable key={n} onPress={() => setRating(n)} hitSlop={6}>
-            <Feather name="star" size={26} color={C.ink} style={{ opacity: n <= rating ? 1 : 0.25 }} />
+            {/* Feather's `star` is OUTLINE-only, so a "selected" star was just a
+                darker outline — unreadable. FontAwesome has a real filled glyph. */}
+            <FontAwesome
+              name={n <= rating ? 'star' : 'star-o'}
+              size={28}
+              color={n <= rating ? '#F5A623' : C.faint}
+            />
           </Pressable>
         ))}
       </View>

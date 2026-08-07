@@ -37,13 +37,17 @@ type Step =
   /** Reading a fix from the device. */
   | 'working';
 
-export function LocationGate() {
+export function LocationGate({ active = true }: { active?: boolean }) {
   const insets = useSafeAreaInsets();
   const place = usePlace();
   const [step, setStep] = useState<Step>('idle');
   const [mapOpen, setMapOpen] = useState(false);
 
+  // Waits for `active` (RootNav passes phase === 'main'): the ask used to fire
+  // the moment the app booted, so the sheet popped over the SPLASH. Now it
+  // asks only once the shopper is actually on the home page.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     (async () => {
       await hydratePlace();
@@ -83,7 +87,7 @@ export function LocationGate() {
       setStep('ask');
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [active]);
 
   // A header tap ("change location") opens the same picker as the gate's own fallback.
   useEffect(() => subscribeLocationPick(() => setMapOpen(true)), []);

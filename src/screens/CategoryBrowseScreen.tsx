@@ -13,7 +13,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { View, Text, ScrollView, FlatList, Pressable, Dimensions, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { C, T, SP, BORDER, HELV} from '../theme/brutal';
+import { C, T, SP, BORDER, HELV, rf, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { RealIcon } from '../components/RealIcon';
 import { useApp } from '../state/AppState';
@@ -452,14 +452,14 @@ const StyleTile = React.memo(function StyleTile({
             transition={0}
             source={typeof img === 'number' ? img : { uri: img }}
             style={{ width: '100%', height: '100%' }}
-            resizeMode="contain"
+            resizeMode="cover"
           />
         )}
         <LinearGradient
           colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.42)']}
           style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '34%' }}
         />
-        <Text numberOfLines={1} style={{ position: 'absolute', left: 8, right: 8, bottom: 6, color: '#FFFFFF', fontFamily: HELV, fontWeight: '500', fontSize: 11 }}>
+        <Text numberOfLines={1} style={{ position: 'absolute', left: 8, right: 8, bottom: 6, color: '#FFFFFF', fontFamily: HELV, fontWeight: '500', fontSize: rf(11) }}>
           {label}
         </Text>
       </View>
@@ -506,8 +506,8 @@ const CategorySection = React.memo(function CategorySection({
             }}
           />
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingVertical: 12, alignItems: tp.h === 'left' ? 'flex-start' : tp.h === 'right' ? 'flex-end' : 'center', justifyContent: tp.v === 'top' ? 'flex-start' : 'flex-end' }}>
-            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '700', fontSize: 14, letterSpacing: 1.5, textTransform: 'uppercase', textAlign: tp.h, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>{cat.label}</Text>
-            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '500', fontSize: 9, letterSpacing: 1, textTransform: 'uppercase', textAlign: tp.h, marginTop: 3, color: 'rgba(255,255,255,0.9)', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>Shop All →</Text>
+            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(14), letterSpacing: 1.5, textTransform: 'uppercase', textAlign: tp.h, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>{cat.label}</Text>
+            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '500', fontSize: rf(9), letterSpacing: 1, textTransform: 'uppercase', textAlign: tp.h, marginTop: 3, color: 'rgba(255,255,255,0.9)', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>Shop All →</Text>
           </View>
         </View>
       </Pressable>
@@ -680,7 +680,7 @@ export default function CategoryBrowseScreen() {
       <BrutalStatusBar />
 
       {/* ═══ SEARCH BAR — sharp hairline row, camera + search button ═══ */}
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.m, paddingBottom: SP.s, backgroundColor: '#FFFFFF' }}>
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.m, paddingBottom: SP.s, backgroundColor: '#FFFFFF' }}>
         <View style={[{ flexDirection: 'row', alignItems: 'center', height: 50, paddingLeft: 18, paddingRight: 4, backgroundColor: '#FFFFFF' }, BORDER(1)]}>
           <Pressable onPress={() => nav.navigate('Search')} style={{ flex: 1, height: '100%', justifyContent: 'center' }}>
             <Text style={[T.body, { color: C.dim }]} numberOfLines={1}>Oversized t-shirt</Text>
@@ -719,11 +719,14 @@ export default function CategoryBrowseScreen() {
                 <Text
                   style={{
                     fontFamily: HELV, fontWeight: '400', // thin/regular weight
-                    fontSize: 11,
+                    // Through rf() like every Home label — raw sizes here
+                    // bypassed the OS-font-scale cap and small-screen shrink,
+                    // which is why this rail read oversized vs the rest of the app.
+                    fontSize: rf(11),
                     letterSpacing: 0.3,
                     textTransform: 'uppercase',     // CAPS
                     textAlign: 'center',
-                    lineHeight: 15,
+                    lineHeight: rf(15),
                     color: active ? '#444444' : '#9a9a9a', // grey only, never black
                   }}
                 >

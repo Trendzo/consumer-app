@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform, BackHandler } from 'react-native';
+import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform, BackHandler, Modal } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
-import { C, T, SP, BORDER, HELV} from '../theme/brutal';
+import { useNavigation, useRoute, StackActions, useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { C, T, SP, BORDER, HELV, HEADER_TOP, rf } from '../theme/brutal';
 import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { RichText } from '../components/RichText';
@@ -51,6 +52,7 @@ const NO_PRODUCT: Product = {
 export default function ProductDetailScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
   // Loosely typed on purpose: grids decorate their rows with extra display-only
   // fields (rating/reviews/stock) before pushing them here.
   const product: any = route.params?.product ?? NO_PRODUCT;
@@ -79,6 +81,23 @@ export default function ProductDetailScreen() {
   const [similar, setSimilar] = useState<Product[] | null>(null);
   const [similarStatus, setSimilarStatus] = useState<'loading' | 'error' | 'ready'>('loading');
   const closeStarted = useRef(false);
+  /**
+   * The pop is guarded + failsafed. This screen is a TRANSPARENT modal, so if
+   * it fails to pop it silently sits over the page below — list "pinned",
+   * scroll dead, "More to Love" floating with no background. That is exactly
+   * what happened after a camera/try-on round trip: Android detaches this
+   * screen while the camera is on top, and on re-attach Reanimated's
+   * completion callbacks (which used to be the ONLY thing calling goBack)
+   * can go dead. The animation is now best-effort; the pop is guaranteed.
+   */
+  const popped = useRef(false);
+  const popFailsafe = useRef<any>(null);
+  const popNow = () => {
+    if (popped.current) return;
+    popped.current = true;
+    if (popFailsafe.current) { clearTimeout(popFailsafe.current); popFailsafe.current = null; }
+    nav.goBack();
+  };
   // Close mirrors open: fade content, then fly the image/backdrop back to the measured card frame.
   const goBack = () => {
     if (closeStarted.current) return;
@@ -87,13 +106,13 @@ export default function ProductDetailScreen() {
       clearReveal();
       galleryOpacity.value = 0;
       overlayOpacity.value = 1;
+      // Failsafe: pop no matter what, a beat after the full fly should have
+      // finished. If the animation ran, popNow was already called and this is
+      // a no-op; if the animation system was dead, this still frees the page.
+      popFailsafe.current = setTimeout(popNow, PRODUCT_CONTENT_FADE_MS + PRODUCT_ZOOM_MS + 160);
       contentFade.value = withTiming(0, { duration: PRODUCT_CONTENT_FADE_MS, easing: Easing.out(Easing.cubic) }, (contentDone) => {
         if (!contentDone) return;
         // Animated HERE, not handed to ZoomProvider.
-        //
-        // The handoff (setSess -> overlay mount -> two rAFs -> pop -> start a fresh 440ms timing)
-        // pays for an overlay mount, a second decode of the same image, and the unmount of this
-        // whole screen at the exact moment the animation starts — that is the lag.
         //
         // This path is one continuous UI-thread timeline over an image that is already decoded and
         // on screen. `backdropFade` lifts the white cover over the LAST 180ms so the home card is
@@ -102,12 +121,34 @@ export default function ProductDetailScreen() {
           PRODUCT_ZOOM_MS - CARD_REVEAL_MS,
           withTiming(0, { duration: CARD_REVEAL_MS, easing: Easing.out(Easing.cubic) })
         );
+        // The flying image fades into the real card over the flight's last
+        // 120ms — the landing is a crossfade, never a swap.
+        overlayOpacity.value = withDelay(
+          PRODUCT_ZOOM_MS - 120,
+          withTiming(0, { duration: 120 })
+        );
         imgAnim.value = withTiming(0, { duration: PRODUCT_ZOOM_MS, easing: PRODUCT_ZOOM_EASING }, (fin) => {
-          if (fin) runOnJS(nav.goBack)();
+          if (fin) runOnJS(popNow)();
         });
       });
-    } else nav.goBack();
+    } else popNow();
   };
+  // Clear the failsafe if the screen unmounts through any other path.
+  useEffect(() => () => { if (popFailsafe.current) clearTimeout(popFailsafe.current); }, []);
+
+  /**
+   * Re-bind Reanimated after a round trip to a pushed screen (camera try-on,
+   * search). Android detaches this screen while another sits on top; on
+   * re-attach the animated styles can be bound to stale native views, so
+   * animations "run" without drawing. A forced re-render on refocus makes
+   * every useAnimatedStyle re-attach to the live view tree.
+   */
+  const [, setFocusNonce] = useState(0);
+  const everFocused = useRef(false);
+  useFocusEffect(React.useCallback(() => {
+    if (everFocused.current) setFocusNonce((n) => n + 1);
+    else everFocused.current = true;
+  }, []));
   /**
    * Android back must run the SAME animated close as the on-screen arrow.
    *
@@ -142,14 +183,30 @@ export default function ProductDetailScreen() {
   const isZoom = !!(route.params?._zoom && cardFrame);
   // First paint = just the viewport (image/price/coupon). Everything else mounts AFTER the zoom,
   // so nothing competes with the animation. Scroll stays locked until it's done.
-  const [ready, setReady] = useState(!isZoom);
-  const [gridReady, setGridReady] = useState(!isZoom);
+  // NO staged mounting. Every previous variant (two waves, one wave, opacity
+  // gymnastics) still let "More to Love" sit right under the hero for the
+  // first frames and then get pushed down as colors/sizes/description mounted
+  // above it. The WHOLE page now lays out from frame one — the zoom's
+  // contentFade covers the mount, and when content fades in, every section is
+  // already exactly where it will stay.
+  const [ready, setReady] = useState(true);
+  const [gridReady, setGridReady] = useState(true);
+  // `settled` = the open animation is done; network fetches (detail, reviews,
+  // similar) wait for it so their responses can never re-render the page
+  // mid-flight. Layout is fully mounted from frame one regardless.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (isZoom) return; // the fly's completion raises contentFade + settled
+    contentFade.value = withTiming(1, { duration: 280, easing: Easing.out(Easing.cubic) });
+    const t = setTimeout(() => setSettled(true), 320);
+    return () => clearTimeout(t);
+  }, []);
   // NOTE: gated on gridReady — these responses used to land MID-ZOOM and
   // re-render the whole page during the fly, which is exactly the jank the
   // deferred-mount logic tries to avoid. Now they fire only after the open
   // transition (and its two-stage reveal) has fully settled.
   useEffect(() => {
-    if (!gridReady || !isBackendListingId(listingId)) return;
+    if (!settled || !isBackendListingId(listingId)) return;
     let cancelled = false;
     getProductDetail(listingId).then((d) => { if (!cancelled) setDetail(d); }).catch(() => {});
     listReviews(listingId).then((r) => { if (!cancelled) setReviews(r); }).catch(() => {});
@@ -161,29 +218,45 @@ export default function ProductDetailScreen() {
       .then((p) => { if (!cancelled) { setSimilar(p); setSimilarStatus('ready'); } })
       .catch(() => { if (!cancelled) { setSimilar([]); setSimilarStatus('error'); } });
     return () => { cancelled = true; };
-  }, [listingId, gender, gridReady]);
-  const SLOT = { x: 0, y: 105, w: width, h: width * 1.2 }; // where the gallery image lands
+  }, [listingId, gender, settled]);
+  // Where the gallery image lands: MEASURED from the header's actual rendered
+  // height (+1 divider). Every derived formula was off by a pixel or two on
+  // some device — measurement is exact by construction.
+  const [slotY, setSlotY] = useState(HEADER_TOP + 47);
+  const slotMeasured = useRef(false);
+  const SLOT = { x: 0, y: slotY, w: width, h: width * 1.2 };
   const imgAnim = useSharedValue(isZoom ? 0 : 1);         // 0 = at card, 1 = at gallery slot
   const backdropFade = useSharedValue(isZoom ? 0 : 1);     // home → white as the image expands
-  const contentFade = useSharedValue(isZoom ? 0 : 1);      // header / details opacity
+  const contentFade = useSharedValue(0);      // header / details opacity — ALWAYS fades in
   const galleryOpacity = useSharedValue(isZoom ? 0 : 1);   // real gallery (hidden until handoff)
-  const overlayOpacity = useSharedValue(isZoom ? 1 : 0); // flying image visibility (no re-mount)
+  const overlayOpacity = useSharedValue(0); // flying image visibility — raised the tick the flight starts
   const flyStarted = useRef(false);
   // Pending "load the rest" timers — cancelled on close so a heavy mount never lands mid-close.
   const revealTimers = useRef<any[]>([]);
   const clearReveal = () => { revealTimers.current.forEach(clearTimeout); revealTimers.current = []; };
-  const revealContent = () => { setReady(true); revealTimers.current.push(setTimeout(() => setGridReady(true), 260)); };
+  const revealContent = () => { setReady(true); setGridReady(true); setSettled(true); }; // layout is pre-mounted; this now just unlocks the network work
   const scheduleReveal = () => { revealTimers.current.push(setTimeout(revealContent, 280)); };
   // Fire EXACTLY when the page is mounted + laid out (overlay onLayout) → runs on a free UI
   // thread. One flow: image expands + bg turns white → hand off → content fades → content loads.
+  const flyRetries = useRef(0);
   const startFly = () => {
     if (flyStarted.current || !isZoom) return;
+    // Bounded wait for the header measurement so the flight aims at the REAL
+    // slot from its first frame (10 frames max, then fly with the estimate).
+    if (!slotMeasured.current && flyRetries.current < 10) {
+      flyRetries.current += 1;
+      requestAnimationFrame(startFly);
+      return;
+    }
     flyStarted.current = true;
+    overlayOpacity.value = 1; // becomes visible in the same frame the flight begins
     backdropFade.value = withTiming(1, { duration: PRODUCT_ZOOM_MS, easing: PRODUCT_ZOOM_EASING });
     imgAnim.value = withTiming(1, { duration: PRODUCT_ZOOM_MS, easing: PRODUCT_ZOOM_EASING }, (fin) => {
       if (fin) {
         galleryOpacity.value = 1;
-        overlayOpacity.value = 0;                                       // hand off (no unmount)
+        // Crossfade the overlay away — a hard swap made any sub-pixel
+        // difference between overlay and gallery read as a tiny jump.
+        overlayOpacity.value = withTiming(0, { duration: 110 });
         contentFade.value = withTiming(1, { duration: PRODUCT_CONTENT_FADE_MS, easing: Easing.out(Easing.cubic) });
         runOnJS(scheduleReveal)();                                      // load the rest after the fade
       }
@@ -213,11 +286,31 @@ export default function ProductDetailScreen() {
       ],
     };
   });
+  // The overlay frame is scaled NON-uniformly (card and gallery slot have
+  // different aspect ratios), which visibly stretched the product photo and
+  // made the "inside" of the card appear to reflow during the fly. This
+  // counter-scale cancels the distortion on the image itself every frame: the
+  // photo stays perfectly proportioned while only the frame morphs shape.
+  const overlayImgStyle = useAnimatedStyle(() => {
+    if (!cardFrame) return {};
+    const sx = interpolate(imgAnim.value, [0, 1], [cardFrame.w / SLOT.w, 1]);
+    const sy = interpolate(imgAnim.value, [0, 1], [cardFrame.h / SLOT.h, 1]);
+    // max, not min: cards render COVER (fill + crop) while the gallery renders
+    // CONTAIN. max makes the undistorted image FILL the frame at the card end
+    // (the frame's overflow:hidden crops it exactly like the card does) and
+    // settle to u=1 — a perfect contain match — at the gallery end.
+    const u = Math.max(sx, sy);
+    return { transform: [{ scaleX: u / sx }, { scaleY: u / sy }] };
+  });
   const contentStyle = useAnimatedStyle(() => ({ opacity: contentFade.value }));
   const galleryStyle = useAnimatedStyle(() => ({ opacity: galleryOpacity.value }));
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropFade.value }));
   const [colorIdx, setColorIdx] = useState(0);
   const [imgIdx, setImgIdx] = useState(0);
+  // Full-screen image viewer — opened by tapping the gallery image; all
+  // slides swipeable inside, starting at the tapped one.
+  const [viewerIdx, setViewerIdx] = useState<number | null>(null);
+  const [viewerPage, setViewerPage] = useState(0);
   const galleryRef = useRef<ScrollView>(null);
   const scrollRef = useRef<any>(null);
   // CTA is pinned to the bottom until the user scrolls down to the inline buttons (just
@@ -228,6 +321,13 @@ export default function ProductDetailScreen() {
   const [fixedCtaInteractive, setFixedCtaInteractive] = useState(true);
   const scrollY = useSharedValue(0);
   const fixedCtaStyle = useAnimatedStyle(() => {
+    // Below ~40px of scroll the bar is unconditionally parked: content mounting
+    // (description arriving, the grid appearing) moves the inline anchor around
+    // at open, and the crossfade chased it — the visible "Add to bag glitches
+    // then moves down". The crossfade only matters near the page bottom anyway.
+    if (scrollY.value < 40) {
+      return { opacity: contentFade.value, transform: [{ translateY: 0 }] };
+    }
     const anchorY = width * 1.2 + ctaY;
     const parkScroll = Math.max(1, anchorY - viewH + barH);
     const p = Math.min(1, Math.max(0, (scrollY.value - (parkScroll - CTA_CROSSFADE_DISTANCE)) / CTA_CROSSFADE_DISTANCE));
@@ -263,9 +363,14 @@ export default function ProductDetailScreen() {
   const discount = Math.round((1 - product.price / product.original) * 100);
 
   // Backend-or-mock display data for gallery / colours / sizes / reviews / similar.
+  // The image the shopper ARRIVED with stays slide 1 forever. The detail
+  // response used to REPLACE the list (same photo, different URL), so the
+  // visible image tore itself down and re-downloaded a few seconds after the
+  // page opened — a visible reload glitch. Extra gallery shots now append
+  // behind the already-decoded first slide instead.
   const galleryImgs = React.useMemo(() => {
-    const g = detail?.gallery?.filter(Boolean) ?? [];
-    return g.length ? g : [product.img];
+    const g = (detail?.gallery ?? []).filter(Boolean).filter((u) => u !== product.img);
+    return [product.img, ...g];
   }, [detail, product.img]);
   const colorSwatches = (detail?.swatches ?? []).map((sw) => sw.hex).filter(Boolean) as string[];
 
@@ -366,17 +471,22 @@ export default function ProductDetailScreen() {
 
   const doAdd = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
+    // bottom: 36 — the default 108 put the toast in the same band as the floating
+    // Try On FAB (bottom: 104), colliding with it. This lands it just BELOW the
+    // FAB; zIndex keeps it above the fixed CTA bar for its 3.6s life.
     showToast('Added to bag', `${product.name} · Size ${sz}`, 'shopping-bag', {
       label: 'View bag',
       onPress: goBag,
-    });
+    }, 36);
   };
-  // Buy now → straight to the single-page Review Order (no multi-step checkout).
-  // Guests get the bottom-sheet login first; the item is already in the bag
-  // either way, so sign-in just resumes straight into Review Order.
+  // Buy now → SINGLE-ITEM checkout. The line goes to Review Order as a param
+  // and the bag is left exactly as it is: it used to be added to the cart and
+  // Review Order opened on the WHOLE bag, so buying one shirt silently swept
+  // every parked item into the order. Guests get the sign-in sheet first;
+  // the pending line rides the resumed navigation.
   const doBuy = (sz: string) => {
-    addToCart(product, sz, undefined, variantFor(sz));
-    requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder'), 60));
+    const line = { ...product, qty: 1, size: sz || 'M', method: 'express', variantId: variantFor(sz) };
+    requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder', { buyNow: line }), 60));
   };
   // Require a size first — NO modal: scroll the page to the size row, flag it,
   // and remember the pending action so tapping a size continues it in-place.
@@ -405,7 +515,7 @@ export default function ProductDetailScreen() {
   // instead of rendering a page for the demo coat that used to stand in here.
   if (!hasProduct) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: 56 }}>
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', paddingTop: HEADER_TOP }}>
         <StatusBar barStyle="dark-content" />
         <View style={{ paddingHorizontal: SP.l }}>
           <BrutalIconBtn icon="arrow-left" onPress={() => nav.goBack()} />
@@ -434,7 +544,13 @@ export default function ProductDetailScreen() {
 
       {/* HEADER — back + search + cart. High zIndex + bg so the CTA bar passes UNDER it
           (instead of over the search) when it scrolls up and away. */}
-      <Animated.View style={[{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
+      <Animated.View
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height) + 1; // +1 divider below
+          slotMeasured.current = true;
+          setSlotY((prev) => (Math.abs(prev - h) > 0.5 ? h : prev));
+        }}
+        style={[{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.s, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: SP.s, zIndex: 30, elevation: 30 }, contentStyle]}>
         <BrutalIconBtn icon="arrow-left" onPress={goBack} />
         <Pressable onPress={() => nav.navigate('Search')} style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SP.m, paddingVertical: 9 }, BORDER(1)]}>
           <Feather name="search" size={15} color={C.dim} />
@@ -453,15 +569,17 @@ export default function ProductDetailScreen() {
         overScrollMode="never"
         scrollEnabled={ready}
         scrollEventThrottle={16}
-        // Android: detach offscreen grid/upsell views so the long page doesn't
-        // keep ~30 image views alive in the render tree while scrolling.
-        removeClippedSubviews={Platform.OS === 'android'}
-        stickyHeaderIndices={[2]}
+        // removeClippedSubviews is OFF here on purpose. It detached offscreen
+        // views on Android, but coming BACK from a pushed screen (camera
+        // try-on, search) re-attached them corrupted: cards drawn on top of
+        // each other, scroll frozen, the opened product "pinned" behind a
+        // second broken feed. The perf it bought is minor next to that.
+        removeClippedSubviews={false}
         onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
         onScroll={scrollHandler}
       >
         {/* IMAGE GALLERY - hidden during the fly, revealed instantly at handoff */}
-        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.hairline, borderBottomWidth: 1, borderColor: C.hairline }, galleryStyle]}>
+        <Animated.View style={[{ width, height: width * 1.2, backgroundColor: C.white, borderBottomWidth: 1, borderColor: C.hairline }, galleryStyle]}>
           <ScrollView
             ref={galleryRef}
             horizontal
@@ -473,9 +591,9 @@ export default function ProductDetailScreen() {
             }}
           >
             {(ready ? galleryImgs : galleryImgs.slice(0, 1)).map((uri, i) => (
-              <View key={i} style={{ width, height: width * 1.2, alignItems: 'center', justifyContent: 'center' }}>
-                <CachedImage transition={0} source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-              </View>
+              <Pressable key={i} onPress={() => { setViewerPage(i); setViewerIdx(i); }} style={{ width, height: width * 1.2, alignItems: 'center', justifyContent: 'center' }}>
+                <CachedImage transition={0} placeholder={null} source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+              </Pressable>
             ))}
           </ScrollView>
           <View style={s.imgDots}>
@@ -593,7 +711,7 @@ export default function ProductDetailScreen() {
             <View style={{ marginTop: SP.l }}>
               <Text style={T.h2}>{'Description'}</Text>
               {!!detail?.description && (
-                <Text style={[T.body, { color: C.inkSoft, marginTop: SP.m, lineHeight: 21 }]}>{detail.description}</Text>
+                <Text style={[T.body, { color: C.inkSoft, marginTop: SP.m, lineHeight: rf(21) }]}>{detail.description}</Text>
               )}
               <RichText html={detail?.descriptionLong} />
             </View>
@@ -602,7 +720,9 @@ export default function ProductDetailScreen() {
           {/* Real parked CTA. The fixed overlay fades away as this reaches the bottom. */}
           <Animated.View
             onLayout={(e) => setCtaY(e.nativeEvent.layout.y)}
-            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.m, paddingTop: SP.m, paddingBottom: 28, marginTop: SP.xl }, inlineCtaStyle]}
+            // paddingBottom was a hardcoded 28 vs paddingTop 12 — the box read as
+            // bottom-heavy (screenshot in the audit). Equal padding both sides now.
+            style={[{ flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.m, paddingVertical: SP.m, marginTop: SP.xl }, inlineCtaStyle]}
           >
             <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
             <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -614,7 +734,7 @@ export default function ProductDetailScreen() {
             <Text style={[T.h2, { marginTop: SP.xl }]}>{`You may also like`}</Text>
             {similarStatus === 'loading' ? (
               <View style={{ marginTop: SP.m, marginHorizontal: -SP.l }}>
-                <ProductRailSkeleton count={3} />
+                <ProductRailSkeleton count={3} animated={settled} />
               </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, marginTop: SP.m }}>
@@ -663,7 +783,7 @@ export default function ProductDetailScreen() {
                         <Text style={[T.micro, { color: C.ink }]}>Verified Purchase</Text>
                       </View>
                     )}
-                    <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: 19 }]} numberOfLines={4}>{r.text ? `"${r.text}"` : ''}</Text>
+                    <Text style={[T.body, { color: C.inkSoft, marginTop: 8, lineHeight: rf(19) }]} numberOfLines={4}>{r.text ? `"${r.text}"` : ''}</Text>
                     <Text style={[T.micro, { marginTop: 10 }]}>{r.date}</Text>
                   </View>
                 ))}
@@ -677,21 +797,23 @@ export default function ProductDetailScreen() {
         </Animated.View>
 
         {/* MORE TO LOVE — STICKY header (pins just below the search); the grid scrolls under it.
-            BOTH of these stay unconditional direct children of the ScrollView.
-            `stickyHeaderIndices={[2]}` above is a positional index into
-            React.Children.toArray(children), which DROPS false/null — so wrapping
-            this pair in a fragment (or hiding it when the catalog is empty)
-            silently re-points the sticky header at the wrong element. It also
-            makes React itself complain: ScrollView clones the sticky child to
-            inject a style, and a Fragment cannot take one
-            ("Invalid prop `style` supplied to `React.Fragment`").
-            The empty/loading/error states therefore live INSIDE the grid. */}
-        <View style={{ backgroundColor: '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }}>
+            NOT sticky any more. The native sticky-header system CLONES its
+            child and injects its own style — which stripped the contentFade
+            binding, so this header rendered fully visible mid-zoom while the
+            rest of the page was transparent (the "More to Love appears the
+            moment I open a product" bug, three fixes deep). A normally
+            scrolling header fades with the page like everything else. */}
+        {/* Both ride contentFade like everything else. They had NO opacity
+            binding — during a zoom open the whole page is transparent except
+            these two, so "More to Love" floated visible mid-screen and slid
+            around as the content above it mounted. Animated.View (not a
+            Fragment) keeps the sticky-index contract intact. */}
+        <Animated.View style={[{ backgroundColor: '#FFFFFF', paddingHorizontal: SP.l, paddingTop: SP.l, paddingBottom: SP.s, borderBottomWidth: 1, borderColor: C.hairline }, contentStyle]}>
           <Text style={T.h2}>{`More to Love`}</Text>
-        </View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }}>
+        </Animated.View>
+        <Animated.View style={[{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.m, minHeight: gridReady ? undefined : 600 }, contentStyle]}>
           {gridReady && (similarStatus === 'loading'
-            ? <ProductGridSkeleton count={4} />
+            ? <ProductGridSkeleton count={4} animated={settled} />
             : similarStatus === 'error'
               ? <CatalogEmpty compact icon="wifi-off" title="Couldn't load more" sub="Check your connection and pull to refresh." />
               : moreToLove.length === 0
@@ -699,7 +821,7 @@ export default function ProductDetailScreen() {
                 : moreToLove.map((p, i) => (
                     <ProductCard key={p.id + '-' + i} p={p} style={CARD_STYLES.mb_m} />
                   )))}
-        </View>
+        </Animated.View>
 
       </Animated.ScrollView>
 
@@ -708,7 +830,10 @@ export default function ProductDetailScreen() {
       <Animated.View
         pointerEvents={fixedCtaInteractive ? 'auto' : 'none'}
         onLayout={(e) => setBarH(e.nativeEvent.layout.height)}
-        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 28 }, fixedCtaStyle]}
+        // Android draws edge-to-edge UNDER the system nav buttons — a fixed 28
+        // put the CTAs behind them on button-nav phones. Pad by the real
+        // system inset instead; iOS keeps its tuned 28.
+        style={[{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row', gap: SP.s, backgroundColor: C.bg, borderTopWidth: 1, borderColor: C.hairline, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: Platform.OS === 'ios' ? 28 : Math.max(insets.bottom, SP.m) }, fixedCtaStyle]}
       >
         <BrutalButton label="Add to bag" icon="shopping-bag" variant="outline" onPress={handleAdd} style={{ flex: 1 }} />
         <BrutalButton label="Buy now" iconRight="arrow-right" onPress={handleBuy} style={{ flex: 1 }} />
@@ -759,14 +884,45 @@ export default function ProductDetailScreen() {
           pointerEvents="none"
           // Rasterize once on Android and fly the texture — no re-draws mid-flight.
           renderToHardwareTextureAndroid
-          style={[{ position: 'absolute', left: SLOT.x, top: SLOT.y, width: SLOT.w, height: SLOT.h, backgroundColor: C.hairline, overflow: 'hidden', zIndex: 50 }, overlayStyle]}
+          style={[{ position: 'absolute', left: SLOT.x, top: SLOT.y, width: SLOT.w, height: SLOT.h, backgroundColor: C.white, overflow: 'hidden', zIndex: 50 }, overlayStyle]}
         >
-          <CachedImage transition={0} source={{ uri: product.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          <Animated.View style={[{ width: '100%', height: '100%' }, overlayImgStyle]}>
+            <CachedImage transition={0} placeholder={null} source={{ uri: product.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          </Animated.View>
         </Animated.View>
       )}
 
       {/* Size selection is fully inline now — no bottom-sheet modal. Add/Buy
           without a size scrolls to the size row and continues from there. */}
+
+      {/* ── IMAGE VIEWER — full-screen, centred, ALL slides swipeable ── */}
+      <Modal transparent visible={viewerIdx !== null} animationType="fade" statusBarTranslucent onRequestClose={() => setViewerIdx(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.96)' }}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            contentOffset={{ x: (viewerIdx ?? 0) * width, y: 0 }}
+            onMomentumScrollEnd={(e) => setViewerPage(Math.round(e.nativeEvent.contentOffset.x / width))}
+          >
+            {galleryImgs.map((uri, i) => (
+              <Pressable key={i} onPress={() => setViewerIdx(null)} style={{ width, alignItems: 'center', justifyContent: 'center' }}>
+                <CachedImage source={{ uri }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
+              </Pressable>
+            ))}
+          </ScrollView>
+          {galleryImgs.length > 1 && (
+            <View style={{ position: 'absolute', bottom: 48, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+              {galleryImgs.map((_, i) => (
+                <View key={i} style={{ width: i === viewerPage ? 22 : 8, height: 5, backgroundColor: i === viewerPage ? '#fff' : 'rgba(255,255,255,0.4)' }} />
+              ))}
+            </View>
+          )}
+          <Pressable onPress={() => setViewerIdx(null)} hitSlop={12} style={{ position: 'absolute', top: HEADER_TOP, right: SP.l, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 18 }}>
+            <Feather name="x" size={20} color="#fff" />
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }

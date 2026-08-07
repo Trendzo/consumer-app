@@ -17,7 +17,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER, HELV } from '../theme/brutal';
+import { C, T, SP, BORDER, HELV, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, CARD } from '../components/Brutal';
 import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
@@ -103,7 +103,7 @@ export default function ReelProductPickerScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
         <BrutalStatusBar />
-        <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m }}>
+        <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
             <Pressable onPress={() => setChosen(null)} hitSlop={10}>
               <Feather name="arrow-left" size={22} color={C.ink} />
@@ -149,7 +149,7 @@ export default function ReelProductPickerScreen() {
                     style={{ width: CARD.w, marginBottom: SP.m }}
                   >
                     <View style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                      <CachedImage source={{ uri: v.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      <CachedImage source={{ uri: v.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                     </View>
                     <Text style={[T.productName, { marginTop: 6 }]} numberOfLines={2}>{variantLabel(v)}</Text>
                     <Text style={[T.price, { marginTop: 3 }]}>₹{v.price}</Text>
@@ -167,7 +167,7 @@ export default function ReelProductPickerScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <BrutalStatusBar />
-      <View style={{ paddingTop: 56, paddingHorizontal: SP.l, paddingBottom: SP.m }}>
+      <View style={{ paddingTop: HEADER_TOP, paddingHorizontal: SP.l, paddingBottom: SP.m }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.m }}>
           <Pressable onPress={() => nav.goBack()} hitSlop={10}>
             <Feather name="arrow-left" size={22} color={C.ink} />
@@ -226,7 +226,7 @@ export default function ReelProductPickerScreen() {
                 style={{ width: CARD.w, marginBottom: SP.m }}
               >
                 <View style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
-                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                  <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                 </View>
                 <Text style={[T.micro, { fontFamily: HELV, fontWeight: '600', color: C.ink, marginTop: 6 }]} numberOfLines={1}>
                   {(p.brand ?? '').toUpperCase()}

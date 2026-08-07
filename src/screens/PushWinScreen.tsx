@@ -82,7 +82,7 @@ function Highlight({ children }: { children: string }) {
 export function PushWinScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { showToast } = useApp();
+  const { showToast, showConfirm } = useApp();
 
   // Reel positions in symbol-index units; start at N so a row is always
   // rendered above the payline (rows val-1 / val / val+1 are visible).
@@ -152,6 +152,9 @@ export function PushWinScreen() {
     }
     setResult(res);
     if (res.win) {
+      // AUTO-CREDIT — no "tap to claim" step. The reward is in My Rewards the
+      // moment the reels land; the strip's tap is purely "go look at it".
+      showToast('Added to My Rewards', res.label, 'gift');
       setWins((w) => w + 1);
       setBurst((b) => b + 1);
       winFlash.setValue(0);
@@ -222,10 +225,22 @@ export function PushWinScreen() {
 
       {/* ── Counters ── */}
       <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l, marginTop: SP.m }}>
-        <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+        {/* Tappable — opens a CENTERED modal explaining the mechanic (BrutalConfirm
+            is the app's centre-screen modal). The wins counter stays inert: per
+            the spec only wins and this counter respond to taps. */}
+        <Pressable
+          onPress={() => showConfirm({
+            title: 'Pushes',
+            msg: 'You get 3 free pushes every day.\nLand 3 matching symbols on the yellow payline to win — pairs pay points too.\nPushes refresh at midnight.',
+            confirmLabel: 'Got it',
+            cancelLabel: 'Close',
+            icon: 'zap',
+          })}
+          style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, backgroundColor: '#F4F4F4' }, BORDER(1)]}
+        >
           <MaterialCommunityIcons name="gesture-tap-button" size={14} color={C.ink} />
           <Text style={[T.caption, { color: C.ink }]}>PUSHES {pushesLeft}/3</Text>
-        </View>
+        </Pressable>
         <View style={[{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 9, backgroundColor: C.white }, BORDER(1)]}>
           <MaterialCommunityIcons name="trophy-outline" size={14} color={C.ink} />
           <Text style={[T.caption, { color: C.ink }]}>WINS {wins}</Text>
@@ -305,11 +320,18 @@ export function PushWinScreen() {
         </View>
       </View>
 
-      {/* ── Result strip ── */}
+      <View style={{ flex: 1 }} />
+
+      {/* ── Result strip — DIRECTLY above the Push to Spin button (it used to
+          render up under the machine, floating between sections). Timing fade,
+          no spring: the spec bans bounce here. Only a WIN is tappable — it
+          navigates to My Rewards; the reward itself was already credited the
+          moment the reels settled. A miss is a plain, inert strip. ── */}
       {result && (
-        <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', damping: 15 }} style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
+        <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 220 }} style={{ paddingHorizontal: SP.l, marginBottom: SP.m }}>
           <Pressable
-            onPress={() => { if (result.win) showToast('Claimed', result.label, 'gift'); setResult(null); }}
+            disabled={!result.win}
+            onPress={() => { setResult(null); nav.navigate('LoyaltyRewards'); }}
             style={[
               { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 11 },
               result.big ? { backgroundColor: YELLOW, borderWidth: 1, borderColor: C.ink }
@@ -325,15 +347,13 @@ export function PushWinScreen() {
             <View style={{ flex: 1 }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(14), color: result.big ? C.ink : result.win ? C.white : C.ink, letterSpacing: 0.5 }}>{result.label}</Text>
               <Text style={[T.micro, { color: result.big ? 'rgba(0,0,0,0.6)' : result.win ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 1 }]}>
-                {result.sub}{result.win ? ' · tap to claim' : ''}
+                {result.sub}{result.win ? ' · tap to view' : ''}
               </Text>
             </View>
             {result.win && <Feather name="arrow-right" size={15} color={result.big ? C.ink : C.white} />}
           </Pressable>
         </MotiView>
       )}
-
-      <View style={{ flex: 1 }} />
 
       {/* ── PUSH TO SPIN — black slab sinking into a yellow offset shadow ── */}
       <View style={{ paddingHorizontal: SP.l, marginBottom: insets.bottom + 20 }}>

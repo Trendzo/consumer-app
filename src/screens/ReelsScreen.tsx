@@ -1,16 +1,16 @@
 // Vertical reels feed with snap-paging, brutalism overlay UI.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, TextInput, Share, ScrollView } from 'react-native';
+import { View, Text, FlatList, Image, Dimensions, Pressable, StyleSheet, StatusBar, Alert, DeviceEventEmitter, TextInput, Share, ScrollView, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import SearchScreen from './SearchScreen';
-import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HELV, HEADER_TOP } from '../theme/brutal';
 import { REELS } from '../data/mockData';
 import { useApp } from '../state/AppState';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   getFeed, like as likeReel, unlike, save as saveReel, unsave, recordView,
   listComments, addComment,
@@ -205,11 +205,23 @@ export default function ReelsScreen({ route }: { route: any }) {
     if (viewableItems[0]) setActive(viewableItems[0].index || 0);
   }).current;
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const getItemLayout = useRef((_: unknown, index: number) => ({
-    length: height,
-    offset: height * index,
+  /**
+   * Page height = the list's MEASURED viewport, not Dimensions.get('window').
+   * On several Androids window height excludes the system bars while the list
+   * actually fills the full screen — every reel item ended short, so the
+   * bottom-anchored overlays (product card, @user, actions) floated way up.
+   * Measuring makes item height == real viewport on every device.
+   */
+  const [pageH, setPageH] = useState(height);
+  const onListLayout = useCallback((e: any) => {
+    const h = e.nativeEvent.layout.height;
+    setPageH((prev: number) => (Math.abs(prev - h) > 1 ? h : prev));
+  }, []);
+  const getItemLayout = useCallback((_: unknown, index: number) => ({
+    length: pageH,
+    offset: pageH * index,
     index,
-  })).current;
+  }), [pageH]);
 
   // A Home Reel card passes its exact local video source here. Put that video
   // first and reset the feed so the card the user tapped starts immediately.
@@ -247,20 +259,6 @@ export default function ReelsScreen({ route }: { route: any }) {
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [route?.params?.justPostedId]);
 
-  // Search drop-down (slides from top)
-  const [searchMounted, setSearchMounted] = useState(false);
-  const searchY = useSharedValue(-height);
-  const openSearch = () => {
-    setSearchMounted(true);
-    searchY.value = withTiming(0, { duration: 320 });
-  };
-  const closeSearch = () => {
-    searchY.value = withTiming(-height, { duration: 280 }, finished => {
-      if (finished) runOnJS(setSearchMounted)(false);
-    });
-  };
-  const searchStyle = useAnimatedStyle(() => ({ transform: [{ translateY: searchY.value }] }));
-
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('reelsReload', () => {
       const newSeed = Math.floor(Math.random() * 10000);
@@ -279,7 +277,8 @@ export default function ReelsScreen({ route }: { route: any }) {
         ref={listRef}
         data={data}
         keyExtractor={r => r.id}
-        snapToInterval={height}
+        onLayout={onListLayout}
+        snapToInterval={pageH}
         snapToAlignment="start"
         disableIntervalMomentum
         decelerationRate="fast"
@@ -304,6 +303,7 @@ export default function ReelsScreen({ route }: { route: any }) {
           <ReelItem
             reel={item}
             live={live}
+            pageH={pageH}
             isActive={index === active && isFocused}
             distance={Math.abs(index - active)}
             onLike={() => toggleLike(item)}
@@ -339,18 +339,13 @@ export default function ReelsScreen({ route }: { route: any }) {
         >
           <Feather name="plus-square" size={22} color="#fff" />
         </Pressable>
-        <Pressable onPress={openSearch} hitSlop={12}>
+        {/* ONE search for the whole app: this opens the standard Search screen.
+            The old embedded overlay stacked a second search UI (with its own ✕)
+            on top of the real screen's Cancel — two dismiss buttons, two bars. */}
+        <Pressable onPress={() => nav.navigate('Search')} hitSlop={12}>
           <Feather name="search" size={20} color="#fff" />
         </Pressable>
       </View>
-
-      {/* SEARCH DROP-DOWN (slides from top) */}
-      {searchMounted && (
-        <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: C.white, zIndex: 50 }, searchStyle]}>
-          <SearchScreen />
-          <SearchCloseButton onPress={closeSearch} />
-        </Animated.View>
-      )}
     </View>
   );
 }
@@ -393,7 +388,15 @@ function ReelVideo({ url, isActive }: { url: string | number; isActive: boolean 
   );
 }
 
-function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct, live }: any) {
+function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct, live, pageH }: any) {
+  // Items span the TRUE screen (under the system nav on edge-to-edge Android),
+  // so the overlay cluster is anchored off the real chrome: system inset +
+  // tab bar height + a hair of air. Static numbers can't fit every device.
+  const rInsets = useSafeAreaInsets();
+  const TAB_H = 56 + (rInsets.bottom > 0 ? rInsets.bottom - 4 : 10);
+  const aProd = Platform.OS === 'android' ? { bottom: TAB_H + 8 } : null;
+  const aUser = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 6 } : null;
+  const aActs = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 12 } : null;
   const s = React.useMemo(() => makeS(), []);
   const { requireAuth, token, getToken } = useApp();
   const { ref: prodRef, open: openProd } = useZoomCard();
@@ -505,7 +508,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
   };
 
   return (
-    <View style={{ height, width, backgroundColor: '#000' }}>
+    <View style={{ height: pageH ?? height, width, backgroundColor: '#000' }}>
       <GestureDetector gesture={doubleTap}>
         <View style={StyleSheet.absoluteFillObject}>
           {/* Only the active reel ± 1 neighbor keep a live player */}
@@ -519,7 +522,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
       </GestureDetector>
 
       {/* RIGHT ACTIONS */}
-      <View style={s.actions}>
+      <View style={[s.actions, aActs]}>
         {/* `reel.likes` ALREADY reflects this viewer's like — toggleLike applies the
             +1/-1 optimistically and then reconciles with the server's count. The
             old `+ (isLiked ? 1 : 0)` added a second one on top, so a like read as
@@ -569,10 +572,12 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
         </View>
       </OptionSheet>
 
-      {/* BOTTOM INFO — username + bio only */}
-      <View style={s.bottom}>
+      {/* BOTTOM INFO — username + bio only. The caption renders ONLY when it
+          exists — an empty <Text> still occupies a full line, which read as a
+          mystery gap between the @user and the product card below. */}
+      <View style={[s.bottom, aUser]}>
         <Text style={[T.h2, { color: '#fff' }]}>{reel.user}</Text>
-        <Text style={[T.body, { color: '#fff', marginTop: 4 }]}>{reel.title}</Text>
+        {!!reel.title && <Text style={[T.body, { color: '#fff', marginTop: 4 }]}>{reel.title}</Text>}
       </View>
 
       {/* PRODUCT TAG — mini product card (white bg over video, sharp, hairline) */}
@@ -583,7 +588,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
           was the only nod to it) and crashed with
           "Cannot read property 'img' of null" on every untagged reel. */}
       {reel.product && (
-        <View style={s.prodTag}>
+        <View style={[s.prodTag, aProd]}>
           <Pressable onPress={() => reel.product?.img ? openProd(reel.product.img, reel.product) : onProduct()} style={{ flex: 1, flexDirection: 'row' }}>
             <View ref={prodRef} collapsable={false}><CachedImage source={{ uri: reel.product.img }} style={s.prodTagImg} resizeMode="cover" /></View>
             <View style={{ flex: 1, paddingHorizontal: 10, justifyContent: 'center' }}>
@@ -609,17 +614,6 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
   );
 }
 
-function SearchCloseButton({ onPress }: { onPress: () => void }) {
-  const curve = useGenderCurve(18);
-  return (
-    <Animated.View style={[{ position: 'absolute', top: 60, right: 16, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, zIndex: 60, overflow: 'hidden' }, curve]}>
-      <Pressable onPress={onPress} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%' }} hitSlop={12}>
-        <Feather name="x" size={24} color={C.ink} />
-      </Pressable>
-    </Animated.View>
-  );
-}
-
 function ReelAction({ icon, count, onPress, active, iconSet }: { icon: any; count?: number; onPress: () => void; active?: boolean; iconSet?: 'ion' | 'feather' }) {
   const Icon: any = iconSet === 'ion' ? Ionicons : Feather;
   const size = iconSet === 'ion' ? 34 : 30;
@@ -632,10 +626,18 @@ function ReelAction({ icon, count, onPress, active, iconSet }: { icon: any; coun
 }
 
 const makeS = () => StyleSheet.create({
-  topBar: { position: 'absolute', top: 60, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  actions: { position: 'absolute', right: 14, bottom: 220, gap: 18, alignItems: 'center' },
-  bottom: { position: 'absolute', bottom: 200, left: 16, right: 90 },
-  prodTag: { position: 'absolute', bottom: 110, left: 16, right: 16, height: 70, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' },
+  topBar: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : HEADER_TOP, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // Bottom offsets are per-platform: the iOS values clear the home indicator
+  // and its taller tab bar; on Android (no indicator, shorter bar) the same
+  // numbers floated the product card, @user block and action rail ~50px too
+  // high, leaving a dead band above the tab bar.
+  // Items are now TRUE viewport height (measured, see pageH), so these are
+  // real distances from the screen bottom on every device: the product card
+  // clears the ~64dp tab bar with a hair of air, the @user block and action
+  // rail stack tight above it. iOS keeps its home-indicator-tuned values.
+  actions: { position: 'absolute', right: 14, bottom: Platform.OS === 'ios' ? 220 : 150, gap: 18, alignItems: 'center' },
+  bottom: { position: 'absolute', bottom: Platform.OS === 'ios' ? 200 : 144, left: 16, right: 90 },
+  prodTag: { position: 'absolute', bottom: Platform.OS === 'ios' ? 110 : 68, left: 16, right: 16, height: 70, flexDirection: 'row', backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' },
   prodTagImg: { width: 70, height: 70 },
   prodAdd: { paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink },
   avatar: { width: 32, height: 32, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },

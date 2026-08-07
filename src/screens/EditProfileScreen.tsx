@@ -7,7 +7,7 @@ import React, { useRef, useState } from 'react';
 import { View, Text, ScrollView, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalStatusBar, BrutalButton } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 
@@ -128,7 +128,7 @@ export default function EditProfileScreen() {
         <View onLayout={onSectionLayout(0)}>
           <View style={{ alignItems: 'center', paddingTop: SP.l, paddingBottom: SP.s }}>
             <Pressable onPress={() => showToast('Coming soon', 'Photo upload is on the way', 'camera')} style={[{ width: 76, height: 76, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 26, color: C.ink }}>{initials}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink }}>{initials}</Text>
               <View style={[{ position: 'absolute', bottom: -1, right: -1, width: 22, height: 22, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
                 <Feather name="camera" size={10} color="#fff" />
               </View>

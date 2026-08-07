@@ -13,13 +13,13 @@
 // curve is one inOut-cubic (no springs to fight), and the product grid mounts
 // only AFTER the morph completes so no JS work lands mid-flight.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, StatusBar, Dimensions } from 'react-native';
+import { View, Text, Pressable, ScrollView, StatusBar, Dimensions, Image } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, withTiming, interpolate, interpolateColor, Easing, runOnJS,
 } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { C, T, SP } from '../theme/brutal';
+import { C, T, SP, HEADER_TOP, rf } from '../theme/brutal';
 import { CachedImage, ProductCard, CARD, CARD_STYLES} from '../components/Brutal';
 import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 import type { Product } from '../data/mockData';
@@ -51,18 +51,33 @@ export default function CategoryZoomScreen() {
   const route = useRoute<any>();
   const { label = 'Category', img, tint = '#E8A79A' } = route.params ?? {};
   const { gender } = useApp();
-  const frame: Frame = route.params?._frame ?? { x: W / 2 - 60, y: H / 2 - 90, w: 120, h: 158 };
+  const rawFrame: Frame = route.params?._frame ?? { x: W / 2 - 60, y: H / 2 - 90, w: 120, h: 158 };
+  // The frame arrives already re-based to the ZoomProvider root — the ONLY
+  // coordinate correction in the pipeline. This screen shares that root's
+  // window origin (measured on-device), so it must NOT re-correct: a second
+  // status-bar subtraction here made the dome fly exactly one bar-height low.
+  const frame = rawFrame;
+  const rootRef = useRef<View>(null);
 
   // One progress value drives the whole choreography.
   const p = useSharedValue(0);
   const [ready, setReady] = useState(false); // product grid mounts after the morph
   const closing = useRef(false);
 
-  useEffect(() => {
+  const flightStarted = useRef(false);
+  const startFlight = () => {
+    if (flightStarted.current) return;
+    flightStarted.current = true;
     p.value = withTiming(1, { duration: MS, easing: EASE }, (fin) => {
       if (fin) runOnJS(setReady)(true);
     });
-  }, []);
+  };
+  // Fly on the first laid-out frame — one rAF so the flight's frame 0 paints
+  // at the tile rect before any motion.
+  const onRootLayout = () => { requestAnimationFrame(startFlight); };
+  // Pure safety net — 400ms is far beyond any measure callback; it exists only
+  // so a pathological device can't leave the screen frozen pre-flight.
+  useEffect(() => { const t = setTimeout(startFlight, 400); return () => clearTimeout(t); }, []);
 
   const goBack = () => {
     if (closing.current) return;
@@ -117,12 +132,32 @@ export default function CategoryZoomScreen() {
   });
 
   // ── PNG — rides from the tile to centre-stage on the dome (uniform scale).
-  // Start scale matches the tile's RENDERED image (height-fit inside the tall
-  // card), so the cutout never pops smaller at takeoff — it leaves the card at
-  // its exact current size and glides up-right, growing gently on the way.
+  // The tile contain-fits the PNG in its own (portrait) box while this overlay
+  // contain-fits it in the wider IMG_W×IMG_H box — the two agree only for tall
+  // portrait art. The start scale therefore comes from the image's intrinsic
+  // aspect ratio: rendered width in the tile ÷ rendered width in the overlay
+  // box, which makes the flying cutout pixel-identical to the tile's at both
+  // ends of the flight (the mismatch showed as a double-image during the
+  // 180ms pop fade). Local assets resolve synchronously; remote ones arrive
+  // async and fall back to the height-fit assumption until then.
+  const [imgAR, setImgAR] = useState<number | null>(() => {
+    if (typeof img === 'number') {
+      const a = Image.resolveAssetSource(img);
+      return a?.width && a?.height ? a.width / a.height : null;
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (imgAR != null || typeof img !== 'object' || !img?.uri) return;
+    let on = true;
+    Image.getSize(img.uri, (w, h) => { if (on && w > 0 && h > 0) setImgAR(w / h); }, () => {});
+    return () => { on = false; };
+  }, []);
+  const s0 = imgAR != null
+    ? Math.min(frame.w, frame.h * imgAR) / Math.min(IMG_W, IMG_H * imgAR)
+    : frame.h / IMG_H;
   const imgStyle = useAnimatedStyle(() => {
     const s = p.value;
-    const s0 = frame.h / IMG_H;
     return {
       transform: [
         { translateX: interpolate(s, [0, 1], [frame.x + frame.w / 2 - (IMG_X + IMG_W / 2), 0]) },
@@ -193,7 +228,7 @@ export default function CategoryZoomScreen() {
   }, [label, gender, ready, retryKey]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+    <View ref={rootRef} collapsable={false} onLayout={onRootLayout} style={{ flex: 1, backgroundColor: 'transparent' }}>
       <StatusBar barStyle="dark-content" />
 
       {/* 1 · white sheet (fades Home out) */}
@@ -239,7 +274,7 @@ export default function CategoryZoomScreen() {
         <Text
           adjustsFontSizeToFit
           numberOfLines={1}
-          style={{ fontFamily: 'Inter_900Black', fontSize: 84, letterSpacing: -1, color: '#A6A6A6', textTransform: 'uppercase', textAlign: 'center' }}
+          style={{ fontFamily: 'Inter_900Black', fontSize: rf(84), letterSpacing: -1, color: '#A6A6A6', textTransform: 'uppercase', textAlign: 'center' }}
         >
           {label}
         </Text>
@@ -252,14 +287,16 @@ export default function CategoryZoomScreen() {
       </Animated.View>
 
       {/* 5 · header chrome — back + label over the dome */}
-      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 54, paddingHorizontal: SP.l, flexDirection: 'row', alignItems: 'center' }, chromeStyle]}>
-        <Pressable onPress={goBack} hitSlop={12} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
-          <Feather name="arrow-left" size={22} color="#FFFFFF" />
+      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: HEADER_TOP, paddingHorizontal: SP.l, flexDirection: 'row', alignItems: 'center' }, chromeStyle]}>
+        {/* Ink, not white — the dome tints are light pastels and a white
+            arrow disappeared against them. */}
+        <Pressable onPress={goBack} hitSlop={12} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.65)', borderRadius: 18 }}>
+          <Feather name="arrow-left" size={22} color={C.ink} />
         </Pressable>
       </Animated.View>
 
       {/* 6 · pinned ink back — appears once the dome has scrolled away */}
-      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, paddingTop: 54, paddingLeft: SP.l }, pinnedBackStyle]}>
+      <Animated.View style={[{ position: 'absolute', top: 0, left: 0, paddingTop: HEADER_TOP, paddingLeft: SP.l }, pinnedBackStyle]}>
         <Pressable onPress={goBack} hitSlop={12} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
           <Feather name="arrow-left" size={22} color={C.ink} />
         </Pressable>

@@ -10,6 +10,7 @@ import { C, T, SP, BORDER, rf } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp, CachedImage } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -37,7 +38,9 @@ export function DailyRewardScreen() {
   const [reward, setReward] = useState<{ label: string; sub: string } | null>(null);
   const DAYS = [
     { d: 1, rw: '+10' }, { d: 2, rw: '+20' }, { d: 3, rw: '+30' }, { d: 4, rw: '₹50' },
-    { d: 5, rw: '+50' }, { d: 6, rw: '₹100' }, { d: 7, rw: '🎁' },
+    // Day 7 was a 🎁 emoji — the one non-icon glyph in the app. 'GIFT' keeps
+    // the calendar cell typographic like every other day label.
+    { d: 5, rw: '+50' }, { d: 6, rw: '₹100' }, { d: 7, rw: 'GIFT' },
   ];
   const streak = claimed.filter(Boolean).length;
   const points = 374;
@@ -408,7 +411,18 @@ export function SpinWheelScreen() {
                 {`${result.label} ${result.sublabel ?? ''}`.trim()}
               </Text>
               {claimedPrize?.code && (
-                <Text style={[T.monoB, { marginTop: 8, letterSpacing: 2 }]}>{claimedPrize.code}</Text>
+                // Tap-to-copy: the code used to be plain text with no way to get
+                // it into the clipboard for checkout.
+                <Pressable
+                  onPress={() => {
+                    void Clipboard.setStringAsync(claimedPrize.code!)
+                      .then(() => showToast('Copied', `${claimedPrize.code} — paste it at checkout`, 'copy'));
+                  }}
+                  style={[{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.white }, BORDER(1)]}
+                >
+                  <Text style={[T.monoB, { letterSpacing: 2 }]}>{claimedPrize.code}</Text>
+                  <Feather name="copy" size={14} color={C.ink} />
+                </Pressable>
               )}
               {!!claimedPrize?.points && (
                 <Text style={[T.caption, { color: C.dim, marginTop: 8 }]}>{`${claimedPrize.points} points added`}</Text>
@@ -451,11 +465,23 @@ export function SpinWheelScreen() {
             <Text style={[T.micro, { color: C.dim, padding: 10 }]}>Nothing yet — a win will show up here.</Text>
           ) : (
             rewards.slice(0, 6).map((r) => (
-              <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderColor: C.hairline, opacity: r.state === 'available' ? 1 : 0.45 }}>
+              // Available codes copy on tap — same clipboard affordance as the
+              // wallet, so a prize is usable from wherever the shopper sees it.
+              <Pressable
+                key={r.id}
+                disabled={r.state !== 'available' || !r.code}
+                onPress={() => {
+                  void Clipboard.setStringAsync(r.code)
+                    .then(() => showToast('Copied', `${r.code} — paste it at checkout`, 'copy'));
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', padding: 10, borderBottomWidth: 1, borderColor: C.hairline, opacity: r.state === 'available' ? 1 : 0.45 }}
+              >
                 <Text style={[T.monoB, { flex: 1 }]}>{r.code}</Text>
                 <Text style={[T.micro, { marginRight: 8 }]}>{r.name}</Text>
-                <Text style={[T.micro, { color: C.dim }]}>{r.state}</Text>
-              </View>
+                {r.state === 'available'
+                  ? <Feather name="copy" size={13} color={C.ink} />
+                  : <Text style={[T.micro, { color: C.dim }]}>{r.state}</Text>}
+              </Pressable>
             ))
           )}
         </View>
@@ -1179,6 +1205,9 @@ export function TryOnScreen() {
   const [cameraOn, setCameraOn] = useState(false);
   const [facing, setFacing] = useState<'front' | 'back'>('front');
   const cameraRef = useRef<CameraView>(null);
+  // Timestamp of the last tap on the camera preview — a second tap within
+  // 300ms counts as the double-tap that flips the camera.
+  const lastCamTap = useRef(0);
 
   // The person photo — from the gallery OR captured live. It drives generation:
   // choosing or snapping one runs the try-on automatically, and the AI result
@@ -1228,7 +1257,10 @@ export function TryOnScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         quality: 0.7,
-        allowsEditing: false,
+        // System crop step after picking — lets the shopper frame themselves
+        // before the AI dresses the photo. 3:4 matches the try-on canvas.
+        allowsEditing: true,
+        aspect: [3, 4],
       });
       console.log('[tryOn] picker result=', JSON.stringify(result).slice(0, 400));
       if (result.canceled) return;
@@ -1323,13 +1355,27 @@ export function TryOnScreen() {
   // same backend model as a gallery photo. No separate flow.
   const capturePhoto = async () => {
     try {
-      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7, skipProcessing: true });
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7 });
       if (!photo?.uri) return;
+      let uri = photo.uri;
+      // CameraX mirrors FRONT-camera output by design (to match the preview),
+      // so the generation ran on a mirrored selfie. Flip it back explicitly —
+      // deterministic on every device, unlike the capture flags.
+      if (facing === 'front') {
+        try {
+          const flipped = await ImageManipulator.manipulateAsync(
+            photo.uri,
+            [{ flip: ImageManipulator.FlipType.Horizontal }],
+            { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          uri = flipped.uri;
+        } catch { /* flip failing is not worth losing the shot over */ }
+      }
       setGeneratedPhoto(null);
       setAttemptFailed(false);
       setCameraOn(false);
       genKeyRef.current = null;
-      setUploadedPhoto(photo.uri);
+      setUploadedPhoto(uri);
     } catch (e: any) {
       showToast('Capture failed', e?.message || 'Try again', 'x');
     }
@@ -1408,14 +1454,23 @@ export function TryOnScreen() {
           {cameraOn ? (
             <>
               {/* Live camera — NO garment overlay; the person is captured clean
-                  and the garment is composited server-side. */}
-              <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject as any} facing={facing} />
-              <Pressable onPress={() => setCameraOn(false)} hitSlop={8} style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}>
-                <Text style={[T.caption, { color: C.ink }]}>Close</Text>
+                  and the garment is composited server-side. Close/rotate buttons
+                  removed per redesign: back is the header arrow, and the camera
+                  flips on a DOUBLE TAP anywhere on the preview (hint below). */}
+              <Pressable
+                onPress={(e: any) => {
+                  // Manual double-tap: two taps within 300ms flip the camera.
+                  const now = Date.now();
+                  if (now - lastCamTap.current < 300) setFacing(f => (f === 'front' ? 'back' : 'front'));
+                  lastCamTap.current = now;
+                }}
+                style={StyleSheet.absoluteFillObject as any}
+              >
+                <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject as any} facing={facing} />
               </Pressable>
-              <Pressable onPress={() => setFacing(f => (f === 'front' ? 'back' : 'front'))} hitSlop={8} style={[{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}>
-                <Feather name="refresh-cw" size={15} color={C.ink} />
-              </Pressable>
+              <View pointerEvents="none" style={[{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>Double tap to rotate</Text>
+              </View>
               {/* Shutter — take the picture then and there */}
               <View style={{ position: 'absolute', bottom: 22, left: 0, right: 0, alignItems: 'center' }}>
                 <Pressable onPress={capturePhoto} style={{ width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.9)', borderWidth: 3, borderColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
@@ -1462,7 +1517,7 @@ export function TryOnScreen() {
           ) : (
             <>
               {/* Nothing chosen yet — show the garment so the box is never empty. */}
-              <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+              <CachedImage source={{ uri: pick.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
               <View style={[{ position: 'absolute', top: 10, alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
                 <Text style={[T.micro, { color: C.ink }]}>Add a photo or open the camera</Text>
               </View>
@@ -1523,10 +1578,13 @@ export function TryOnScreen() {
                     <Pressable
                       key={g.key}
                       onPress={() => setSelectedGarment(g)}
-                      style={[{ width: 90, height: 110, backgroundColor: C.hairline, overflow: 'hidden' }, on ? BORDER(2) : BORDER(1)]}
+                      // White fill + cover-fit: `contain` on a grey box left the
+                      // photo floating in a grey frame. Cover fills the card
+                      // edge-to-edge; the label strip overlays the bottom.
+                      style={[{ width: 90, height: 110, backgroundColor: C.white, overflow: 'hidden' }, on ? BORDER(2) : BORDER(1)]}
                     >
-                      <CachedImage source={{ uri: g.thumb }} style={{ width: '100%', height: '78%' }} resizeMode="contain" />
-                      <View style={{ flex: 1, paddingHorizontal: 4, justifyContent: 'center', backgroundColor: on ? C.ink : C.white, borderTopWidth: 1, borderColor: C.hairline }}>
+                      <CachedImage source={{ uri: g.thumb }} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
+                      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 4, paddingVertical: 3, backgroundColor: on ? C.ink : 'rgba(255,255,255,0.92)' }}>
                         <Text style={[T.micro, { color: on ? C.white : C.ink }]} numberOfLines={1}>{g.label}</Text>
                       </View>
                     </Pressable>

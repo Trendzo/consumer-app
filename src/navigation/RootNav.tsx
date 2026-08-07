@@ -162,7 +162,11 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
                 <PixelIcon name={it.icon} size={22} color={tint} />
                 {it.name === 'CartTab' && cartCount > 0 && (
                   <View style={tabStyles.badge}>
-                    <Text style={tabStyles.badgeTxt}>{cartCount}</Text>
+                    {/* Capped: an uncapped 3-4 digit count widens the badge past
+                        the wrap and puts the clipping straight back. */}
+                    <Text style={tabStyles.badgeTxt} numberOfLines={1}>
+                      {cartCount > 99 ? '99+' : cartCount}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -209,11 +213,17 @@ const tabStylesStatic = StyleSheet.create({
     gap: 4,
     paddingVertical: 2,
   },
+  // Wide enough to CONTAIN the cart badge inside its own bounds. The badge used
+  // to hang off at top:-6/right:-10, and Android clips absolutely-positioned
+  // children to the parent box regardless of `overflow: visible` — so the black
+  // square was drawn with its top and right sliced off. Width only: the height
+  // stays 22 so the bar does not grow, and the 22px icon still centres here.
   iconWrap: {
-    width: 24,
+    width: 44,
     height: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   lbl: {
     textAlign: 'center',
@@ -221,10 +231,13 @@ const tabStylesStatic = StyleSheet.create({
   lblActive: {
     fontFamily: HELV, fontWeight: '600',
   },
+  // Anchored to the wrap's top-right corner with NO negative offset, so every
+  // edge stays inside the parent and nothing can be clipped. A 2–3 char count
+  // grows leftward from the pinned right edge, which is still inside the wrap.
   badge: {
     position: 'absolute',
-    top: -6,
-    right: -10,
+    top: 0,
+    right: 0,
     minWidth: 16,
     height: 16,
     borderRadius: 0,
@@ -243,13 +256,14 @@ function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={props => <BrutalTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      // freezeOnBlur: suspend the JS render tree of every non-focused tab —
+      // Home's auto-rotating banners and looping video otherwise keep
+      // rendering (and dropping frames) behind whichever tab is open. Each
+      // tab thaws with full state the moment it regains focus.
+      screenOptions={{ headerShown: false, freezeOnBlur: true }}
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} />
-      {/* freezeOnBlur: suspend Reels' JS render tree while another tab is
-          shown — its players are already paused on blur; this stops re-renders
-          from reaching the offscreen feed too. Scoped to Reels only. */}
-      <Tab.Screen name="ReelsTab" component={ReelsScreen} options={{ freezeOnBlur: true }} />
+      <Tab.Screen name="ReelsTab" component={ReelsScreen} />
       <Tab.Screen name="CategoryTab" component={CategoryBrowseScreen} />
       <Tab.Screen name="CartTab" component={CartScreen} />
     </Tab.Navigator>
@@ -405,7 +419,7 @@ export default function RootNav() {
       {phase === 'onboarding' && appMountReady && (
         <OnboardingScreen onDone={() => { setOnboarded(true); setPhase('main'); }} />
       )}
-      {phase === 'main' && appMountReady && <MainApp />}
+      {phase === 'main' && appMountReady && <MainApp gateReady={splashDone} />}
       {!splashDone && (
         <View style={StyleSheet.absoluteFill}>
           <SplashScreen onDone={() => setSplashDone(true)} />
@@ -428,7 +442,7 @@ export default function RootNav() {
   );
 }
 
-function MainApp() {
+function MainApp({ gateReady = true }: { gateReady?: boolean }) {
   const NightOverlay = () => null;
   const { tabBarOffset } = useApp();
   return (
@@ -447,7 +461,11 @@ function MainApp() {
         if (top === 'Tabs') tabBarOffset.value = withTiming(0, { duration: 200 });
       }}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      {/* freezeOnBlur: parked screens stop re-rendering behind the active one —
+          the same treatment the tab navigator already had. Push/pop animations
+          are native-driven; what made them choppy was blurred screens (Home
+          especially) continuing to render underneath the transition. */}
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right', freezeOnBlur: true }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
         {/* Profile moved out of the bottom tabs — still reachable as a pushed
             screen (opened from the Home header). */}
@@ -474,8 +492,14 @@ function MainApp() {
         <Stack.Screen name="SpinWheel" component={SpinWheelScreen} />
         <Stack.Screen name="StyleQuiz" component={StyleQuizScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
-        <Stack.Screen name="TryOn" component={TryOnScreen} />
-        <Stack.Screen name="TryOnPicker" component={TryOnPickerScreen} />
+        {/* transparentModal + none: pushed OVER the transparent ProductDetail.
+            As a regular (opaque) screen, react-native-screens detached
+            ProductDetail during the push — its backdrop vanished a frame early
+            and the category list flashed through before the camera appeared.
+            A transparent presentation keeps every screen below attached, so
+            nothing peeks through. Each screen paints its own solid background. */}
+        <Stack.Screen name="TryOn" component={TryOnScreen} options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }} />
+        <Stack.Screen name="TryOnPicker" component={TryOnPickerScreen} options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }} />
         {/* Posting a reel — full-screen, slides up like a compose sheet. */}
         <Stack.Screen name="CreateReel" component={CreateReelScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ReelProductPicker" component={ReelProductPickerScreen} />
@@ -527,7 +551,7 @@ function MainApp() {
     <AuthSheet />
     {/* Resolves the shopper's location at app open. Mounted here, beside AuthSheet, so it runs
         once regardless of which tab opens first. */}
-    <LocationGate />
+    <LocationGate active={gateReady} />
     </View>
     </ZoomProvider>
   );

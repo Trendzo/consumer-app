@@ -1,11 +1,11 @@
 // Reusable brutalism primitives
 import React, { ReactNode, useRef, useEffect, useSyncExternalStore } from 'react';
-import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform, KeyboardAvoidingView, Keyboard } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
-import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV} from '../theme/brutal';
+import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV, HEADER_TOP } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { toastBus, confirmBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
@@ -48,6 +48,22 @@ export function CachedImage({ source, style, resizeMode = 'contain', ...rest }: 
   );
 }
 
+/**
+ * Measured keyboard height for MODALS. An RN Modal is its own Android window
+ * and never inherits the activity's adjustResize — a KeyboardAvoidingView
+ * inside one has nothing to react to. Pad the sheet by this value instead.
+ */
+export function useKeyboardHeight() {
+  const [kb, setKb] = React.useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKb(e.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  return kb;
+}
+
 // Light-mode only — dark status-bar content over the app's white surfaces.
 export function BrutalStatusBar() {
   return <StatusBar barStyle="dark-content" />;
@@ -64,7 +80,7 @@ export function BrutalConfirm() {
   if (!confirm) return null;
   const danger = !!confirm.danger;
   return (
-    <Modal transparent visible={!!confirm} animationType="none" onRequestClose={hideConfirm}>
+    <Modal transparent visible={!!confirm} animationType="none" statusBarTranslucent onRequestClose={hideConfirm}>
       <Pressable onPress={hideConfirm} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
         <MotiView
           from={{ opacity: 0, translateY: 30, scale: 0.94 }}
@@ -132,7 +148,7 @@ export function BrutalToast() {
       pointerEvents="box-none"
       style={{
         position: 'absolute',
-        left: 0, right: 0, bottom: 108,
+        left: 0, right: 0, bottom: toast.bottom ?? 108,
         alignItems: 'center',
         zIndex: 9999,
         transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
@@ -336,7 +352,7 @@ export function BrutalInput({ value, onChangeText, placeholder, label, secureTex
           editable={editable}
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
-          style={[{ flex: 1, fontFamily: HELV, fontWeight: '500', fontSize: 14, color: C.ink, padding: 0 }, inputStyle]}
+          style={[{ flex: 1, fontFamily: HELV, fontWeight: '500', fontSize: rf(14), color: C.ink, padding: 0 }, inputStyle]}
         />
       </View>
       {error ? <Text style={[T.micro, { color: '#c1121f', marginTop: 5 }]}>{error}</Text> : null}
@@ -370,7 +386,7 @@ export function SectionHead({ title, emphasis, sub, action, onAction, hideCaret,
 export function ScreenHeader({ title, onBack, right }: { title: string; onBack?: () => void; right?: ReactNode }) {
   return (
     <View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: 56, paddingBottom: SP.m, backgroundColor: C.white }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingTop: HEADER_TOP, paddingBottom: SP.m, backgroundColor: C.white }}>
         {onBack ? <BrutalIconBtn icon="arrow-left" onPress={onBack} size={36} /> : <View style={{ width: 36 }} />}
         <Text style={[T.h3, { color: C.ink, textTransform: 'uppercase' }]}>{title}</Text>
         {right ?? <View style={{ width: 36 }} />}
@@ -439,8 +455,15 @@ export const ProductCard = React.memo(function ProductCard({
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const { ref: imgRef, open } = useZoomCard();
-  // Tapping zooms the image into the product page (falls back to onPress if no image)
-  const handlePress = () => { if (p?.img) open(p.img, p, zoomParams); else onPress?.(p); };
+  // Tapping zooms the image into the product page (falls back to onPress if no image).
+  // The press-in spring (0.97) is usually still mid-flight when the tap commits, and
+  // measureInWindow returns the TRANSFORMED frame — so the zoom measured a shrunken,
+  // shifted card and both the open start and the close landing were slightly off.
+  // Snap the scale back to 1 first so the card is measured at its true position.
+  const handlePress = () => {
+    if (p?.img) { scale.stopAnimation(); scale.setValue(1); open(p.img, p, zoomParams); }
+    else onPress?.(p);
+  };
   const off = p?.original > p?.price ? Math.round((1 - p.price / p.original) * 100) : 0;
   return (
     <Animated.View style={[{ transform: [{ scale }], width: CARD.w }, style]}>
@@ -449,18 +472,19 @@ export const ProductCard = React.memo(function ProductCard({
         onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }).start()}
         onPress={handlePress}
       >
-        <Reanimated.View ref={imgRef} collapsable={false} style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1), frameStyle]}>
+        {/* White canvas, not grey: product shots are photographed on white, so
+            the contain-fit letterbox disappears — full image, no crop, no grey bars. */}
+        <Reanimated.View ref={imgRef} collapsable={false} style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.white }, BORDER(1), frameStyle]}>
           {rank != null && (
             <Text style={{ position: 'absolute', top: -15, left: -4, fontFamily: 'Inter_900Black', fontSize: rf(110), color: C.ink, opacity: 0.06 }}>{`0${rank}`}</Text>
           )}
-          <CachedImage transition={0} source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+          <CachedImage transition={0} source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          {/* No tag chips ("BRUNCH", "STREETWEAR", "DATE"…) over the photo —
+              they covered every card's top corner. Rank badge stays: it is the
+              point of a rating-sorted grid. */}
           {rank != null ? (
             <View style={{ position: 'absolute', top: 8, left: 0, backgroundColor: C.ink, paddingHorizontal: 10, paddingVertical: 4 }}>
               <Text style={[T.micro, { color: C.white, fontFamily: HELV, fontWeight: '700' }]}>{`#0${rank}`}</Text>
-            </View>
-          ) : p?.tag ? (
-            <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={[T.micro, { color: C.white }]}>{p.tag}</Text>
             </View>
           ) : null}
           {children}
@@ -510,11 +534,28 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
   onClose: () => void;
   children?: ReactNode;
 }) {
+  /**
+   * Android: an RN Modal's window doesn't resize for the keyboard and the KAV
+   * can't see it — the comments input sat hidden behind the keyboard. Track
+   * the keyboard height directly and pad the sheet by it: the sheet stays a
+   * full-width white panel STUCK to the bottom (Instagram-style), its content
+   * riding above the keyboard.
+   */
+  const [kb, setKb] = React.useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', (e) => setKb(e.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   return (
-    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="none" statusBarTranslucent onRequestClose={onClose}>
       {/* Keyboard-aware: when a sheet contains an input (comments, board name,
           coupon…), the whole sheet rides ABOVE the keyboard instead of the
           fields hiding behind it. */}
+      {/* behavior MUST be set on Android too: `undefined` disables the KAV
+          entirely, and an RN Modal's window does not reliably adjustResize on
+          Android — so the comments input sat hidden behind the keyboard. */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
         {/* scrim — quick fade, tap anywhere to close */}
         <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 180 }} style={StyleSheet.absoluteFillObject}>
@@ -527,7 +568,7 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
           transition={{ type: 'timing', duration: 300 }}
         >
           {/* stop taps from falling through to the scrim */}
-          <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: 28 }, BORDER(1)]}>
+          <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: Platform.OS === 'ios' ? 28 : 16 + kb }, BORDER(1)]}>
             {/* solid fill below the sheet — when the keyboard lifts it, the gap
                 underneath stays sheet-white, never a transparent hole */}
             <View pointerEvents="none" style={{ position: 'absolute', top: '100%', left: -1, right: -1, height: 600, backgroundColor: C.bg }} />

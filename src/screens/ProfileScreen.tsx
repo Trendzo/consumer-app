@@ -3,7 +3,7 @@ import { View, Text, ScrollView, Pressable, StatusBar } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, SP, BORDER } from '../theme/brutal';
+import { C, SP, BORDER, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { getLoyalty } from '../services/loyalty';
 
@@ -13,9 +13,12 @@ const GOLD = '#B58A2E';       // rewards accent
 const NEW = '#F1315B';        // avatar ring / "NEW" badge
 
 // Everything is Helvetica — weight carries the hierarchy. `H` builds a text style.
+// Sizes route through rf() — this helper used to take raw sizes, which is why
+// THIS page alone ignored the small-screen shrink and the OS font-scale cap
+// while home/category scaled correctly.
 const HELV = 'Helvetica Neue';
 const H = (size: number, weight: '400' | '500' | '600' | '700' | '800' | '900', color: string, extra: object = {}) =>
-  ({ fontFamily: HELV, fontWeight: weight, fontSize: size, color, ...extra } as any);
+  ({ fontFamily: HELV, fontWeight: weight, fontSize: rf(size), color, ...extra } as any);
 
 // Bottom text links (both states).
 const LINKS: { label: string; screen?: string }[] = [

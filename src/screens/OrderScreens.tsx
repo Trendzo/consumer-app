@@ -265,7 +265,7 @@ export function OrderTrackingScreen() {
       >
         {/* ═══ HEADER CARD ═══ */}
         <View style={[{ padding: SP.l, backgroundColor: C.white }, BORDER(1)]}>
-          <Text style={[T.monoB, { fontSize: 10, color: C.dim }]}>
+          <Text style={[T.monoB, { fontSize: rf(10), color: C.dim }]}>
             {`ORDER #${order.id.slice(-8).toUpperCase()} · ${METHOD_LABEL[method].toUpperCase()}`}
           </Text>
           <Text style={[T.h1, { marginTop: 6, textTransform: 'uppercase' }]}>{statusLabel(status)}</Text>
@@ -362,7 +362,7 @@ export function OrderTrackingScreen() {
                 <View key={it.id} style={{ flexDirection: 'row', gap: SP.m, padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
                   <View style={[{ width: 52, height: 66, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                     {it.galleryImageSnap
-                      ? <CachedImage source={{ uri: it.galleryImageSnap }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      ? <CachedImage source={{ uri: it.galleryImageSnap }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                       : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Feather name="shopping-bag" size={18} color={C.dim} /></View>}
                   </View>
                   <View style={{ flex: 1 }}>
@@ -725,7 +725,7 @@ export function OrderHistoryScreen() {
                 >
                   <View style={[{ width: 52, height: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                     {primary?.image
-                      ? <CachedImage source={{ uri: primary.image }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                      ? <CachedImage source={{ uri: primary.image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                       : <Feather name="shopping-bag" size={20} color={C.dim} />}
                   </View>
 

@@ -64,11 +64,13 @@ export default function SearchScreen() {
 
   // ── slide-down entrance: 0 = parked above the screen, 1 = in place ──
   const p = useSharedValue(0);
-  const focusInput = () => inputRef.current?.focus();
   useEffect(() => {
-    p.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) }, (fin) => {
-      if (fin) runOnJS(focusInput)();
-    });
+    // Focus IMMEDIATELY — the input used to wait for the slide-in to finish
+    // before asking for focus, so the keyboard didn't even start animating
+    // until ~320ms in and search read as "slow to appear". The sheet slides
+    // on the UI thread; the keyboard rises in parallel, like Instagram's.
+    inputRef.current?.focus();
+    p.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) });
   }, []);
   const goClose = () => {
     if (closing.current) return;
@@ -290,7 +292,7 @@ export default function SearchScreen() {
                   {popular.map((prod) => (
                     <Pressable key={prod.id} onPress={() => openZoom(zoomRefs.current['pd' + prod.id], prod.img, prod)} style={s.row}>
                       <View ref={(el) => { zoomRefs.current['pd' + prod.id] = el; }} collapsable={false} style={[{ width: 50, height: 50, overflow: 'hidden' }, BORDER(1)]}>
-                        <CachedImage source={{ uri: prod.img }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                        <CachedImage source={{ uri: prod.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                       </View>
                       <View style={{ flex: 1, marginLeft: 12 }}>
                         <Text style={[T.bodyB]} numberOfLines={1}>{prod.name}</Text>

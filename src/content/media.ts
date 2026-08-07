@@ -34,10 +34,30 @@ export function useLastNonEmpty<T>(items: T[]): T[] {
 /** What `CachedImage` accepts: a bundled module id, or a remote source. */
 export type MediaSource = number | { uri: string };
 
+/**
+ * TEMPORARY remap — the backend CMS still names the old explore-grid art; the
+ * refreshed photos ship in this build under assets/models/. Until the CMS rows
+ * are updated to the new keys (at which point they resolve directly and this
+ * map is dead weight to delete), the old keys land on the new art. These six
+ * keys are used nowhere else in the served content, so the remap is exact.
+ */
+const ASSET_KEY_REMAP: Record<string, string> = {
+  // Bags (her) — the old matching-set art (girl with bag) suits Bags; single
+  // hop, so this resolves the registry's numbered/4, not the remapped one.
+  'github-import/numbered/3': 'github-import/numbered/4',
+  'github-import/numbered/4': 'models/matching-set',   // Matching Sets (her)
+  'github-import/numbered/5': 'models/tanks',          // Everyday Tanks (her)
+  'github-import/numbered/7': 'models/skirt',          // Mini Skirts (her)
+  'github-import/numbered-men/2': 'models/graphic-tshirt', // Graphic Tees (him)
+  'github-import/numbered-men/3': 'models/sneakers',   // Sneakers (him)
+  'github-import/numbered-men/7': 'models/cargos',     // Cargos (him)
+};
+
 /** Bundled art for a key, or null when the key names something this build does not ship. */
 export function resolveAsset(assetKey: string | null | undefined): number | null {
   if (!assetKey) return null;
-  return ASSET_REGISTRY[assetKey] ?? null;
+  const key = ASSET_KEY_REMAP[assetKey] ?? assetKey;
+  return ASSET_REGISTRY[key] ?? null;
 }
 
 /**

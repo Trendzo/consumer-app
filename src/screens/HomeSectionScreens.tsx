@@ -169,32 +169,9 @@ export function StealsScreen() {
           ))}
         </ScrollView>
 
-        {/* ── HERO DEALS — bento: one tall tile + a stacked pair ── */}
-        <View style={{ paddingHorizontal: SP.l, flexDirection: 'row', gap: STEAL_GAP }}>
-          {bento[0] ? (
-            <DealTile
-              label={bento[0].label}
-              priceLine={str(bento[0].item.content, 'priceLine')}
-              img={bento[0].source}
-              w={STEAL_COL}
-              h={STEAL_BIG_H}
-              onPress={() => { if (!openLink(nav, bento[0]!.item.link)) nav.navigate('Categories', { label: bento[0]!.label }); }}
-            />
-          ) : null}
-          <View style={{ gap: STEAL_GAP }}>
-            {bento.slice(1).map((b) => (
-              <DealTile
-                key={b.item.key}
-                label={b.label}
-                priceLine={str(b.item.content, 'priceLine')}
-                img={b.source}
-                w={STEAL_COL}
-                h={STEAL_SMALL_H}
-                onPress={() => { if (!openLink(nav, b.item.link)) nav.navigate('Categories', { label: b.label }); }}
-              />
-            ))}
-          </View>
-        </View>
+        {/* No bento here — those three deal tiles are the exact same trio the
+            shopper just saw (and tapped through) on Home's Steals section.
+            The page goes straight from the bands to the live deal grid. */}
 
         {/* ── DEAL GRID — filtered by the active band ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
@@ -219,13 +196,9 @@ export function StealsScreen() {
                 const off = p.original > p.price ? Math.round((1 - p.price / p.original) * 100) : 0;
                 return (
                   <FadeInUp key={p.id} delay={(i % 6) * 30}>
-                    <ProductCard p={p} style={CARD_STYLES.mb_s}>
-                      {off > 0 && (
-                        <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.green, paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={[T.micro, { color: '#fff', fontFamily: HELV, fontWeight: '700' }]}>{`${off}% OFF`}</Text>
-                        </View>
-                      )}
-                    </ProductCard>
+                    {/* No % OFF chip over the photo — the discount already shows
+                        in the card's own price row. */}
+                    <ProductCard p={p} style={CARD_STYLES.mb_s} />
                   </FadeInUp>
                 );
               })}
@@ -801,12 +774,9 @@ export function FlashFitScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
               {flashDeals.map((p, i) => (
                 <FadeInUp key={p.id} delay={(i % 6) * 30}>
-                  <ProductCard p={p} style={CARD_STYLES.mb_s}>
-                    <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Feather name="zap" size={10} color="#fff" />
-                      <Text style={[T.micro, { color: '#fff', fontFamily: HELV, fontWeight: '700' }]}>FLASH</Text>
-                    </View>
-                  </ProductCard>
+                  {/* No FLASH badge — the section heading already says it; the
+                      badge just covered the top of every product photo. */}
+                  <ProductCard p={p} style={CARD_STYLES.mb_s} />
                 </FadeInUp>
               ))}
             </View>

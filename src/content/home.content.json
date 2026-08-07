@@ -119,7 +119,7 @@
         {
           "key": "exh-3",
           "gender": "her",
-          "assetKey": "github-import/numbered/3",
+          "assetKey": "github-import/numbered/4",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Bags" } },
@@ -128,7 +128,7 @@
         {
           "key": "exh-4",
           "gender": "her",
-          "assetKey": "github-import/numbered/4",
+          "assetKey": "models/matching-set",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Matching Sets" } },
@@ -137,7 +137,7 @@
         {
           "key": "exh-5",
           "gender": "her",
-          "assetKey": "github-import/numbered/5",
+          "assetKey": "models/tanks",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Everyday Tanks" } },
@@ -155,7 +155,7 @@
         {
           "key": "exh-7",
           "gender": "her",
-          "assetKey": "github-import/numbered/7",
+          "assetKey": "models/skirt",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Mini Skirts" } },
@@ -173,7 +173,7 @@
         {
           "key": "exm-2",
           "gender": "him",
-          "assetKey": "github-import/numbered-men/2",
+          "assetKey": "models/graphic-tshirt",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Graphic Tees" } },
@@ -182,7 +182,7 @@
         {
           "key": "exm-3",
           "gender": "him",
-          "assetKey": "github-import/numbered-men/3",
+          "assetKey": "models/sneakers",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Sneakers" } },
@@ -218,7 +218,7 @@
         {
           "key": "exm-7",
           "gender": "him",
-          "assetKey": "github-import/numbered-men/7",
+          "assetKey": "models/cargos",
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories", "params": { "label": "Cargos" } },
@@ -485,7 +485,7 @@
       "key": "home.reels_banner",
       "type": "promo_banner",
       "title": "60-Minute Delivery",
-      "subtitle": "Your style. Now, not later.",
+      "subtitle": "Wear it within the hour",
       "kicker": null,
       "ctaLabel": "SHOP NOW",
       "config": {
@@ -509,7 +509,7 @@
           "imageUrl": null,
           "videoUrl": null,
           "link": { "route": "Categories" },
-          "content": { "label": "Lightning Fast" }
+          "content": { "label": "Live Tracking" }
         },
         {
           "key": "reel-chip-returns",

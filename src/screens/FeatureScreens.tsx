@@ -306,14 +306,14 @@ export function CouponWalletScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
         {/* ─── editorial header + faded wordmark ─── */}
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.m, overflow: 'hidden' }}>
-          <Text numberOfLines={1} style={{ position: 'absolute', top: -2, left: 0, right: 0, fontFamily: 'Inter_900Black', fontSize: 62, letterSpacing: -2, color: '#F2F2F2', textTransform: 'uppercase' }}>Coupons</Text>
+          <Text numberOfLines={1} style={{ position: 'absolute', top: -2, left: 0, right: 0, fontFamily: 'Inter_900Black', fontSize: rf(62), letterSpacing: -2, color: '#F2F2F2', textTransform: 'uppercase' }}>Coupons</Text>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 34 }}>
             <View>
               <Text style={[T.h1, { textTransform: 'uppercase' }]}>Your Wallet</Text>
               <Text style={[T.caption, { color: C.dim, marginTop: 2 }]}>Apply at checkout to save instantly</Text>
             </View>
             <View style={[{ paddingHorizontal: 12, paddingVertical: 8, backgroundColor: C.ink }]}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: '#fff', textAlign: 'center' }}>{activeCount}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(18), color: '#fff', textAlign: 'center' }}>{activeCount}</Text>
               <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5 }]}>live</Text>
             </View>
           </View>
@@ -338,7 +338,7 @@ export function CouponWalletScreen() {
                           <Text style={[T.monoB, { color: C.ink }]}>{r.code}</Text>
                         </View>
                         <Pressable
-                          onPress={() => showToast('Copied', `${r.code} copied to clipboard`, 'copy')}
+                          onPress={() => { Clipboard.setStringAsync(r.code).catch(() => {}); showToast('Copied', `${r.code} copied to clipboard`, 'copy'); }}
                           hitSlop={8}
                           style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
                         >
@@ -375,7 +375,7 @@ export function CouponWalletScreen() {
               <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), !c.active && { opacity: 0.5 }]}>
                 {/* left stub — discount in green */}
                 <View style={{ width: 96, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F4F4', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline, borderStyle: 'dashed' }}>
-                  <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: 18, color: C.green, textAlign: 'center' }}>{c.discount}</Text>
+                  <Text numberOfLines={2} adjustsFontSizeToFit style={{ fontFamily: 'Inter_900Black', fontSize: rf(18), color: C.green, textAlign: 'center' }}>{c.discount}</Text>
                 </View>
                 {/* right body */}
                 <View style={{ flex: 1, padding: SP.m }}>
@@ -383,7 +383,7 @@ export function CouponWalletScreen() {
                     <View style={[{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
                       <Text style={[T.monoB, { color: C.ink }]}>{c.code}</Text>
                     </View>
-                    <Pressable onPress={() => showToast('Copied', `${c.code} copied to clipboard`, 'copy')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Pressable onPress={() => { Clipboard.setStringAsync(c.code).catch(() => {}); showToast('Copied', `${c.code} copied to clipboard`, 'copy'); }} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <Feather name="copy" size={13} color={C.ink} />
                       <Text style={[T.caption, { color: C.ink, fontFamily: 'Inter_600SemiBold' }]}>{c.active ? 'Copy' : 'Used'}</Text>
                     </Pressable>
@@ -1495,7 +1495,7 @@ export function ForHerScreen() {
         <View style={{ paddingHorizontal: SP.l }}>
           <Pressable onPress={() => goToProduct(HER_PRODUCTS[2])} style={[{ flexDirection: 'row', backgroundColor: C.white, height: 160, overflow: 'hidden' }, BORDER(1)]}>
             <View style={{ width: 160, backgroundColor: '#f9f3ed', borderRightWidth: 1, borderColor: C.hairline }}>
-              <CachedImage source={{ uri: HER_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
+              <CachedImage source={{ uri: HER_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="cover" />
             </View>
             <View style={{ flex: 1, padding: SP.l, justifyContent: 'space-between' }}>
               <View>
@@ -1639,7 +1639,7 @@ export function ForHimScreen() {
               <Text style={[T.caption, { color: C.ink }]}>{'Cop'}</Text>
             </View>
             <View style={{ width: 160, backgroundColor: '#DCE9FB', borderLeftWidth: 1, borderColor: C.hairline }}>
-              <CachedImage source={{ uri: HIM_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="contain" />
+              <CachedImage source={{ uri: HIM_PRODUCTS[2].img }} style={{ width: '100%', height: '100%', padding: 12 }} resizeMode="cover" />
             </View>
           </Pressable>
         </View>

@@ -58,11 +58,11 @@ type AppCtx = {
   isFavorite: (id: string) => boolean;
   // last order
   lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
-  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => void;
+  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => void;
   // Brutalist toast — message shown at bottom of screen (matches UI, not system Alert).
   // Toast/confirm STATE lives in uiBus (read only by BrutalToast/BrutalConfirm)
   // so showing one doesn't re-render every context consumer in the app.
-  showToast: (title: string, msg?: string, icon?: string, action?: { label: string; onPress: () => void }) => void;
+  showToast: (title: string, msg?: string, icon?: string, action?: { label: string; onPress: () => void }, bottom?: number) => void;
   hideToast: () => void;
   // Brutalist confirm modal — for destructive / consequential actions
   showConfirm: (opts: NonNullable<ConfirmData>) => void;
@@ -137,9 +137,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Toast/confirm write to the uiBus — NOT provider state — so firing one
   // re-renders only the toast/confirm hosts, not every useApp() consumer.
   const toastTimer = React.useRef<any>(null);
-  const showToast = useCallback<AppCtx['showToast']>((title, msg, icon, action) => {
+  const showToast = useCallback<AppCtx['showToast']>((title, msg, icon, action, bottom) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastBus.set({ title, msg, icon, action });
+    toastBus.set({ title, msg, icon, action, bottom });
     // Actionable toasts linger longer so the user has time to hit the button
     toastTimer.current = setTimeout(() => toastBus.set(null), action ? 3600 : 2200);
   }, []);
@@ -386,7 +386,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isFavorite = useCallback((id: string) => favoritesRef.current.some(f => f.id === id), []);
 
   // Reuses the cartRef declared above for cart sync — it is already kept current.
-  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number }) => {
+  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => {
     // Real order id/total come from the backend when available; fall back to a local
     // synthesised order for the mock (guest) path so the success/tracking UI still works.
     const current = cartRef.current;
@@ -399,7 +399,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       method: info?.method || 'express',
       store: info?.store || null,
     });
-    setCart([]);
+    // Buy Now orders (keepCart) never touch the bag — only a bag checkout
+    // consumes the bag's lines.
+    if (!info?.keepCart) setCart([]);
   }, []);
 
   const cartTotal = useMemo(() => cart.reduce((s, it) => s + it.price * it.qty, 0), [cart]);

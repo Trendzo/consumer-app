@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StatusBar, StyleSheet, Dimensions } from 'react-native';
+import { View, StatusBar, StyleSheet, Dimensions, Image } from 'react-native';
 import { MotiView } from 'moti';
 import { Easing } from 'react-native-reanimated';
 
@@ -23,23 +23,14 @@ const CART = [
 const CART_COLS = CART[0].length;
 const CART_CELL = Math.min(17, Math.floor((width * 0.55) / CART_COLS));
 
-// ── 5 × 5 pixel font for the wordmark ───────────────────────
-const FONT: Record<string, string[]> = {
-  T: ['XXXXX', '..X..', '..X..', '..X..', '..X..'],
-  R: ['XXXX.', 'X...X', 'XXXX.', 'X..X.', 'X...X'],
-  E: ['XXXXX', 'X....', 'XXXX.', 'X....', 'XXXXX'],
-  N: ['X...X', 'XX..X', 'X.X.X', 'X..XX', 'X...X'],
-  D: ['XXXX.', 'X...X', 'X...X', 'X...X', 'XXXX.'],
-  Z: ['XXXXX', '...X.', '..X..', '.X...', 'XXXXX'],
-  O: ['.XXX.', 'X...X', 'X...X', 'X...X', '.XXX.'],
-};
-const WORD = 'TRENDZO';
-// Build 5 rows for the whole word, letters separated by a 1px gap column.
-const WORD_ROWS = Array.from({ length: 5 }, (_, r) =>
-  WORD.split('').map((ch) => FONT[ch][r]).join('.'),
-);
-const WORD_COLS = WORD_ROWS[0].length;
-const WORD_CELL = Math.min(9, Math.floor((width * 0.82) / WORD_COLS));
+// ── Wordmark — the real Trendzo logo (white on transparent) ─────────
+// This replaced a 5×5 pixel-font grid that lit ~60 cells: with two nested
+// animated views per cell that was ~120 animated views for the word alone,
+// all mounting while the app cold-starts behind the splash — the single
+// biggest source of splash jank. One image + one animator now.
+const LOGO = require('../../assets/trendzo-logo.png');
+const LOGO_W = Math.min(Math.round(width * 0.78), 360);
+const LOGO_H = Math.round((LOGO_W * 123) / 600); // asset is 600×123
 
 const ZOOM_SCALE = 4;      // each particle swells as it comes toward you — small enough to keep gaps
 const ZOOM_STAGGER = 34;   // ms per ring — particles launch one after another from the centre out
@@ -54,8 +45,7 @@ const rand2 = (a: number, b: number) => {
 // Renders a bitmap grid where every 'X' pops in with a diagonal stagger. When
 // `zooming` flips true the grid DISPERSES like the Paytm QR: each particle
 // flies OUTWARD in its own direction (radial + swirl), scattered and staggered
-// from the centre out — an explosion of light, not a group zoom. Nested pair:
-// OUTER = the outward flight (screen-space), INNER = swell + spin.
+// from the centre out — an explosion of light, not a group zoom.
 function PixelGrid({ rows, cell, base, zooming = false, zoomBase = 0 }: {
   rows: string[]; cell: number; base: number; zooming?: boolean; zoomBase?: number;
 }) {
@@ -63,21 +53,19 @@ function PixelGrid({ rows, cell, base, zooming = false, zoomBase = 0 }: {
   const pxSize = cell - Math.max(1.5, cell * 0.14);
 
   /**
-   * Only the LIT cells become views, absolutely positioned.
+   * Only the LIT cells become views, absolutely positioned — and ONE view per
+   * particle. The previous version nested two MotiViews per cell (outer =
+   * flight, inner = swell/spin), doubling the animated-view count on the very
+   * first frame of the app. Flight, swell and spin now ride one transform
+   * (translate first, then scale/rotate — same visual composition).
    *
-   * This used to render a nested row/cell tree: one View per row, then one View
-   * per column — so a 12x13 cart grid emitted 156 views to light 41 of them, and
-   * the wordmark another ~170 for ~60. Several hundred native views on the very
-   * first frame, on the slowest device in the fleet, ~70% of them empty spacers
-   * that existed purely to occupy grid space. Absolute placement gets the same
-   * pixels from just the lit cells.
-   *
-   * The geometry is also memoised: it is pure trig over the glyph data and does
-   * not depend on `zooming`, but it was recomputed every time the burst flipped.
+   * The geometry is memoised: it is pure trig over the glyph data and does
+   * not depend on `zooming`.
    */
   const particles = React.useMemo(() => {
     const cx = (cols - 1) / 2;
     const cy = (rows.length - 1) / 2;
+    const inset = (cell - pxSize) / 2;
     const out: {
       key: string; left: number; top: number;
       tx: number; ty: number; spin: string; delay: number; springDelay: number;
@@ -98,8 +86,8 @@ function PixelGrid({ rows, cell, base, zooming = false, zoomBase = 0 }: {
         const throw_ = DIAG * (0.34 + rand2(x, r) * 0.42);
         out.push({
           key: `${r}-${x}`,
-          left: x * cell,
-          top: r * cell,
+          left: x * cell + inset,
+          top: r * cell + inset,
           tx: Math.cos(angle) * throw_,
           ty: Math.sin(angle) * throw_,
           spin: `${(j - 0.5) * 200}deg`,
@@ -110,32 +98,22 @@ function PixelGrid({ rows, cell, base, zooming = false, zoomBase = 0 }: {
       }
     }
     return out;
-  }, [rows, cell, base, zoomBase, cols]);
+  }, [rows, cell, base, zoomBase, cols, pxSize]);
 
   return (
     <View style={{ width: cell * cols, height: cell * rows.length }}>
       {particles.map((pt) => (
-        // OUTER — the outward flight, spreading apart. Absolute placement
-        // replaces the old spacer-grid; transforms compose with it unchanged.
         <MotiView
           key={pt.key}
-          from={{ translateX: 0, translateY: 0 }}
-          animate={zooming ? { translateX: pt.tx, translateY: pt.ty } : { translateX: 0, translateY: 0 }}
+          from={{ translateX: 0, translateY: 0, scale: 0, rotate: '0deg', opacity: 0 }}
+          animate={zooming
+            ? { translateX: pt.tx, translateY: pt.ty, scale: ZOOM_SCALE, rotate: pt.spin, opacity: 0 }
+            : { translateX: 0, translateY: 0, scale: 1, rotate: '0deg', opacity: 1 }}
           transition={zooming
             ? { type: 'timing', duration: 820, delay: pt.delay, easing: Easing.out(Easing.cubic) }
-            : { type: 'timing', duration: 150 }}
-          style={{ position: 'absolute', left: pt.left, top: pt.top, width: cell, height: cell, alignItems: 'center', justifyContent: 'center' }}
-        >
-          {/* INNER — swells toward you, spins, then fades into light (no white wall) */}
-          <MotiView
-            from={{ opacity: 0, scale: 0, rotate: '0deg' }}
-            animate={zooming ? { opacity: 0, scale: ZOOM_SCALE, rotate: pt.spin } : { opacity: 1, scale: 1, rotate: '0deg' }}
-            transition={zooming
-              ? { type: 'timing', duration: 820, delay: pt.delay, easing: Easing.out(Easing.cubic) }
-              : { type: 'spring', delay: pt.springDelay, damping: 12, stiffness: 220, mass: 0.6 }}
-            style={{ width: pxSize, height: pxSize, borderRadius: 1.5, backgroundColor: '#fff' }}
-          />
-        </MotiView>
+            : { type: 'spring', delay: pt.springDelay, damping: 12, stiffness: 220, mass: 0.6 }}
+          style={{ position: 'absolute', left: pt.left, top: pt.top, width: pxSize, height: pxSize, borderRadius: 1.5, backgroundColor: '#fff' }}
+        />
       ))}
     </View>
   );
@@ -145,16 +123,16 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
   // Ending: the cart + wordmark disperse — every particle bursts outward from
   // the centre (staggered), swelling and spinning, then fading into light.
   // No white wall; once the burst clears we hand off to home.
-  // Timings were 2050 / 3350 ms — a 3.35 s floor before the app could become
-  // interactive on ANY device, made of fixed timers rather than work. On a
-  // mid-range phone the real startup work exceeds that window and ADDS to it
-  // instead of hiding inside it. Trimmed to keep the burst legible while
-  // returning ~1.2 s to every cold start.
   const [zooming, setZooming] = useState(false);
+  // `leaving` gates the exit: the whole burst plays out ON BLACK, and only
+  // once the particles are spent does the black (and the logo with it) fade —
+  // so no splash element is ever composited over a visible home page.
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     const tz = setTimeout(() => setZooming(true), 1150);
-    const t = setTimeout(onDone, 2100);
-    return () => { clearTimeout(tz); clearTimeout(t); };
+    const tl = setTimeout(() => setLeaving(true), 1980);
+    const t = setTimeout(onDone, 2300);
+    return () => { clearTimeout(tz); clearTimeout(tl); clearTimeout(t); };
   }, [onDone]);
 
   return (
@@ -167,15 +145,19 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
       <MotiView
         pointerEvents="none"
         from={{ opacity: 1 }}
-        animate={{ opacity: zooming ? 0 : 1 }}
-        transition={{ type: 'timing', duration: 750, delay: 200, easing: Easing.inOut(Easing.cubic) }}
+        animate={{ opacity: leaving ? 0 : 1 }}
+        transition={{ type: 'timing', duration: 300, easing: Easing.inOut(Easing.cubic) }}
         style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }]}
       />
 
       <View style={styles.heroWrap}>
         <View style={styles.stack}>
           <PixelGrid rows={CART} cell={CART_CELL} base={200} zooming={zooming} zoomBase={0} />
-          <PixelGrid rows={WORD_ROWS} cell={WORD_CELL} base={780} zooming={zooming} zoomBase={120} />
+          {/* Logo — static through the whole splash; it only fades out WITH
+              the black backdrop at the very end, never lingering over home. */}
+          <MotiView animate={{ opacity: leaving ? 0 : 1 }} transition={{ type: 'timing', duration: 250 }}>
+            <Image source={LOGO} style={{ width: LOGO_W, height: LOGO_H }} resizeMode="contain" />
+          </MotiView>
         </View>
       </View>
 

@@ -21,9 +21,11 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { MotiView } from 'moti';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER } from '../theme/brutal';
+import { T, SP } from '../theme/brutal';
 import { BrutalButton } from '../components/Brutal';
+import { TrendzoLogo } from '../components/TrendzoLogo';
 
 const ONB1 = require('../../assets/onb1.jpeg');
 const ONB2 = require('../../assets/onb2.jpeg');
@@ -32,11 +34,8 @@ const ONB3 = require('../../assets/onb3.jpeg');
 const { width, height } = Dimensions.get('window');
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
-// LIGHT design language — image lives in a framed grey card in the upper
-// region; copy + progress sit on white below it.
-const CARD_MX = SP.l;
-const CARD_W = width - CARD_MX * 2;
-const CARD_H = Math.round(height * 0.5);
+// Same text shadow the Home hero uses for white copy over photos.
+const HERO_SHADOW = { textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 } as const;
 
 // ── Sub-components so hooks are never called inside .map() ──────────────────
 function SlideImage({ slide, index, scrollX }: { slide: { img: any }; index: number; scrollX: SharedValue<number> }) {
@@ -46,13 +45,8 @@ function SlideImage({ slide, index, scrollX }: { slide: { img: any }; index: num
     return { transform: [{ translateX: tx }] };
   });
   return (
-    <Animated.View
-      style={[
-        { position: 'absolute', top: 0, left: 0, width: CARD_W, height: CARD_H, alignItems: 'center', justifyContent: 'center' },
-        bgStyle,
-      ]}
-    >
-      <Image source={slide.img} style={{ width: CARD_W, height: CARD_H }} resizeMode="cover" />
+    <Animated.View style={[StyleSheet.absoluteFill, bgStyle]}>
+      <Image source={slide.img} style={{ width, height }} resizeMode="cover" />
     </Animated.View>
   );
 }
@@ -68,7 +62,7 @@ function NavDot({ index, scrollX }: { index: number; scrollX: SharedValue<number
     const op = interpolate(
       scrollX.value,
       [(index - 1) * width, index * width, (index + 1) * width],
-      [0.3, 1, 0.3],
+      [0.4, 1, 0.4],
       Extrapolation.CLAMP,
     );
     return { width: w, opacity: op };
@@ -131,32 +125,15 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
 
   const isLast = page === SLIDES.length - 1;
 
-  const topBarH = insets.top + SP.xl;
-  const cardTop = topBarH + SP.s;
-  const textTop = cardTop + CARD_H + SP.xl;
-
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      <StatusBar barStyle="dark-content" />
+    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {/* ── Framed image card (upper region) ───────────────── */}
-      <View
-        style={[
-          {
-            position: 'absolute',
-            top: cardTop,
-            left: CARD_MX,
-            width: CARD_W,
-            height: CARD_H,
-            backgroundColor: '#F4F4F4',
-            overflow: 'hidden',
-          },
-          BORDER(1),
-        ]}
-      >
-        {/* Each image slides in from the right over the previous one and
-            stays put; going back it slides out to the right. Only the
-            active slide and its neighbours mount. */}
+      {/* ── Full-bleed image (whole screen) ────────────────── */}
+      {/* Each image slides in from the right over the previous one and
+          stays put; going back it slides out to the right. Only the
+          active slide and its neighbours mount. */}
+      <View style={StyleSheet.absoluteFill}>
         {SLIDES.map((s, i) => (
           Math.abs(i - page) <= 1
             ? <SlideImage key={i} slide={s} index={i} scrollX={scrollX} />
@@ -164,14 +141,30 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
         ))}
       </View>
 
-      {/* ── Copy (animated per page) ───────────────────────── */}
+      {/* ── Scrims — same recipe as the Home hero: strong at the top for the
+          logo/Skip, strong at the bottom for copy + CTA, clear in the middle
+          so the photo breathes. ── */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,0,0,0.8)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
+        locations={[0, 0.55, 1]}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 120 }}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.88)']}
+        locations={[0, 0.35, 1]}
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: Math.round(height * 0.5) }}
+      />
+
+      {/* ── Copy (animated per page, bottom-anchored over the scrim) ── */}
       <View
         pointerEvents="none"
         style={{
           position: 'absolute',
-          top: textTop,
           left: SP.l,
           right: SP.l,
+          bottom: insets.bottom + SP.l + 56 + SP.l + 8 + SP.l, // CTA + dots + gaps
         }}
       >
         {/* kicker — reveals from behind a mask */}
@@ -182,7 +175,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 550 }}
           >
-            <Text style={[T.caption, { color: C.dim, textTransform: 'uppercase', letterSpacing: 1 }]}>
+            <Text style={[T.caption, { color: '#fff', textTransform: 'uppercase', letterSpacing: 1, ...HERO_SHADOW }]}>
               {SLIDES[page].kicker}
             </Text>
           </MotiView>
@@ -196,7 +189,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
               animate={{ translateY: 0 }}
               transition={{ type: 'timing', duration: 650, delay: 100 + li * 80 }}
             >
-              <Text style={[T.h1, { textTransform: 'uppercase' }]}>{line}</Text>
+              <Text style={[T.display, { color: '#fff', textTransform: 'uppercase', ...HERO_SHADOW }]}>{line}</Text>
             </MotiView>
           </View>
         ))}
@@ -209,7 +202,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
             animate={{ translateY: 0 }}
             transition={{ type: 'timing', duration: 600, delay: 260 }}
           >
-            <Text style={[T.body, { color: C.dim, maxWidth: 340 }]}>{SLIDES[page].body}</Text>
+            <Text style={[T.body, { color: 'rgba(255,255,255,0.92)', maxWidth: 340, ...HERO_SHADOW }]}>{SLIDES[page].body}</Text>
           </MotiView>
         </View>
       </View>
@@ -246,9 +239,9 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           zIndex: 10,
         }}
       >
-        <Text style={[T.caption, { color: C.ink }]}>TRENDZO</Text>
+        <TrendzoLogo height={24} />
         <Pressable onPress={onDone} hitSlop={16}>
-          <Text style={[T.caption, { color: C.ink }]}>Skip →</Text>
+          <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>Skip →</Text>
         </Pressable>
       </View>
 
@@ -268,10 +261,13 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           ))}
         </View>
 
+        {/* Outline = white fill + ink text: the app's own button, but the
+            variant that stays legible over the dark bottom scrim. */}
         <BrutalButton
           label={isLast ? 'Enter' : 'Next'}
           iconRight={isLast ? 'check' : 'arrow-right'}
           onPress={next}
+          variant="outline"
           block
         />
       </View>
@@ -282,6 +278,6 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
 const styles = StyleSheet.create({
   dot: {
     height: 8,
-    backgroundColor: C.ink,
+    backgroundColor: '#FFFFFF',
   },
 });

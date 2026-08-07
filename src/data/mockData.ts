@@ -218,34 +218,34 @@ export const HIM_PRODUCTS: Product[] = [
 // fetch) — drop your own art into assets/categories/her/<file>.png, same
 // filenames, to replace the placeholders.
 export const HER_CATEGORIES: Category[] = [
-  { id: 'her-c1', label: 'Dresses', icon: 'gift',         tint: '#ffafbd', img: require('../../assets/categories/her/dresses.png') },
-  { id: 'her-c2', label: 'Mini',    icon: 'scissors',     tint: '#f5e6d3', img: require('../../assets/categories/her/mini.png') },
-  { id: 'her-c3', label: 'Heels',   icon: 'arrow-up',     tint: '#a8e6cf', img: require('../../assets/categories/her/heels.png') },
-  { id: 'her-c4', label: 'Bags',    icon: 'briefcase',    tint: '#5d4037', img: require('../../assets/categories/her/bags.png') },
-  { id: 'her-c5', label: 'Beauty',  icon: 'shopping-bag', tint: '#ff6b9d', img: require('../../assets/categories/her/beauty.png') },
-  { id: 'her-c6', label: 'Coats',   icon: 'cloud',        tint: '#fff',    img: require('../../assets/categories/her/coats.png') },
-  { id: 'her-c7', label: 'Tops',    icon: 'shield',       tint: '#a78bfa', img: require('../../assets/categories/her/tops.png') },
-  { id: 'her-c8', label: 'Maxi',    icon: 'feather',      tint: '#feca57', img: require('../../assets/categories/her/maxi.png') },
-  { id: 'her-c9', label: 'Jewelry',   icon: 'star',   tint: '#f7d774', img: require('../../assets/categories/her/jewelry.png') },
-  { id: 'her-c10', label: 'Necklaces', icon: 'circle', tint: '#e8c39e', img: require('../../assets/categories/her/necklaces.png') },
-  { id: 'her-c11', label: 'Scarves',   icon: 'wind',   tint: '#c3b1e1', img: require('../../assets/categories/her/scarves.png') },
-  { id: 'her-c12', label: 'Kimono',    icon: 'sun',    tint: '#f4a7b9', img: require('../../assets/categories/her/kimono.png') },
+  { id: 'her-c1', label: 'Dresses', icon: 'gift',         tint: '#ffafbd', img: require('../../assets/categories/her/dresses.webp') },
+  { id: 'her-c2', label: 'Mini',    icon: 'scissors',     tint: '#f5e6d3', img: require('../../assets/categories/her/mini.webp') },
+  { id: 'her-c3', label: 'Heels',   icon: 'arrow-up',     tint: '#a8e6cf', img: require('../../assets/categories/her/heels.webp') },
+  { id: 'her-c4', label: 'Bags',    icon: 'briefcase',    tint: '#5d4037', img: require('../../assets/categories/her/bags.webp') },
+  { id: 'her-c5', label: 'Beauty',  icon: 'shopping-bag', tint: '#ff6b9d', img: require('../../assets/categories/her/beauty.webp') },
+  { id: 'her-c6', label: 'Coats',   icon: 'cloud',        tint: '#fff',    img: require('../../assets/categories/her/coats.webp') },
+  { id: 'her-c7', label: 'Tops',    icon: 'shield',       tint: '#a78bfa', img: require('../../assets/categories/her/tops.webp') },
+  { id: 'her-c8', label: 'Maxi',    icon: 'feather',      tint: '#feca57', img: require('../../assets/categories/her/maxi.webp') },
+  { id: 'her-c9', label: 'Jewelry',   icon: 'star',   tint: '#f7d774', img: require('../../assets/categories/her/jewelry.webp') },
+  { id: 'her-c10', label: 'Necklaces', icon: 'circle', tint: '#e8c39e', img: require('../../assets/categories/her/necklaces.webp') },
+  { id: 'her-c11', label: 'Scarves',   icon: 'wind',   tint: '#c3b1e1', img: require('../../assets/categories/her/scarves.webp') },
+  { id: 'her-c12', label: 'Kimono',    icon: 'sun',    tint: '#f4a7b9', img: require('../../assets/categories/her/kimono.webp') },
 ];
 
 // HIM categories — distinctly masculine. Local PNG cutouts (no backend/CDN
 // fetch) — drop your own art into assets/categories/him/<file>.png, same
 // filenames, to replace the placeholders.
 export const HIM_CATEGORIES: Category[] = [
-  { id: 'him-c1', label: 'Tees',     icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/tees.png') },
-  { id: 'him-c2', label: 'Jeans',    icon: 'minus',    tint: '#1a1a1a', img: require('../../assets/categories/him/jeans.png') },
-  { id: 'him-c3', label: 'Jackets',  icon: 'shield',   tint: '#111',    img: require('../../assets/categories/him/jackets.png') },
-  { id: 'him-c4', label: 'Sneakers', icon: 'play',     tint: '#fff',    img: require('../../assets/categories/him/sneakers.png') },
-  { id: 'him-c5', label: 'Watches',  icon: 'clock',    tint: '#2c3e50', img: require('../../assets/categories/him/watches.png') },
-  { id: 'him-c6', label: 'Polos',    icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/polos.png') },
-  { id: 'him-c7', label: 'Coats',    icon: 'cloud',    tint: '#5d4037', img: require('../../assets/categories/him/coats.png') },
-  { id: 'him-c8', label: 'Shades',   icon: 'umbrella', tint: '#3e2723', img: require('../../assets/categories/him/shades.png') },
-  { id: 'him-c9', label: 'Hoodies',  icon: 'moon',     tint: '#37474f', img: require('../../assets/categories/him/hoodies.png') },
-  { id: 'him-c10', label: 'Sweaters', icon: 'thermometer', tint: '#4e342e', img: require('../../assets/categories/him/sweaters.png') },
+  { id: 'him-c1', label: 'Tees',     icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/tees.webp') },
+  { id: 'him-c2', label: 'Jeans',    icon: 'minus',    tint: '#1a1a1a', img: require('../../assets/categories/him/jeans.webp') },
+  { id: 'him-c3', label: 'Jackets',  icon: 'shield',   tint: '#111',    img: require('../../assets/categories/him/jackets.webp') },
+  { id: 'him-c4', label: 'Sneakers', icon: 'play',     tint: '#fff',    img: require('../../assets/categories/him/sneakers.webp') },
+  { id: 'him-c5', label: 'Watches',  icon: 'clock',    tint: '#2c3e50', img: require('../../assets/categories/him/watches.webp') },
+  { id: 'him-c6', label: 'Polos',    icon: 'square',   tint: '#000',    img: require('../../assets/categories/him/polos.webp') },
+  { id: 'him-c7', label: 'Coats',    icon: 'cloud',    tint: '#5d4037', img: require('../../assets/categories/him/coats.webp') },
+  { id: 'him-c8', label: 'Shades',   icon: 'umbrella', tint: '#3e2723', img: require('../../assets/categories/him/shades.webp') },
+  { id: 'him-c9', label: 'Hoodies',  icon: 'moon',     tint: '#37474f', img: require('../../assets/categories/him/hoodies.webp') },
+  { id: 'him-c10', label: 'Sweaters', icon: 'thermometer', tint: '#4e342e', img: require('../../assets/categories/him/sweaters.webp') },
 ];
 
 // Transparent product PNG (pngimg.com cut-outs) for a category LABEL. Home's
