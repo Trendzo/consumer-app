@@ -4,7 +4,7 @@
 // type — a scrolling ticker, a yellow payline band, pixel-square confetti,
 // and a push-button with a hard offset shadow — never from gradients.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, Animated, Easing, Dimensions, Vibration } from 'react-native';
+import { View, Text, Pressable, Animated, Easing, Dimensions } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useNavigation } from '@react-navigation/native';
@@ -143,10 +143,8 @@ export function PushWinScreen() {
     if (tripleKey !== undefined) {
       const pay = TRIPLE_PAYOUT[+tripleKey];
       res = { big: !!pay.jackpot, label: pay.label, sub: pay.sub, win: true };
-      Vibration.vibrate(pay.jackpot ? [0, 60, 60, 140] : 40);
     } else if (pairKey !== undefined && +pairKey !== 5) {
       res = { big: false, label: '+50 POINTS', sub: 'A pair pays — added to your balance', win: true };
-      Vibration.vibrate(25);
     } else {
       res = { big: false, label: 'SO CLOSE', sub: 'No match this push — go again', win: false };
     }

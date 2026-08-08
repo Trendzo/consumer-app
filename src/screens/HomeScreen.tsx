@@ -1,7 +1,7 @@
 // HOME — Modern Brutalism / ASCII art / monochrome
 // Every section has a UNIQUE layout — no two look alike
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Vibration, Modal } from 'react-native';
+import { ScrollView, View, Text, Pressable, Image, StyleSheet, StatusBar, Dimensions, FlatList, RefreshControl, DeviceEventEmitter, Platform, InteractionManager, Modal } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import Animated, { useSharedValue, useAnimatedStyle, useAnimatedScrollHandler, useAnimatedReaction, cancelAnimation, withSpring, withRepeat, interpolate, interpolateColor, withTiming, runOnJS, SharedValue, Easing } from 'react-native-reanimated';
@@ -423,6 +423,24 @@ export default function HomeScreen() {
     opacity: floatSearch.value,
     transform: [{ translateY: interpolate(floatSearch.value, [0, 1], [-24, 0]) }],
   }));
+  // HARD INVARIANT (both platforms): the white bar can NEVER be visible over the
+  // hero — the hero already carries its own frosted search bar, so two stacked
+  // search bars was the bug. Every reveal below is edge-driven (timers hung off
+  // drag / momentum / focus events), which silently misses any path that moves
+  // the page without firing those: double-tap scroll-to-top, a pull-to-refresh
+  // settling back, a lazy section mounting and shifting offsets under it. Those
+  // left the bar stranded on the hero. This reaction is LEVEL-driven off the
+  // scroll offset itself, so it corrects all of them, including ones not yet
+  // written. Fires only on the transition, so it costs one re-render per entry.
+  useAnimatedReaction(
+    () => lastScrollY.value <= SEARCH_REVEAL_Y,
+    (onHero, wasOnHero) => {
+      if (onHero && onHero !== wasOnHero) {
+        floatSearch.value = withTiming(0, { duration: 140 });
+        runOnJS(setFloatSearchOn)(false);
+      }
+    },
+  );
   // While TRUE, scroll events don't touch the tab bar. Set for a short window
   // right after Home regains focus (returning from Search / a pushed screen)
   // so a settling scroll event can't fire a spurious hide → the "shows, hides,
@@ -733,7 +751,13 @@ export default function HomeScreen() {
           // section or two. No edge bounce anywhere.
           bounces={false}
           alwaysBounceVertical={false}
-          decelerationRate={0.992}
+          // MUST be per-platform: the same number means opposite things. RN's
+          // 'normal' is 0.985 on Android but 0.998 on iOS, so a flat 0.992 reads
+          // as "looser than default" on Android and "tighter than default"
+          // (nearly 'fast', which is 0.99) on iOS — momentum died in a few
+          // hundred px and the page needed flick after flick. Each value here is
+          // ~half the platform's normal friction, i.e. the same loose feel.
+          decelerationRate={Platform.select({ ios: 0.999, android: 0.992 })}
           showsVerticalScrollIndicator={false}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}
@@ -802,7 +826,7 @@ export default function HomeScreen() {
                     </>
                   ) : (
                     <>
-                      <TrendzoLogo height={20} />
+                      <TrendzoLogo height={16} />
                       {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line.
                           Still editorial copy, not a live estimate: nothing measures it. Making it
                           CMS-editable at least means ops can correct it without a release. */}
@@ -2218,7 +2242,6 @@ function GenderSwitch({ gender, onSwitch, onPhoto }: { gender: 'her' | 'him'; on
   const spin = useSharedValue(0);
   const spinToggle = () => {
     spin.value = withTiming(spin.value + 720, { duration: 420, easing: Easing.out(Easing.cubic) });
-    Vibration.vibrate(15);
   };
 
   // Square slides from left to right, rounds itself based on progress, and
@@ -2812,10 +2835,14 @@ function ReelsForYouSection({ nav, gender, scrollY, focused, features, previews,
           </View>
         ) : null}
 
+        {/* Its own page, not the catalog. NOTE this deliberately does NOT call
+            openLink first: the banner's authored link IS `{route:'Categories'}`,
+            so openLink would succeed and land on the generic catalog — the
+            redirect we are removing. The collection page owns this tap. */}
         <ReelDeliveryBanner
           her={her}
           section={banner}
-          onPress={() => { if (!openLink(nav, banner.items[0]?.link)) nav.navigate('Categories'); }}
+          onPress={() => nav.navigate('Collection', { key: 'sixty-minute' })}
         />
       </View>
     </View>

@@ -30,7 +30,7 @@ const CART_CELL = Math.min(17, Math.floor((width * 0.55) / CART_COLS));
 // biggest source of splash jank. One image + one animator now.
 const LOGO = require('../../assets/trendzo-logo.png');
 const LOGO_W = Math.min(Math.round(width * 0.78), 360);
-const LOGO_H = Math.round((LOGO_W * 123) / 600); // asset is 600×123
+const LOGO_H = Math.round((LOGO_W * 189) / 1200); // asset is 1200×189
 
 const ZOOM_SCALE = 4;      // each particle swells as it comes toward you — small enough to keep gaps
 const ZOOM_STAGGER = 34;   // ms per ring — particles launch one after another from the centre out

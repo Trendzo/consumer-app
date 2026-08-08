@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, Image, StyleSheet, StatusBar, Dimensions, Alert, InteractionManager, Platform, BackHandler, Modal } from 'react-native';
 import Animated, { FadeIn, FadeInDown, withSpring, useAnimatedStyle, useSharedValue, useAnimatedScrollHandler, useAnimatedReaction, withTiming, withDelay, interpolate, Easing, runOnJS } from 'react-native-reanimated';
 import { MotiView as MV } from 'moti';
@@ -157,13 +157,19 @@ export default function ProductDetailScreen() {
    * hard cut with no fly-down at all. Anyone closing the page that way would see no animation no
    * matter how correct the zoom code is.
    */
-  useEffect(() => {
+  // FOCUS-SCOPED — never a bare useEffect. This screen stays mounted (it's a
+  // transparent modal) while TryOn/Search sit on top of it, and a global
+  // listener registered here STEALS the back gesture from those screens: it
+  // ran this screen's close invisibly, popped the TOP screen (TryOn) instead,
+  // and left an invisible ProductDetail sheet over the whole app whose
+  // ScrollView swallowed every scroll on every page ("pages freeze" bug).
+  useFocusEffect(React.useCallback(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       goBack();
       return true; // handled — do not let the navigator pop underneath us
     });
     return () => sub.remove();
-  });
+  }, []));
 
   const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
@@ -224,7 +230,12 @@ export default function ProductDetailScreen() {
   // some device — measurement is exact by construction.
   const [slotY, setSlotY] = useState(HEADER_TOP + 47);
   const slotMeasured = useRef(false);
-  const SLOT = { x: 0, y: slotY, w: width, h: width * 1.2 };
+  // MEMOISED, not rebuilt per render. Both fly worklets below capture SLOT, so
+  // a fresh object identity on every render re-created and re-attached
+  // `overlayStyle`/`overlayImgStyle` — and the header's onLayout fires setSlotY
+  // right as the flight starts, so that churn landed squarely inside the
+  // animation. Now it only changes when the measured slot actually moves.
+  const SLOT = useMemo(() => ({ x: 0, y: slotY, w: width, h: width * 1.2 }), [slotY]);
   const imgAnim = useSharedValue(isZoom ? 0 : 1);         // 0 = at card, 1 = at gallery slot
   const backdropFade = useSharedValue(isZoom ? 0 : 1);     // home → white as the image expands
   const contentFade = useSharedValue(0);      // header / details opacity — ALWAYS fades in

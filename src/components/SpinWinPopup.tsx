@@ -12,7 +12,7 @@
 // server, the server draws, and this animates the pointer to the index it is told.
 // A guest keeps a claim token and signs in to collect.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, Pressable, Modal, Animated, Easing, Dimensions, Vibration } from 'react-native';
+import { View, Text, Pressable, Modal, Animated, Easing, Dimensions } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { MotiView } from 'moti';
@@ -92,7 +92,6 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
       setSpinning(false);
       setResult(outcome);
       if (outcome.prize) setClaimed({ code: outcome.prize.code, points: outcome.prize.points });
-      Vibration.vibrate([0, 40, 60, 40]);
     });
   };
 

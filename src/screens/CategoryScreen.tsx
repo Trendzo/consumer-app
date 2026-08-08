@@ -330,7 +330,7 @@ export default function CategoryScreen() {
             <Pressable onPress={() => nav.goBack()} hitSlop={12}>
               <Feather name="arrow-left" size={22} color="#fff" />
             </Pressable>
-            <TrendzoLogo height={19} style={{ marginLeft: SP.m }} />
+            <TrendzoLogo height={15} style={{ marginLeft: SP.m }} />
             <View style={{ flex: 1 }} />
             <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
               <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color="#fff" />
@@ -372,7 +372,7 @@ export default function CategoryScreen() {
             <Pressable onPress={() => nav.goBack()} hitSlop={12}>
               <Feather name="arrow-left" size={22} color={C.ink} />
             </Pressable>
-            <TrendzoLogo height={19} tint={C.ink} style={{ marginLeft: SP.m }} />
+            <TrendzoLogo height={15} tint={C.ink} style={{ marginLeft: SP.m }} />
             <View style={{ flex: 1 }} />
             <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
               <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color={C.ink} />
@@ -400,7 +400,7 @@ export default function CategoryScreen() {
               <Feather name="arrow-left" size={22} color={C.ink} />
             </Pressable>
             <View>
-              <TrendzoLogo height={20} tint={C.ink} style={{ marginTop: 4 }} />
+              <TrendzoLogo height={16} tint={C.ink} style={{ marginTop: 4 }} />
               {/* Same real location as the home header — this said "Bandra, Mumbai 400050"
                   to every shopper. Tapping re-pins it on the map. */}
               <Pressable onPress={openLocationPicker} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 }}>

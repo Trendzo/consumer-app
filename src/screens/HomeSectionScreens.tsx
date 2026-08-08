@@ -29,6 +29,7 @@ import { useCmsSection, useCmsSections } from '../hooks/useCmsContent';
 import type { CmsItem, CmsSection } from '../content/types';
 import { resolveMedia, resolveConfigMedia, withSource, str, num, color, type MediaSource } from '../content/media';
 import { openLink } from '../content/links';
+import { getCollection } from '../content/collections';
 import { IMG } from '../services/images';
 
 const { width: W } = Dimensions.get('window');
@@ -237,18 +238,16 @@ type Story = {
 const STORY_LEAD_H = Math.round(W * 1.12);
 const STORY_POSTER_H = Math.round(W * 0.92);
 
-function StoryRail({ products, onOpenAll }: { products: (Product & { id: string })[]; onOpenAll: () => void }) {
+// PRODUCTS ONLY. The trailing "Shop all" tile used to sit at the end of every
+// rail and pushed straight into the generic catalog — the exact redirect this
+// page is meant not to do. The rail is now purely shoppable cards: the only
+// tappable things on Top Stories are the products themselves.
+function StoryRail({ products }: { products: (Product & { id: string })[] }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.m, paddingRight: SP.l }}>
       {products.map((p) => (
         <ProductCard key={p.id} p={p} style={CARD_STYLES.railCell} />
       ))}
-      <Pressable onPress={onOpenAll} style={{ width: 120, height: CARD.imgH, alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        <View style={[{ width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-          <Feather name="arrow-right" size={20} color={C.ink} />
-        </View>
-        <Text style={[T.caption, { color: C.ink }]}>Shop all</Text>
-      </Pressable>
     </ScrollView>
   );
 }
@@ -300,7 +299,9 @@ export function TopStoriesScreen() {
 
         {/* ── FEATURED LEAD — tall full-bleed cover ── */}
         {lead ? (
-        <Pressable onPress={() => { if (!openLink(nav, lead.link)) nav.navigate('Categories', { label: lead.title }); }} style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
+        // NOT pressable. The cover used to open the generic catalog; the story
+        // is now read in place and shopped from the rail directly beneath it.
+        <View style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
           <View style={[{ height: STORY_LEAD_H, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
             <CachedImage source={lead.img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <LinearGradient colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.85)']} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFillObject as any} />
@@ -318,13 +319,23 @@ export function TopStoriesScreen() {
               <Text style={[T.caption, { color: 'rgba(255,255,255,0.85)' }]}>{lead.tag}</Text>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(38), lineHeight: rf(40), color: '#fff', letterSpacing: -1, marginTop: 4 }}>{lead.title}</Text>
               <Text style={[T.body, { color: 'rgba(255,255,255,0.9)', marginTop: 8 }]} numberOfLines={2}>{lead.blurb}</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
-                <Text style={[T.button, { color: '#fff', fontSize: rf(14) }]}>Shop the story</Text>
-                <Feather name="arrow-right" size={16} color="#fff" />
-              </View>
+              {/* The "Shop the story →" affordance is gone with the tap target —
+                  it promised a navigation the cover no longer performs. */}
             </View>
           </View>
-        </Pressable>
+        </View>
+        ) : null}
+
+        {/* Cover story's own shoppable rail — every card on this page now has
+            products under it, the lead included (it previously had none). */}
+        {lead ? (
+          status === 'loading' ? (
+            <View style={{ marginTop: SP.l }}><ProductRailSkeleton count={3} /></View>
+          ) : railFor(0).length > 0 ? (
+            <View style={{ marginTop: SP.l, paddingLeft: SP.l }}>
+              <StoryRail products={railFor(0)} />
+            </View>
+          ) : null
         ) : null}
 
         {/* ── STORY FEED — every entry is its own poster + copy + product rail ── */}
@@ -337,7 +348,9 @@ export function TopStoriesScreen() {
               <Text style={[T.micro, { letterSpacing: 1.5, color: C.dim }]}>{s.tag.toUpperCase()}</Text>
             </View>
 
-            <Pressable onPress={() => { if (!openLink(nav, s.link)) nav.navigate('Categories', { label: s.title }); }} style={{ marginHorizontal: SP.l, marginTop: SP.m }}>
+            {/* NOT pressable — see the cover above. Products below are the only
+                tap targets on this page. */}
+            <View style={{ marginHorizontal: SP.l, marginTop: SP.m }}>
               <View style={[{ height: STORY_POSTER_H, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
                 <CachedImage source={s.img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
                 <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']} start={{ x: 0, y: 0.45 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject as any} />
@@ -345,7 +358,7 @@ export function TopStoriesScreen() {
                   <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), lineHeight: rf(32), color: '#fff', letterSpacing: -0.8 }}>{s.title}</Text>
                 </View>
               </View>
-            </Pressable>
+            </View>
 
             {/* copy + tags */}
             <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
@@ -363,9 +376,11 @@ export function TopStoriesScreen() {
                 rather than filled with bundled art the store cannot sell */}
             {status === 'loading' ? (
               <View style={{ marginTop: SP.l }}><ProductRailSkeleton count={3} /></View>
-            ) : railFor(i).length > 0 ? (
+            ) : railFor(i + 1).length > 0 ? (
+              // i + 1: slice 0 now belongs to the cover story's rail above, so
+              // the feed starts at 1 and every story still gets a distinct set.
               <View style={{ marginTop: SP.l, paddingLeft: SP.l }}>
-                <StoryRail products={railFor(i)} onOpenAll={() => nav.navigate('Categories', { label: s.title })} />
+                <StoryRail products={railFor(i + 1)} />
               </View>
             ) : null}
           </View>
@@ -987,7 +1002,19 @@ function GenderEditScreen({
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl, gap: SP.s }}>
           {content.features.map((f, i) => (
             <FadeInUp key={f.key} delay={i * 60}>
-              <EditFeature f={f} reverse={i % 2 === 1} onPress={() => { if (!openLink(nav, f.link)) nav.navigate('Categories', { label: f.tag }); }} />
+              {/* Its own collection page, NOT the catalog. `f.key` is the CMS
+                  item key that content/collections.ts is registered against
+                  ("Five-minute fits.", "Built different." et al); anything not
+                  in the registry still honours its CMS link, and only then
+                  falls back to the catalog. */}
+              <EditFeature
+                f={f}
+                reverse={i % 2 === 1}
+                onPress={() => {
+                  if (getCollection(f.key)) { nav.navigate('Collection', { key: f.key }); return; }
+                  if (!openLink(nav, f.link)) nav.navigate('Categories', { label: f.tag });
+                }}
+              />
             </FadeInUp>
           ))}
         </View>

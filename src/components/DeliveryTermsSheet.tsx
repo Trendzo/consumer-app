@@ -4,7 +4,7 @@
 // bill the fee at the end, keep the fine print one tap away).
 
 import React from 'react';
-import { View, Text, ScrollView, Pressable, Modal } from 'react-native';
+import { View, Text, ScrollView, Pressable, Modal, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
@@ -67,12 +67,25 @@ export function DeliveryTermsSheet({ open, onClose }: { open: boolean; onClose: 
     // hard-edged black slab travelling up the screen. Now the scrim fades in
     // place and only the white sheet slides.
     <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
-      {/* Tap the dim backdrop to dismiss */}
-      <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 180 }} style={{ flex: 1 }}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onClose} />
-      </MotiView>
-      <MotiView from={{ translateY: 560 }} animate={{ translateY: 0 }} transition={{ type: 'timing', duration: 300 }}>
-      <View style={[{ backgroundColor: C.white, maxHeight: '78%' }, BORDER(1)]}>
+      {/* Layout mirrors OptionSheet exactly, and must:
+          the scrim is an ABSOLUTE FILL, never an in-flow sibling, and the 78%
+          cap lives on a child of a flex:1 container.
+
+          It used to be a `flex: 1` scrim followed by an auto-height sheet with
+          `maxHeight: '78%'` on the inner View. A percentage height cannot
+          resolve against an auto-height parent, so Yoga dropped the cap, the
+          sheet grew to its full content height (five sections of terms — taller
+          than the screen), and the flex:1 scrim was squeezed to zero. The result
+          was the whole background turning white instead of a sheet over a dimmed
+          page. */}
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        {/* Dim backdrop — absolutely positioned so it always covers the full
+            screen and can never be compressed by the sheet's height. */}
+        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 180 }} style={StyleSheet.absoluteFillObject}>
+          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onClose} />
+        </MotiView>
+        <MotiView from={{ translateY: 560 }} animate={{ translateY: 0 }} transition={{ type: 'timing', duration: 300 }} style={{ maxHeight: '78%' }}>
+        <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
           <Text style={[T.h3, { textTransform: 'uppercase' }]}>Charges, terms & policies</Text>
           <Pressable onPress={onClose} hitSlop={12}>
@@ -97,8 +110,9 @@ export function DeliveryTermsSheet({ open, onClose }: { open: boolean; onClose: 
             </View>
           ))}
         </ScrollView>
+        </View>
+        </MotiView>
       </View>
-      </MotiView>
     </Modal>
   );
 }

@@ -12,7 +12,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, FlatList, Pressable, Dimensions, Platform } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { C, T, SP, BORDER, HELV, rf, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage } from '../components/Brutal';
 import { RealIcon } from '../components/RealIcon';
@@ -22,7 +21,7 @@ import type { CategoryNode } from '../services/catalog';
 import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { useCmsSection } from '../hooks/useCmsContent';
 import type { CmsSection } from '../content/types';
-import { resolveMedia, str } from '../content/media';
+import { resolveMedia } from '../content/media';
 import { IMG } from '../services/images';
 
 /**
@@ -36,13 +35,11 @@ import { IMG } from '../services/images';
  * falls back to a product image, which is why the lookup returning nothing is a normal
  * outcome rather than an error. Admin can fill the gaps without an app release now.
  *
- * Text placement was computed offline by finding the emptiest region of each banner, so the
- * label sits in negative space rather than across the model.
+ * The authored `textH` / `textV` placement hints are no longer read. They existed to drop the
+ * category name into the emptiest region of each banner, over a black scrim. The name now sits
+ * in ink in the chapter head ABOVE the banner, so nothing is painted across the art and there
+ * is no placement to compute. The fields stay in the CMS payload, simply unused.
  */
-type TxtPos = { h: 'left' | 'center' | 'right'; v: 'top' | 'bottom' };
-
-const DEFAULT_TXT: TxtPos = { h: 'left', v: 'bottom' };
-
 function bannerFor(section: CmsSection, slug: string, him: boolean) {
   const bare = slug.replace(/^(her|him)-/, '');
   const prefix = him ? 'him' : 'her';
@@ -52,15 +49,7 @@ function bannerFor(section: CmsSection, slug: string, him: boolean) {
   if (!item) return null;
   const source = resolveMedia(item, IMG.card);
   if (!source) return null;
-  const h = str(item.content, 'textH');
-  const v = str(item.content, 'textV');
-  return {
-    source,
-    pos: {
-      h: h === 'center' || h === 'right' ? h : 'left',
-      v: v === 'top' ? 'top' : 'bottom',
-    } as TxtPos,
-  };
+  return { source };
 }
 
 const { width: W } = Dimensions.get('window');
@@ -444,8 +433,11 @@ const StyleTile = React.memo(function StyleTile({
   const press = useCallback(() => onPress(node), [onPress, node]);
   return (
     <Pressable onPress={press} style={{ width: w }}>
-      {/* Same grey as Home category tiles; image fills; label bottom-left in
-          white over just a soft scrim (no heavy black gradient). */}
+      {/* NO scrim and NO text over the photo. The label used to sit in white on
+          a black gradient across the bottom third — which dimmed every product
+          shot and made all 98 tiles read as one grey mass. The art is now clean
+          edge to edge and the label sits BELOW it in ink, which is how category
+          labels are set everywhere else in the app. */}
       <View ref={tileRef} collapsable={false} style={[{ width: w, height: h, backgroundColor: '#f1f1f1', overflow: 'hidden' }, BORDER(1)]}>
         {!!img && (
           <CachedImage
@@ -455,14 +447,13 @@ const StyleTile = React.memo(function StyleTile({
             resizeMode="cover"
           />
         )}
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.42)']}
-          style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '34%' }}
-        />
-        <Text numberOfLines={1} style={{ position: 'absolute', left: 8, right: 8, bottom: 6, color: '#FFFFFF', fontFamily: HELV, fontWeight: '500', fontSize: rf(11) }}>
-          {label}
-        </Text>
       </View>
+      <Text
+        numberOfLines={1}
+        style={{ marginTop: 7, color: C.ink, fontFamily: HELV, fontWeight: '500', fontSize: rf(10), letterSpacing: 0.9, textTransform: 'uppercase' }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 });
@@ -479,38 +470,51 @@ const SectionGap = () => <View style={{ height: SP.l }} />;
  * native views while leaving all 98 React components mounted and re-rendering.
  */
 const CategorySection = React.memo(function CategorySection({
-  cat, him, banners, onOpen,
+  cat, him, banners, onOpen, index,
 }: {
-  cat: CategoryNode; him: boolean; banners: CmsSection; onOpen: (c: CategoryNode) => void;
+  cat: CategoryNode; him: boolean; banners: CmsSection; onOpen: (c: CategoryNode) => void; index: number;
 }) {
   const banner = bannerFor(banners, cat.slug, him);
   const bImg = cat.img;
-  const tp = banner?.pos ?? DEFAULT_TXT;
   const openSelf = useCallback(() => onOpen(cat), [onOpen, cat]);
 
+  // Landscape is for BANNERS ONLY. A wide full-width first tile was tried here
+  // and removed: a product tile stretched to landscape crops the garment badly
+  // (a t-shirt shot ends up a letterbox strip) and competes with the banner
+  // directly above it. Every leaf is the same portrait card in the 2-up grid;
+  // the section's identity comes from its chapter head and banner instead.
   return (
     <View>
+      {/* CHAPTER HEAD — the numbered marker + hairline rule already used on Top
+          Stories. The category name lives HERE, in ink on white, instead of in
+          white over a darkened photo: it is properly legible, the art keeps its
+          full contrast, and the page picks up the editorial rhythm the rest of
+          the app has. The number is real information — the rail's position. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.s, marginBottom: SP.s }}>
+        <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(15), color: C.ink }}>
+          {String(index + 1).padStart(2, '0')}
+        </Text>
+        <Text
+          numberOfLines={1}
+          style={{ flexShrink: 1, fontFamily: HELV, fontWeight: '700', fontSize: rf(13), letterSpacing: 1.2, textTransform: 'uppercase', color: C.ink }}
+        >
+          {cat.label}
+        </Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: C.hairline }} />
+        <Pressable onPress={openSelf} hitSlop={10}>
+          <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(9), letterSpacing: 1, textTransform: 'uppercase', color: C.dim }}>
+            Shop all →
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* BANNER — clean art, hairline frame, nothing painted over it. */}
       <Pressable onPress={openSelf}>
-        <View style={{ height: 104, marginBottom: SP.s, backgroundColor: '#e6e6e6', overflow: 'hidden' }}>
+        <View style={[{ height: 104, marginBottom: SP.s, backgroundColor: '#f1f1f1', overflow: 'hidden' }, BORDER(1)]}>
           <CachedImage transition={0} source={banner?.source ?? { uri: bImg }} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} resizeMode="cover" />
-          {/* Directional scrim under the label so WHITE text stays legible. A
-              solid low-opacity fill instead of the old LinearGradient — with one
-              of these per category the gradient shader was a real fill-rate cost
-              on budget GPUs, and at this size the two are near indistinguishable. */}
-          <View
-            style={{
-              position: 'absolute', left: 0, right: 0,
-              [tp.v === 'top' ? 'top' : 'bottom']: 0,
-              height: '55%',
-              backgroundColor: 'rgba(0,0,0,0.28)',
-            }}
-          />
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingVertical: 12, alignItems: tp.h === 'left' ? 'flex-start' : tp.h === 'right' ? 'flex-end' : 'center', justifyContent: tp.v === 'top' ? 'flex-start' : 'flex-end' }}>
-            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(14), letterSpacing: 1.5, textTransform: 'uppercase', textAlign: tp.h, color: '#FFFFFF', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>{cat.label}</Text>
-            <Text numberOfLines={1} style={{ fontFamily: HELV, fontWeight: '500', fontSize: rf(9), letterSpacing: 1, textTransform: 'uppercase', textAlign: tp.h, marginTop: 3, color: 'rgba(255,255,255,0.9)', textShadowColor: 'rgba(0,0,0,0.4)', textShadowRadius: 4 }}>Shop All →</Text>
-          </View>
         </View>
       </Pressable>
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
         {cat.children.map((sub) => (
           <StyleTile
@@ -632,8 +636,8 @@ export default function CategoryBrowseScreen() {
   // ── FlatList plumbing. All stable so CategorySection's memo can hold. ──
   const keyExtractor = useCallback((c: CategoryNode) => c.id, []);
   const renderSection = useCallback(
-    ({ item }: { item: CategoryNode }) => (
-      <CategorySection cat={item} him={him} banners={banners} onOpen={openListing} />
+    ({ item, index }: { item: CategoryNode; index: number }) => (
+      <CategorySection cat={item} him={him} banners={banners} onOpen={openListing} index={index} />
     ),
     [him, openListing, banners],
   );
@@ -705,29 +709,34 @@ export default function CategoryBrowseScreen() {
           {cats.map((c) => {
             const active = c.id === activeId;
             return (
+              // Active state now reads in the app's own language: an INK marker
+              // and ink type on white, against dim type on the grey ground. The
+              // old grey-on-grey (#999 bar, #444 vs #9a9a9a text) was so low in
+              // contrast that the selected category was hard to find at a glance.
               <Pressable
                 key={c.id}
                 onPress={() => jumpTo(c)}
                 style={{
-                  paddingVertical: 12,
+                  paddingVertical: 13,
                   paddingHorizontal: 8,
                   alignItems: 'center',
-                  backgroundColor: active ? '#FFFFFF' : 'transparent',
+                  backgroundColor: active ? C.white : 'transparent',
                 }}
               >
-                {active && <View style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, backgroundColor: '#999999' }} />}
+                {active && <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, backgroundColor: C.ink }} />}
                 <Text
                   style={{
-                    fontFamily: HELV, fontWeight: '400', // thin/regular weight
+                    fontFamily: HELV,
+                    fontWeight: active ? '700' : '400',
                     // Through rf() like every Home label — raw sizes here
                     // bypassed the OS-font-scale cap and small-screen shrink,
                     // which is why this rail read oversized vs the rest of the app.
                     fontSize: rf(11),
-                    letterSpacing: 0.3,
+                    letterSpacing: active ? 0.6 : 0.3,
                     textTransform: 'uppercase',     // CAPS
                     textAlign: 'center',
                     lineHeight: rf(15),
-                    color: active ? '#444444' : '#9a9a9a', // grey only, never black
+                    color: active ? C.ink : C.dim,
                   }}
                 >
                   {c.label}

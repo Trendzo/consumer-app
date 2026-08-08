@@ -239,7 +239,7 @@ export default function OnboardingScreen({ onDone }: { onDone: () => void }) {
           zIndex: 10,
         }}
       >
-        <TrendzoLogo height={24} />
+        <TrendzoLogo height={19} />
         <Pressable onPress={onDone} hitSlop={16}>
           <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]}>Skip →</Text>
         </Pressable>

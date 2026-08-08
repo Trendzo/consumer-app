@@ -26,6 +26,7 @@ export const KNOWN_ROUTES = [
   'ImageSearch',
   'Steals',
   'TopStories',
+  'Collection',
   'ShopByOccasion',
   'FlashFit',
   'ForHer',

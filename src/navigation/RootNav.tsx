@@ -93,6 +93,7 @@ import {
   StealsScreen, TopStoriesScreen, ShopByOccasionScreen, FlashFitScreen,
   ForHerEditScreen, ForHimEditScreen,
 } from '../screens/HomeSectionScreens';
+import CollectionScreen from '../screens/CollectionScreen';
 import { PushWinScreen } from '../screens/PushWinScreen';
 import { SpinWinPopup } from '../components/SpinWinPopup';
 import {
@@ -541,6 +542,10 @@ function MainApp({ gateReady = true }: { gateReady?: boolean }) {
         <Stack.Screen name="TopStories" component={TopStoriesScreen} />
         <Stack.Screen name="ShopByOccasion" component={ShopByOccasionScreen} />
         <Stack.Screen name="FlashFit" component={FlashFitScreen} />
+        {/* Editorial collections — every curated tile ("Five-minute fits.",
+            "Built different.", the 60-minute banner) lands here with its own
+            query instead of being dumped into the generic catalog. */}
+        <Stack.Screen name="Collection" component={CollectionScreen} />
         {/* Push & Win arcade — slides up like a game sheet */}
         <Stack.Screen name="PushWin" component={PushWinScreen} options={{ animation: 'slide_from_bottom' }} />
       </Stack.Navigator>
