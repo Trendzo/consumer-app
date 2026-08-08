@@ -130,6 +130,28 @@ export function num(
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
+/**
+ * The price ceiling a deal tile advertises, in PAISE — or null when it names none.
+ *
+ * Steals tiles say "Under ₹999" / "₹1499" in a `priceLine` string but carry no
+ * machine-readable ceiling, so tapping one could only ever land on the generic
+ * "All deals" band. This reads an authored `maxPaise` when the CMS grows one,
+ * and otherwise recovers the number from the copy.
+ *
+ * Digits only, so "Under ₹1,499" and "₹1499" both give 149900. Returns null
+ * rather than 0 for a tile with no price at all — 0 would read as a real
+ * ceiling and filter the grid down to nothing.
+ */
+export function priceCeilingPaise(bag: Record<string, unknown> | undefined): number | null {
+  const authored = bag?.maxPaise;
+  if (typeof authored === 'number' && Number.isFinite(authored) && authored > 0) return authored;
+  const line = str(bag, 'priceLine');
+  const digits = line.replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  const rupees = Number(digits);
+  return Number.isFinite(rupees) && rupees > 0 ? rupees * 100 : null;
+}
+
 export function strList(bag: Record<string, unknown> | undefined, key: string): string[] {
   const v = bag?.[key];
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];

@@ -7,7 +7,7 @@
 //   • TopStoriesScreen    — editorial magazine feed, every poster its own story
 //   • ShopByOccasionScreen— occasion selector + themed hero + curated grid
 //   • FlashFitScreen      — live countdown + a shoppable "fit" + more flash deals
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Dimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -96,8 +96,16 @@ function DealTile({ label, priceLine, img, w, h, onPress }: { label: string; pri
 
 export function StealsScreen() {
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
   const { gender } = useApp();
   const [band, setBand] = useState(0);
+  // A tapped deal tile hands its own ceiling through in paise. Without it every
+  // tile — "Under ₹999", "Under ₹1499", "Under ₹2499" — landed on band 0
+  // ("All deals"), so the price on the card was decoration.
+  const wantMaxPaise: number | null =
+    typeof route.params?.maxPaise === 'number' && route.params.maxPaise > 0
+      ? route.params.maxPaise
+      : null;
   const { sections: cms, status: cmsStatus } = useCmsSections(
     ['page.steals_hero', 'page.steals_bento', 'page.steals_bands'],
     gender,
@@ -120,15 +128,36 @@ export function StealsScreen() {
   );
   // `maxPaise` absent means no ceiling — that is the "All deals" band. Product prices are in
   // rupees on the client, so the paise ceiling is divided here rather than authored twice.
-  const bands = useMemo(
-    () =>
-      bandsSection.items.map((item) => ({
-        key: item.key,
-        label: str(item.content, 'label'),
-        max: item.content.maxPaise === undefined ? Infinity : num(item.content, 'maxPaise', 0) / 100,
-      })),
-    [bandsSection.items],
-  );
+  const bands = useMemo(() => {
+    const authored = bandsSection.items.map((item) => ({
+      key: item.key,
+      label: str(item.content, 'label'),
+      max: item.content.maxPaise === undefined ? Infinity : num(item.content, 'maxPaise', 0) / 100,
+    }));
+    if (wantMaxPaise == null) return authored;
+    const already = authored.some((b) => Number.isFinite(b.max) && Math.round(b.max * 100) === wantMaxPaise);
+    if (already) return authored;
+    // The tile named a ceiling nobody authored a chip for — "Under ₹2499" has no
+    // band. Rather than silently dropping the shopper on "All deals" (the exact
+    // bug), synthesise the chip so the filter they asked for actually exists.
+    return [
+      ...authored,
+      { key: `band-${wantMaxPaise}`, label: `Under ₹${Math.round(wantMaxPaise / 100)}`, max: wantMaxPaise / 100 },
+    ];
+  }, [bandsSection.items, wantMaxPaise]);
+
+  // Preselect ONCE, after the bands arrive from the CMS. Guarded by a ref so a
+  // later re-render cannot yank the selection back from under a shopper who has
+  // since tapped a different chip.
+  const bandPreselected = useRef(false);
+  useEffect(() => {
+    if (bandPreselected.current || wantMaxPaise == null || bands.length === 0) return;
+    const i = bands.findIndex((b) => Number.isFinite(b.max) && Math.round(b.max * 100) === wantMaxPaise);
+    if (i >= 0) {
+      setBand(i);
+      bandPreselected.current = true;
+    }
+  }, [bands, wantMaxPaise]);
 
   // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
   // the catalog rather than from whatever the first page happened to contain.
@@ -254,8 +283,37 @@ function StoryRail({ products }: { products: (Product & { id: string })[] }) {
 
 export function TopStoriesScreen() {
   const nav = useNavigation<any>();
+  const storiesRoute = useRoute<any>();
   const { gender } = useApp();
   const { section } = useCmsSection('page.top_stories', gender);
+  // Which story the shopper tapped on Home. Index, not key: home.top_stories and
+  // page.top_stories use different key spaces (`her-story-1` vs `hs1`), so
+  // position is the only reliable join between the two sections.
+  const wantStoryIndex: number | null =
+    typeof storiesRoute.params?.storyIndex === 'number' && storiesRoute.params.storyIndex >= 0
+      ? storiesRoute.params.storyIndex
+      : null;
+  const storyScrollRef = useRef<ScrollView>(null);
+  /** Content-relative y of each story block, filled in by onLayout. */
+  const storyYRef = useRef<Record<number, number>>({});
+  const scrolledToStory = useRef(false);
+
+  /**
+   * Jump to the tapped story once its block has been laid out.
+   *
+   * Retries on each layout rather than firing once on mount: the posters are
+   * remote images and a block's y is not known until it has measured, so an
+   * immediate scrollTo would land at 0. Guarded by a ref so it happens exactly
+   * once and never fights the shopper's own scrolling afterwards.
+   */
+  const maybeScrollToStory = useCallback(() => {
+    if (scrolledToStory.current || wantStoryIndex == null) return;
+    const y = storyYRef.current[wantStoryIndex];
+    if (y == null) return;
+    scrolledToStory.current = true;
+    // Slightly above the block so its chapter marker stays visible.
+    storyScrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+  }, [wantStoryIndex]);
   const stories = useMemo<Story[]>(
     () =>
       section.items
@@ -290,7 +348,7 @@ export function TopStoriesScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
       <SectionHeader title="Top Stories" onBack={() => nav.goBack()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
+      <ScrollView ref={storyScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* ── SECTION INTRO ── */}
         <View style={{ alignItems: 'center', paddingTop: SP.l, paddingHorizontal: SP.l }}>
           <Text style={[T.micro, { letterSpacing: 2, color: C.dim }]}>{section.kicker ?? ''}</Text>
@@ -301,7 +359,10 @@ export function TopStoriesScreen() {
         {lead ? (
         // NOT pressable. The cover used to open the generic catalog; the story
         // is now read in place and shopped from the rail directly beneath it.
-        <View style={{ marginHorizontal: SP.l, marginTop: SP.l }}>
+        <View
+          onLayout={(e) => { storyYRef.current[0] = e.nativeEvent.layout.y; maybeScrollToStory(); }}
+          style={{ marginHorizontal: SP.l, marginTop: SP.l }}
+        >
           <View style={[{ height: STORY_LEAD_H, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
             <CachedImage source={lead.img} style={StyleSheet.absoluteFillObject as any} resizeMode="cover" />
             <LinearGradient colors={['rgba(0,0,0,0.35)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.85)']} locations={[0, 0.4, 1]} style={StyleSheet.absoluteFillObject as any} />
@@ -340,7 +401,11 @@ export function TopStoriesScreen() {
 
         {/* ── STORY FEED — every entry is its own poster + copy + product rail ── */}
         {rest.map((s, i) => (
-          <View key={s.id} style={{ marginTop: SP.xxl }}>
+          <View
+            key={s.id}
+            onLayout={(e) => { storyYRef.current[i + 1] = e.nativeEvent.layout.y; maybeScrollToStory(); }}
+            style={{ marginTop: SP.xxl }}
+          >
             {/* chapter marker */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SP.s, paddingHorizontal: SP.l }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(18), color: C.ink }}>{`0${i + 2}`}</Text>

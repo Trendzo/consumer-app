@@ -261,19 +261,130 @@ export function clearCache() {
   inFlight.clear();
 }
 
-/** Map backend error codes to consumer-friendly copy. */
+/**
+ * Map backend error codes to consumer-friendly copy.
+ *
+ * ONE place, deliberately — see docs/home-api-integration.md §2 ("extend it
+ * rather than scattering strings"). Covers every code that doc marks ★, i.e.
+ * the ones a consumer screen can actually hit.
+ *
+ * This only replaces the MESSAGE. `ApiError.code` is always preserved, so
+ * screens must still branch on `err.code`, never on the string — the backend's
+ * own `message` is developer-facing and not guaranteed stable.
+ *
+ * Two codes below are never meant to be *shown*: `profile_incomplete` routes to
+ * CompleteProfile and `unauthorized` re-opens the OTP sheet. Their copy is a
+ * fallback for the case where a screen shows it anyway.
+ */
 function friendly(code?: string, message?: string): string {
   switch (code) {
+    // ── auth / identity ──────────────────────────────────────────────────
     case 'invalid_credentials':
       return message || 'Verification failed. Please try again.';
+    case 'unauthorized':
+      return 'Please sign in to continue.';
+    case 'forbidden':
+      return 'You do not have access to this.';
     case 'email_already_taken':
       return 'That email is already linked to another account.';
     case 'consumer_suspended':
       return 'This account is suspended. Contact support.';
     case 'consumer_closed':
       return 'This account is closed.';
+    case 'consumer_banned':
+      return 'You cannot post right now. Contact support.';
+    case 'profile_incomplete':
+      return 'Add your name and email to place an order.';
+
+    // ── validation / infra ───────────────────────────────────────────────
     case 'validation_error':
       return message || 'Please check your details and try again.';
+    case 'rate_limited':
+      return 'Too many attempts. Wait a moment and try again.';
+    case 'internal_error':
+      return 'Something went wrong on our side. Please try again.';
+
+    // ── catalog / store ──────────────────────────────────────────────────
+    case 'invalid_state':
+      return 'That item is no longer available.';
+
+    // ── orders ───────────────────────────────────────────────────────────
+    case 'order_not_found':
+      return 'We could not find that order.';
+    case 'order_stock_unavailable':
+    case 'out_of_stock':
+      return 'Someone just bought the last one — update your bag.';
+    case 'order_price_changed':
+      return 'Prices changed — review your total before paying.';
+    case 'order_store_unavailable':
+      return "This store isn't accepting orders right now.";
+    case 'order_cancellation_not_allowed':
+      return 'This order has already been packed and cannot be cancelled.';
+    case 'payment_failed':
+      return 'The payment did not go through. Try again or use another method.';
+
+    // ── coupons & vouchers ───────────────────────────────────────────────
+    // Note: at PRICING time a bad code never throws — it comes back in
+    // `rejectedCodes` with a reason. These fire on direct redemption paths.
+    case 'coupon_invalid':
+      return "That code isn't valid.";
+    case 'coupon_expired':
+      return 'That code has expired.';
+    case 'coupon_exhausted':
+      return 'That code has been fully claimed.';
+    case 'coupon_not_eligible':
+      return 'That code does not apply to this order.';
+    case 'coupon_min_order_not_met':
+      return 'Your order is below the minimum for this code.';
+    case 'coupon_already_used':
+      return 'You have already used that code.';
+    case 'coupon_clubbing_blocked':
+      return 'That code cannot be combined with the one already applied.';
+    case 'voucher_already_redeemed':
+      return 'That voucher has already been redeemed.';
+
+    // ── wallet / loyalty / gift cards / referrals ────────────────────────
+    case 'insufficient_wallet_balance':
+      return 'Your wallet balance is too low for this.';
+    case 'insufficient_points':
+      return 'You do not have enough points yet.';
+    case 'gift_card_invalid':
+      return "That gift card code isn't valid.";
+    case 'gift_card_expired':
+      return 'That gift card has expired.';
+    case 'gift_card_already_redeemed':
+      return 'That gift card has already been redeemed.';
+    case 'referral_code_invalid':
+      return "That referral code isn't valid.";
+    case 'referral_self':
+      return 'You cannot use your own referral code.';
+    case 'referral_already_used':
+      return 'You have already used a referral code.';
+
+    // ── rewards / spin ───────────────────────────────────────────────────
+    case 'already_claimed':
+      return 'You have already claimed this.';
+    case 'already_spun':
+      return 'No spins left — come back tomorrow.';
+    case 'already_entered':
+      return 'You are already entered.';
+
+    // ── returns ──────────────────────────────────────────────────────────
+    case 'return_window_expired':
+      return 'The return window for this order has closed.';
+    case 'return_invalid_state':
+      return 'This item cannot be returned right now.';
+    case 'return_already_open':
+      return 'A return is already open for this item.';
+
+    // ── synthetic client-side codes (never sent by the backend) ──────────
+    // Retryable and not the user's fault; these carry their own message from
+    // the throw site, so pass it through unchanged.
+    case 'timeout':
+    case 'unreachable':
+    case 'bad_response':
+      return message || 'Connection problem. Please try again.';
+
     default:
       return message || 'Something went wrong. Please try again.';
   }

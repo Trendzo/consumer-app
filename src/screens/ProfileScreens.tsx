@@ -13,7 +13,7 @@ import { getWallet } from '../services/wallet';
 import { listGiftCards, redeemGiftCard, type GiftCard } from '../services/giftCards';
 import { listIssues, createIssue, type IssueRow } from '../services/issues';
 import { listOrders, type OrderListRow } from '../services/orders';
-import { listReviews, isBackendListingId } from '../services/catalog';
+import { listReviews, isBackendListingId, listNearbyStores, dayHours, type Store } from '../services/catalog';
 import { ReviewComposer } from '../components/ReviewComposer';
 import { lookupPincode } from '../services/pincode';
 import { captureCurrentLocation } from '../services/geo';
@@ -1737,16 +1737,65 @@ export function ReviewsScreen() {
 // ═══════════════════════════════════════════════════════════
 // STORE PICKUP
 // ═══════════════════════════════════════════════════════════
-const PICKUP_STORES = [
-  { id: 's1', name: 'NORTH. × ANDHERI', addr: 'Infiniti Mall, Level 2', dist: '2.4 KM', eta: '45 MIN', open: 'Open · closes 10pm' },
-  { id: 's2', name: 'YORK × BANDRA', addr: 'Linking Road, Bandra West', dist: '4.1 KM', eta: '55 MIN', open: 'Open · closes 11pm' },
-  { id: 's3', name: 'KOH × BKC', addr: 'Jio World Drive, BKC', dist: '5.8 KM', eta: '65 MIN', open: 'Open · closes 10pm' },
-  { id: 's4', name: 'AZUKI × POWAI', addr: 'Hiranandani Gardens', dist: '7.2 KM', eta: '75 MIN', open: 'Open · closes 9pm' },
-];
+/**
+ * Real stores from `/catalog/stores/nearby`.
+ *
+ * This page used to render four invented Mumbai stores with invented distances
+ * and closing times — a shopper could read "2.4 KM · Ready in 45 MIN" for a
+ * store that does not exist. The endpoint requires a coordinate (there is no
+ * "any store" form), so the page resolves one first: the location the app
+ * already holds, else a fresh capture, and it says plainly when it has neither
+ * rather than falling back to fiction.
+ */
+function useNearbyStores() {
+  const [stores, setStores] = useState<Store[]>([]);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'no-location'>('loading');
+  const [nonce, setNonce] = useState(0);
+  const retry = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ac = new AbortController();
+    setStatus('loading');
+
+    (async () => {
+      // Reuse the place the app already resolved (address flow, location gate)
+      // before asking the OS again — a second permission prompt on a page about
+      // shop addresses reads as the app nagging.
+      let coords = getPlace()?.coords ?? null;
+      if (!coords) {
+        const cap = await captureCurrentLocation();
+        if (cap.ok) coords = cap.coords;
+      }
+      if (cancelled) return;
+      if (!coords) { setStatus('no-location'); return; }
+
+      try {
+        const rows = await listNearbyStores({ ...coords, radiusKm: 25, limit: 20, signal: ac.signal });
+        if (cancelled) return;
+        setStores(rows);
+        setStatus('ready');
+      } catch {
+        if (!cancelled) setStatus('error');
+      }
+    })();
+
+    return () => { cancelled = true; ac.abort(); };
+  }, [nonce]);
+
+  return { stores, status, retry };
+}
+
+/** "Open · closes 21:00", or "Closed today" — from the store's own template. */
+function openLabel(store: Store): string {
+  const today = dayHours(store.openingHours);
+  return today ? `Open · closes ${today.to}` : 'Closed today';
+}
 
 export function StorePickupScreen() {
   const nav = useNavigation<any>();
-  const [picked, setPicked] = useState('s1');
+  const { stores, status, retry } = useNearbyStores();
+  const [picked, setPicked] = useState<string | null>(null);
 
   return (
     <PageShell>
@@ -1756,7 +1805,14 @@ export function StorePickupScreen() {
           code={'PICKUP · ZERO_DELIVERY_FEE'}
           title={'Buy online.\nPick it up.'}
           intro="Skip delivery. Grab your order from your nearest store — usually ready in under an hour."
-          chips={[{ label: 'FREE', solid: true }, { label: 'IN STORE' }, { label: '4 STORES' }]}
+          chips={[
+            { label: 'FREE', solid: true },
+            { label: 'IN STORE' },
+            // Real count, or no claim at all — never a hardcoded "4 STORES".
+            ...(status === 'ready' && stores.length
+              ? [{ label: `${stores.length} STORE${stores.length === 1 ? '' : 'S'}` }]
+              : []),
+          ]}
           inverted
         />
 
@@ -1779,31 +1835,67 @@ export function StorePickupScreen() {
           ))}
         </View>
 
-        <SectionHead title="Stores near you" right={`${PICKUP_STORES.length} found`} />
+        <SectionHead
+          title="Stores near you"
+          right={status === 'ready' && stores.length ? `${stores.length} found` : undefined}
+        />
         <View style={{ paddingHorizontal: SP.l }}>
-          {PICKUP_STORES.map((st, idx) => {
-            const on = picked === st.id;
-            return (
-              <Pressable key={st.id} onPress={() => setPicked(st.id)} style={[{ marginTop: idx === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-                  <IconTile icon="map-pin" size={44} on={on} />
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={[T.bodyB, { color: on ? C.white : C.ink }]}>{st.name}</Text>
-                      <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : C.ink }}>
-                        <Text style={[T.micro, { color: on ? C.ink : C.white }]}>{st.dist}</Text>
+          {status === 'loading' ? (
+            <Text style={[T.caption, { color: C.dim }]}>Finding stores near you…</Text>
+          ) : status === 'no-location' ? (
+            <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={T.bodyB}>Location needed</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 3 }]}>
+                We need your location to find stores near you. Turn it on and try again.
+              </Text>
+              <BrutalButton label="Try again" variant="outline" onPress={retry} style={{ marginTop: SP.m }} />
+            </View>
+          ) : status === 'error' ? (
+            <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={T.bodyB}>Couldn't load stores</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 3 }]}>Check your connection and try again.</Text>
+              <BrutalButton label="Retry" variant="outline" onPress={retry} style={{ marginTop: SP.m }} />
+            </View>
+          ) : stores.length === 0 ? (
+            <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={T.bodyB}>No stores nearby yet</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 3 }]}>
+                There is no pickup store within 25 km of you. Delivery still works everywhere.
+              </Text>
+            </View>
+          ) : (
+            stores.map((st, idx) => {
+              const on = picked === st.id;
+              return (
+                <Pressable key={st.id} onPress={() => setPicked(st.id)} style={[{ marginTop: idx === 0 ? 0 : SP.s, padding: SP.m, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                    <IconTile icon="map-pin" size={44} on={on} />
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <Text style={[T.bodyB, { color: on ? C.white : C.ink, flex: 1 }]} numberOfLines={1}>{st.name}</Text>
+                        {typeof st.distanceKm === 'number' && (
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, backgroundColor: on ? C.white : C.ink }}>
+                            <Text style={[T.micro, { color: on ? C.ink : C.white }]}>{st.distanceKm} KM</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3 }]} numberOfLines={2}>{st.address}</Text>
+                      {/* No invented "Ready in 45 MIN" — there is no per-store
+                          readiness estimate in the API. Opening hours are real. */}
+                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{openLabel(st)}</Text>
+                        {st.phone ? (
+                          <Pressable onPress={() => Linking.openURL(`tel:${st.phone}`)} hitSlop={8}>
+                            <Text style={[T.micro, { color: on ? C.white : C.ink, textDecorationLine: 'underline' }]}>Call</Text>
+                          </Pressable>
+                        ) : null}
                       </View>
                     </View>
-                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 3 }]}>{st.addr}</Text>
-                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6, alignItems: 'center' }}>
-                      <Text style={[T.caption, { color: on ? C.white : C.ink }]}>Ready in {st.eta}</Text>
-                      <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.7)' : C.dim }]}>{st.open}</Text>
-                    </View>
                   </View>
-                </View>
-              </Pressable>
-            );
-          })}
+                </Pressable>
+              );
+            })
+          )}
 
           <BrutalButton label="Shop now — pickup in store" iconRight="arrow-right" block onPress={() => nav.navigate('Tabs', { screen: 'HomeTab' })} style={{ marginTop: SP.xl }} />
         </View>

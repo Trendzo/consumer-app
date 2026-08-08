@@ -13,7 +13,7 @@ import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { ProductGridSkeleton, CatalogEmpty, CatalogError } from '../components/CatalogState';
 import type { Product, Category } from '../data/mockData';
-import { listProducts, listCategories, isBackendCategoryId } from '../services/catalog';
+import { listProducts, listCategories, isBackendCategoryId, getFacets } from '../services/catalog';
 import { resolveAsset } from '../content/media';
 import { openLocationPicker, usePlace } from '../state/location';
 import { placeLabel } from '../services/geo';
@@ -124,6 +124,11 @@ export default function CategoryScreen() {
   const [usedSearch, setUsedSearch] = useState<string | undefined>(searchTerm);
   const [apiProducts, setApiProducts] = useState<Product[] | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'ready'>('loading');
+  // TRUE result count from /catalog/facets, not `rows.length`. The grid fetches
+  // `limit: 60`, so a 300-style category used to announce "60 styles". null =
+  // not known yet (or the facet call failed), which falls back to saying nothing
+  // rather than a wrong number.
+  const [total, setTotal] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     // Aborts on unmount AND on any parameter change, so a superseded sort no
@@ -180,6 +185,15 @@ export default function CategoryScreen() {
         });
         setApiProducts(rows);
         setStatus('ready');
+        // Counts run AFTER the grid and never block it — getFacets swallows its
+        // own errors, so a missing count can't take the products down.
+        getFacets({
+          gender,
+          ...(catSlug ? { categorySlug: catSlug } : {}),
+          ...(categoryId ? { categoryId } : {}),
+          ...(search ? { search } : {}),
+          signal: ac.signal,
+        }).then((f) => setTotal(f.total > 0 ? f.total : null)).catch(() => {});
       } catch (e: any) {
         // An abort is this effect superseding itself, not a failure worth
         // showing — the replacement request is already in flight.
@@ -348,7 +362,13 @@ export default function CategoryScreen() {
               {label}
             </Text>
             <Text style={[T.micro, { color: 'rgba(255,255,255,0.85)', marginTop: 3, ...HERO_SHADOW }]}>
-              {status === 'ready' && sorted.length > 0 ? `${sorted.length} styles · 60-min delivery` : '60-min delivery · door to door'}
+              {/* Prefer the facet total over the fetched length. Facet counts can
+                  read a hair high (they don't drop fully sold-out listings — see
+                  §4.9), so this is an "about this many", which is still far more
+                  honest than announcing the page size as the catalogue size. */}
+              {status === 'ready' && (total ?? sorted.length) > 0
+                ? `${total ?? sorted.length} styles · 60-min delivery`
+                : '60-min delivery · door to door'}
             </Text>
           </View>
         </View>

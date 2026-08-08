@@ -324,15 +324,25 @@ export async function listProducts(opts: {
   // product detail, so a 60-item grid downloaded every variant of every product
   // (24 variant objects for a 4-colour x 6-size item) and JSON.parsed the lot on
   // the JS thread to show one price.
+  //
+  // CLAMPED TO THE DOCUMENTED CONTRACT (docs/home-api-integration.md §4.1/§4.8):
+  // `search` is 1–120 chars and `limit` is 1–100 — exceed either and the whole
+  // request comes back 422 `validation_error` instead of results. Clamping here,
+  // at the one choke point every grid in the app goes through, means a pasted
+  // paragraph in the search box degrades to a search on its first 120 characters
+  // rather than an error screen. An empty/whitespace search is dropped entirely,
+  // since `search=` would fail the 1-char minimum.
+  const search = opts.search?.trim().slice(0, 120) || undefined;
+  const limit = Math.min(100, Math.max(1, Math.trunc(opts.limit ?? 50)));
   const data = await cachedGet<(ApiCard | ApiProduct)[]>(
     `/catalog/products${qs({
       gender: opts.gender,
       categoryId: opts.categoryId,
       categorySlug: opts.categorySlug,
-      search: opts.search,
+      search,
       sort: opts.sort,
       view: 'card',
-      limit: opts.limit ?? 50,
+      limit,
       offset: opts.offset,
     })}`,
     // Short TTL: a sort tap re-queries the same category, and going back to a
@@ -573,4 +583,160 @@ export async function listBrands(): Promise<Brand[]> {
  *  pseudo home-rail id like 'flash' / 'trending' / 'all'. */
 export function isBackendCategoryId(id?: string): boolean {
   return !!id && id.startsWith('cat_');
+}
+
+/* ── Facets ───────────────────────────────────────────────────────────────────
+ *
+ * `/catalog/facets` per docs/home-api-integration.md §4.9 — the counts behind a
+ * result total and a filter sheet.
+ *
+ * Each facet EXCLUDES its own dimension (standard faceted-search rule), which is
+ * what lets one call answer both "which genders exist in this category" and
+ * "which categories exist for this gender".
+ *
+ * `total` is the honest result count for the current filters. Grids that show
+ * `products.length` are really showing "how many I fetched", which is capped by
+ * `limit` — 40 items in a 400-item category reads as 40.
+ *
+ * CAVEAT, stated in the controller: facet counts do NOT drop listings whose
+ * variants are all sold out, so a count can read a hair higher than the grid.
+ * Fine for "about this many"; do not use it to assert an exact grid length.
+ */
+export type Facets = {
+  total: number;
+  genders: { gender: Gender; count: number }[];
+  categories: { categoryId: string; label: string; slug: string; count: number }[];
+};
+
+const EMPTY_FACETS: Facets = { total: 0, genders: [], categories: [] };
+
+/**
+ * Counts for the current filter set. Never throws — a facet strip is decoration
+ * over the grid, and a failed count must not take the products down with it.
+ */
+export async function getFacets(opts: {
+  gender?: Gender;
+  categoryId?: string;
+  categorySlug?: string;
+  storeId?: string;
+  search?: string;
+  signal?: AbortSignal;
+} = {}): Promise<Facets> {
+  // Same 1–120 clamp as listProducts — §4.9 shares the constraint.
+  const search = opts.search?.trim().slice(0, 120) || undefined;
+  try {
+    return await cachedGet<Facets>(
+      `/catalog/facets${qs({
+        gender: opts.gender,
+        categoryId: opts.categoryId,
+        categorySlug: opts.categorySlug,
+        storeId: opts.storeId,
+        search,
+      })}`,
+      { auth: false, ttlMs: 60_000, ...(opts.signal ? { signal: opts.signal } : {}) },
+    );
+  } catch {
+    return EMPTY_FACETS;
+  }
+}
+
+/* ── Stores ───────────────────────────────────────────────────────────────────
+ *
+ * `/catalog/stores/*` per docs/home-api-integration.md §5B. The projection is a
+ * server-side WHITELIST — GSTIN, PAN, legal entity, fees, payout cadence and
+ * suspension reasons are never exposed, so everything here is safe to render.
+ *
+ * Only stores a shopper can actually buy from come back: `active`, or `paused`
+ * with a visible pause. Suspended, terminated and paused-hidden stores vanish.
+ */
+
+/**
+ * A weekly opening template, keyed `mon`…`sun`.
+ *
+ * THE DOC AND THE DEPLOYED API DISAGREE HERE. docs/home-api-integration.md §5B
+ * documents an array form:
+ *     { mon: [ { open: "10:00", close: "21:00" } ] }
+ * but the live backend actually returns a per-day object:
+ *     { mon: { from: "10:00", to: "21:00", closed: false } }
+ * (verified against /catalog/stores/nearby). Both are accepted so whichever the
+ * deployment serves, the screen renders — read them through `dayHours()` below
+ * rather than indexing the raw shape.
+ */
+export type DayHours =
+  | { open: string; close: string }
+  | { from: string; to: string; closed?: boolean };
+export type OpeningHours = Record<string, DayHours | DayHours[]> | null;
+
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
+/**
+ * Today's opening window, normalised across both shapes above.
+ * Returns null when closed today, or when the store has no template at all.
+ */
+export function dayHours(
+  hours: OpeningHours,
+  dayIndex: number = new Date().getDay(),
+): { from: string; to: string } | null {
+  if (!hours) return null;
+  const raw = hours[DAY_KEYS[dayIndex % 7]!];
+  if (!raw) return null;
+  const entry = Array.isArray(raw) ? raw[0] : raw;
+  if (!entry) return null;
+  if ('closed' in entry && entry.closed) return null;
+  const from = 'from' in entry ? entry.from : entry.open;
+  const to = 'to' in entry ? entry.to : entry.close;
+  return from && to ? { from, to } : null;
+}
+
+export type Store = {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  phone: string | null;
+  openingHours: OpeningHours;
+  images: string[];
+  /** Great-circle km, rounded to 0.1. Only present on `nearby` rows. */
+  distanceKm?: number;
+};
+
+/**
+ * Stores near a coordinate, nearest first.
+ *
+ * `lat`/`lng` are REQUIRED by the server — there is no "just show me any store"
+ * form, which is why the screen has to resolve a location (or ask for one)
+ * before it can call this at all. `radiusKm` caps at 50 and `limit` at 50;
+ * exceeding either is a 422, so both are clamped here.
+ */
+export async function listNearbyStores(opts: {
+  lat: number;
+  lng: number;
+  radiusKm?: number;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<Store[]> {
+  const radiusKm = Math.min(50, Math.max(0.1, opts.radiusKm ?? 15));
+  const limit = Math.min(50, Math.max(1, Math.trunc(opts.limit ?? 20)));
+  return cachedGet<Store[]>(
+    `/catalog/stores/nearby${qs({ lat: opts.lat, lng: opts.lng, radiusKm, limit })}`,
+    // Short TTL: a shopper re-opening the picker within a minute has not moved.
+    { auth: false, ttlMs: 60_000, ...(opts.signal ? { signal: opts.signal } : {}) },
+  );
+}
+
+/**
+ * One store. Returns null on 404 rather than throwing — an unknown, suspended
+ * or paused-hidden store is a normal outcome the caller renders as "no longer
+ * available", not an error screen.
+ */
+export async function getStore(id: string): Promise<Store | null> {
+  try {
+    return await cachedGet<Store>(
+      `/catalog/stores/${encodeURIComponent(id)}`,
+      { auth: false, ttlMs: 5 * 60_000 },
+    );
+  } catch {
+    return null;
+  }
 }

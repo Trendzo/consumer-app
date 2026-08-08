@@ -36,7 +36,7 @@ import { useCmsRails, useCmsSections } from '../hooks/useCmsContent';
 import { openLocationPicker, usePlace, usePlaceCity } from '../state/location';
 import { placeLabel } from '../services/geo';
 import type { CmsItem, CmsSection } from '../content/types';
-import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, useLastNonEmpty, str, num, color, type MediaSource } from '../content/media';
+import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, useLastNonEmpty, str, num, color, priceCeilingPaise, type MediaSource } from '../content/media';
 import { openLink } from '../content/links';
 import { IMG } from '../services/images';
 
@@ -947,7 +947,15 @@ export default function HomeScreen() {
               .map((item) => ({ item, source: resolveMedia(item, IMG.card) }))
               .filter(withSource)
               .slice(0, 3);
-            const goSteals = (item: CmsItem) => () => { if (!openLink(nav, item.link)) nav.navigate('Steals'); };
+            // Carry the tile's OWN price ceiling through, so "Under ₹999" opens
+            // the ₹999 band instead of "All deals". The authored link is a bare
+            // `{route:'Steals'}` with no params, so the ceiling is merged in as
+            // extraParams rather than requiring every tile to be re-authored.
+            const goSteals = (item: CmsItem) => () => {
+              const maxPaise = priceCeilingPaise(item.content);
+              const params = maxPaise ? { maxPaise } : undefined;
+              if (!openLink(nav, item.link, params)) nav.navigate('Steals', params);
+            };
             if (steals.length === 0) return null;
             return (
               <>
@@ -1903,7 +1911,7 @@ const STORY_SNAP = STORY_CARD_W + STEAL_GAP; // same gutter as the STEALS bento 
 
 type StoryPoster = { id: string; source: any; item: CmsItem };
 
-function StoryCard({ s, i, scrollX, nav, label }: { s: StoryPoster; i: number; scrollX: SharedValue<number>; nav: any; label: string }) {
+function StoryCard({ s, i, storyN, scrollX, nav, label }: { s: StoryPoster; i: number; storyN: number; scrollX: SharedValue<number>; nav: any; label: string }) {
   // Smoothly grow the card as it reaches the centre and shrink the neighbours —
   // driven off the live scroll offset, so it eases continuously (never a jump).
   // No opacity change — side cards stay fully visible, just smaller.
@@ -1920,7 +1928,15 @@ function StoryCard({ s, i, scrollX, nav, label }: { s: StoryPoster; i: number; s
   return (
     <Animated.View style={[{ width: STORY_CARD_W }, aStyle]}>
       <Pressable
-        onPress={() => { if (!openLink(nav, s.item.link)) nav.navigate('TopStories'); }}
+        // Open THIS story, not the top of the page. The rail is tripled for
+        // looping, so `i` spans three copies — `i % storyN` is the real story.
+        // The page is indexed rather than keyed because the two CMS sections use
+        // different key spaces (home.top_stories is `her-story-1`, while
+        // page.top_stories is `hs1`); position is the only reliable join.
+        onPress={() => {
+          const storyIndex = storyN > 0 ? ((i % storyN) + storyN) % storyN : 0;
+          if (!openLink(nav, s.item.link, { storyIndex })) nav.navigate('TopStories', { storyIndex });
+        }}
         style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, overflow: 'hidden' }}
       >
         <Text style={[T.caption, { textAlign: 'center', paddingVertical: 12 }]}>
@@ -2009,7 +2025,7 @@ function TopStories({ nav, gender, section }: { nav: any; gender: 'her' | 'him';
         onMomentumScrollEnd={(e) => onSettle(e.nativeEvent.contentOffset.x)}
       >
         {storyLoop.map((s, i) => (
-          <StoryCard key={`${s.id}-${i}`} s={s} i={i} scrollX={scrollX} nav={nav} label={cardLabel} />
+          <StoryCard key={`${s.id}-${i}`} s={s} i={i} storyN={storyN} scrollX={scrollX} nav={nav} label={cardLabel} />
         ))}
       </Animated.ScrollView>
 
