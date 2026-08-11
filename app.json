@@ -14,7 +14,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.moon.closetx"
+      "bundleIdentifier": "com.trendzo.app",
+      "buildNumber": "1"
     },
     "android": {
       "package": "com.trendzo.app",
@@ -31,6 +32,7 @@
     },
     "plugins": [
       "./plugins/withReleaseSlimming",
+      "./plugins/withIosBundleScriptSpaceFix",
       [
         "expo-font",
         {

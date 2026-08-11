@@ -16,7 +16,12 @@
 // rather than being patched into the checked-in project.
 const { withXcodeProject } = require('@expo/config-plugins');
 
-const BROKEN = /`("\$NODE_BINARY" --print "[^"]*react-native-xcode\.sh'")`/;
+// Matches the backtick-wrapped command substitution that resolves the script
+// path, whatever is inside it. Deliberately loose (`[^`]*`) rather than
+// pinned to the exact quoting: project.pbxproj stores shellScript with its
+// ESCAPES INTACT, so the string here contains \" and not " — an earlier version
+// of this plugin pinned on unescaped quotes and silently never matched.
+const BACKTICK_SUBSTITUTION = /`([^`]*react-native-xcode\.sh[^`]*)`/;
 
 module.exports = function withIosBundleScriptSpaceFix(config) {
   return withXcodeProject(config, (cfg) => {
@@ -26,8 +31,13 @@ module.exports = function withIosBundleScriptSpaceFix(config) {
     for (const key of Object.keys(phases)) {
       const phase = phases[key];
       if (!phase || typeof phase !== 'object' || !phase.shellScript) continue;
-      if (!BROKEN.test(phase.shellScript)) continue;
-      phase.shellScript = phase.shellScript.replace(BROKEN, '/bin/sh "$($1)"');
+      if (!BACKTICK_SUBSTITUTION.test(phase.shellScript)) continue;
+      phase.shellScript = phase.shellScript.replace(BACKTICK_SUBSTITUTION, (_match, inner) => {
+        // Reuse whatever quoting style the stored script already uses, so the
+        // rewritten line stays valid however this pbxproj was serialised.
+        const q = inner.includes('\\"') ? '\\"' : '"';
+        return `/bin/sh ${q}$(${inner})${q}`;
+      });
     }
 
     return cfg;
