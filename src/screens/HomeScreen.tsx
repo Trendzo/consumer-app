@@ -757,7 +757,13 @@ export default function HomeScreen() {
           // (nearly 'fast', which is 0.99) on iOS — momentum died in a few
           // hundred px and the page needed flick after flick. Each value here is
           // ~half the platform's normal friction, i.e. the same loose feel.
-          decelerationRate={Platform.select({ ios: 0.999, android: 0.992 })}
+          // iOS uses Apple's STOCK 'normal' (0.998) — not a hand-picked number.
+          // This was briefly 0.999, which is outside the range Apple documents
+          // and was never verified on device; it shipped in the same build that
+          // came back reporting a frozen Home, so it is not worth keeping as an
+          // unknown. 0.998 is already far looser than Android's 0.985 default,
+          // which is the whole reason the two platforms need different values.
+          decelerationRate={Platform.OS === 'ios' ? 'normal' : 0.992}
           showsVerticalScrollIndicator={false}
           onScroll={onHomeScroll}
           scrollEventThrottle={16}

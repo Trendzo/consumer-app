@@ -22,10 +22,33 @@ export async function openRazorpayCheckout(input: {
 }): Promise<CheckoutSuccess> {
   let RazorpayCheckout: { open: (opts: Record<string, unknown>) => Promise<CheckoutSuccess> };
   try {
+    // Check the two native modules BEFORE requiring the package. Its JS entry
+    // builds `new NativeEventEmitter(NativeModules.RazorpayEventEmitter)` at
+    // import time, which throws on a null argument — so a missing module used to
+    // surface as the generic catch below and told us nothing about which half
+    // was absent.
+    //
+    // Both are LEGACY bridge modules (RCT_EXPORT_MODULE, no TurboModule spec)
+    // reached through React Native's interop layer under the New Architecture.
+    // That interop is what expo-doctor's "unsupported on New Architecture"
+    // warning is really about: not certified, rather than known-broken.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { NativeModules } = require('react-native');
+    const missing = [
+      NativeModules?.RNRazorpayCheckout ? null : 'RNRazorpayCheckout',
+      NativeModules?.RazorpayEventEmitter ? null : 'RazorpayEventEmitter',
+    ].filter(Boolean);
+    if (missing.length) {
+      throw new Error(
+        `Razorpay native module not linked (${missing.join(', ')}). ` +
+          'This build cannot take payments — reinstall the app from a fresh native build.',
+      );
+    }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     RazorpayCheckout = require('react-native-razorpay').default;
-  } catch {
-    throw new Error('Payments unavailable in this build — update the app');
+    if (!RazorpayCheckout?.open) throw new Error('Razorpay checkout module loaded but has no open()');
+  } catch (e: any) {
+    throw new Error(e?.message || 'Payments unavailable in this build — update the app');
   }
   return RazorpayCheckout.open({
     key: input.payment.keyId,

@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.trendzo.app",
+      "bundleIdentifier": "com.trendzo.consumer",
       "buildNumber": "1"
     },
     "android": {
@@ -44,10 +44,22 @@
               {
                 "fontFamily": "Helvetica Neue",
                 "fontDefinitions": [
-                  { "path": "./assets/fonts/HelveticaNeue-Regular.ttf", "weight": 400 },
-                  { "path": "./assets/fonts/HelveticaNeue-Medium.ttf", "weight": 500 },
-                  { "path": "./assets/fonts/HelveticaNeue-Medium.ttf", "weight": 600 },
-                  { "path": "./assets/fonts/HelveticaNeue-Bold.ttf", "weight": 700 }
+                  {
+                    "path": "./assets/fonts/HelveticaNeue-Regular.ttf",
+                    "weight": 400
+                  },
+                  {
+                    "path": "./assets/fonts/HelveticaNeue-Medium.ttf",
+                    "weight": 500
+                  },
+                  {
+                    "path": "./assets/fonts/HelveticaNeue-Medium.ttf",
+                    "weight": 600
+                  },
+                  {
+                    "path": "./assets/fonts/HelveticaNeue-Bold.ttf",
+                    "weight": 700
+                  }
                 ]
               }
             ]
