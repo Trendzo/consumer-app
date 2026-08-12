@@ -308,7 +308,17 @@ export default function RootNav() {
   const [appMountReady, setAppMountReady] = useState(false);
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => setAppMountReady(true));
-    return () => task.cancel();
+    // HARD FAILSAFE — the ENTIRE app render is gated on this one flag (see the
+    // `phase === 'main' && appMountReady` branches below), so if
+    // runAfterInteractions never fires the user stares at a splash forever with
+    // nothing to tap. That is not hypothetical: the queue is drained only once
+    // every InteractionManager handle is released, and a single handle left open
+    // by any animation or library starves it indefinitely. Gating a whole app on
+    // a callback that has no guarantee of running needs a floor under it.
+    // 1200ms is past the splash's own intro, so the anti-jitter intent still
+    // holds on a healthy launch and this only ever fires on a broken one.
+    const failsafe = setTimeout(() => setAppMountReady(true), 1200);
+    return () => { task.cancel(); clearTimeout(failsafe); };
   }, []);
 
   // SPIN & WIN welcome popup — fires once per app launch, right after the

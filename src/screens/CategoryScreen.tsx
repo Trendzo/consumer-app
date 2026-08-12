@@ -13,13 +13,12 @@ import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { ProductGridSkeleton, CatalogEmpty, CatalogError } from '../components/CatalogState';
 import type { Product, Category } from '../data/mockData';
-import { listProducts, listCategories, isBackendCategoryId, getFacets } from '../services/catalog';
+import { listProducts, listCategories, isBackendCategoryId, getFacets, listCategoryTree, type CategoryNode } from '../services/catalog';
 import { resolveAsset } from '../content/media';
 import { openLocationPicker, usePlace } from '../state/location';
 import { placeLabel } from '../services/geo';
 
 const { width: W, height: H } = Dimensions.get('window');
-const FILTERS = ['ALL', 'NEW IN', 'TOPS', 'BOTTOMS', 'DRESSES', 'SHOES', 'BAGS'];
 const SORTS = ['NEWEST', 'PRICE: LOW TO HIGH', 'PRICE: HIGH TO LOW', 'RATING'] as const;
 
 /** The picker's wording → the API's sort keys. Sorting happens server-side, over the
@@ -96,7 +95,20 @@ export default function CategoryScreen() {
   const { gender } = useApp();
   const { openZoom } = useZoom();
   const zoomRefs = useRef<Record<string, any>>({});
+  /**
+   * The active sub-category filter, by LABEL ('ALL' = no narrowing).
+   *
+   * This used to be picked from a hardcoded list — ALL / NEW IN / TOPS /
+   * BOTTOMS / DRESSES / SHOES / BAGS — that had nothing to do with the
+   * category being browsed (you were offered DRESSES inside Outerwear), and
+   * NOTHING read the value: `sorted` was just `data`, so picking a filter
+   * changed the button label and not one product. The options now come from
+   * /catalog/facets for this exact query, and selecting one re-queries the
+   * server by that category's slug.
+   */
   const [filter, setFilter] = useState('ALL');
+  /** Real sub-categories for the current view, with counts, from the facets API. */
+  const [facetCats, setFacetCats] = useState<{ label: string; slug: string; count: number }[]>([]);
   const [sort, setSort] = useState('NEWEST');
   const [grid, setGrid] = useState<2 | 1>(2);
   const [genderTab, setGenderTab] = useState<'MEN' | 'WOMEN'>('MEN');
@@ -130,6 +142,21 @@ export default function CategoryScreen() {
   // rather than a wrong number.
   const [total, setTotal] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  /**
+   * What the sheet offers: the real sub-categories present in THIS view.
+   *
+   * Falls back to just 'ALL' rather than the old invented list — offering a
+   * filter that cannot work is worse than offering none.
+   */
+  const filterOptions = useMemo(
+    () => ['ALL', ...facetCats.map((c) => c.label)],
+    [facetCats],
+  );
+  /** Slug for the active filter, or undefined for 'ALL'. Drives the query. */
+  const filterSlug = useMemo(
+    () => (filter === 'ALL' ? undefined : facetCats.find((c) => c.label === filter)?.slug),
+    [filter, facetCats],
+  );
   useEffect(() => {
     // Aborts on unmount AND on any parameter change, so a superseded sort no
     // longer downloads and parses 60 products nobody will look at.
@@ -176,8 +203,10 @@ export default function CategoryScreen() {
       try {
         const rows = await listProducts({
           gender,
-          ...(catSlug ? { categorySlug: catSlug } : {}),
-          ...(categoryId ? { categoryId } : {}),
+          // A chosen sub-category REPLACES the parent slug — it is a descendant,
+          // so narrowing to it is exactly what the shopper asked for.
+          ...(filterSlug ? { categorySlug: filterSlug } : catSlug ? { categorySlug: catSlug } : {}),
+          ...(!filterSlug && categoryId ? { categoryId } : {}),
           ...(search ? { search } : {}),
           sort: SORT_PARAM[sort] ?? 'newest',
           limit: 60,
@@ -204,7 +233,48 @@ export default function CategoryScreen() {
     })();
 
     return () => ac.abort();
-  }, [catId, catSlug, gender, searchTerm, rawLabel, sort, reloadKey]);
+  }, [catId, catSlug, gender, searchTerm, rawLabel, sort, reloadKey, filterSlug]);
+
+  /**
+   * The filter options: the real CHILDREN of the category being browsed.
+   *
+   * NOT from /catalog/facets. Facets deliberately exclude their own dimension
+   * (docs §4.9), so asking for facets while a categorySlug is applied returns
+   * the catalogue-wide category list — which is how you end up offering
+   * "Bikinis" inside "Tops". The taxonomy tree is the only source that knows
+   * what is actually a descendant of this category.
+   */
+  useEffect(() => {
+    const key = catSlug ?? catId;
+    if (!key) { setFacetCats([]); return; }
+    let cancelled = false;
+    listCategoryTree(gender)
+      .then((roots) => {
+        if (cancelled) return;
+        const find = (nodes: CategoryNode[]): CategoryNode | null => {
+          for (const n of nodes) {
+            if (n.slug === catSlug || n.id === catId) return n;
+            const hit = find(n.children);
+            if (hit) return hit;
+          }
+          return null;
+        };
+        const node = find(roots);
+        // A leaf has nothing to narrow by — offer no filter rather than a fake one.
+        setFacetCats(
+          (node?.children ?? [])
+            .filter((c) => c.listingCount > 0)
+            .map((c) => ({ label: c.label, slug: c.slug, count: c.listingCount })),
+        );
+      })
+      .catch(() => { if (!cancelled) setFacetCats([]); });
+    return () => { cancelled = true; };
+  }, [catId, catSlug, gender]);
+
+  // A filter belongs to the category it was chosen in. Carrying it across to a
+  // different category would narrow by a slug that is not a descendant here and
+  // quietly return an empty grid.
+  useEffect(() => { setFilter('ALL'); setFacetCats([]); }, [catId, catSlug, searchTerm, gender]);
   // Open / close the shared OptionSheet (it owns its own slide + fade animation).
   const openSheet = (s: 'sort' | 'gender' | 'filter') => setSheet(s);
   const closeSheet = () => setSheet(null);
@@ -573,8 +643,8 @@ export default function CategoryScreen() {
       />
       <OptionSheet
         visible={sheet === 'filter'}
-        title="Filter"
-        options={FILTERS}
+        title={facetCats.length ? 'Narrow by category' : 'Filter'}
+        options={filterOptions}
         selected={filter}
         onSelect={(v) => { setFilter(v); closeSheet(); }}
         onClose={closeSheet}

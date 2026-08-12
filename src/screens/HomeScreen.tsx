@@ -235,11 +235,13 @@ export default function HomeScreen() {
   const [homeArmed, setHomeArmed] = useState(false);
   useFocusEffect(useCallback(() => {
     if (homeArmed) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      setHomeArmed(true);
-      warmCatalog(gender);
-    });
-    return () => task.cancel();
+    const arm = () => { setHomeArmed(true); warmCatalog(gender); };
+    const task = InteractionManager.runAfterInteractions(arm);
+    // FAILSAFE — this flag gates the catalog fetch. Starved, Home shows its
+    // chrome with empty rails and never asks the backend for anything, so the
+    // page looks loaded but dead. Same reasoning as tailMounted below.
+    const failsafe = setTimeout(arm, 1500);
+    return () => { task.cancel(); clearTimeout(failsafe); };
   }, [homeArmed, gender]));
 
   // Returning to Home (e.g. popping back from Search / a category) always
@@ -684,7 +686,13 @@ export default function HomeScreen() {
   const [tailMounted, setTailMounted] = useState(false);
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => setTailMounted(true));
-    return () => task.cancel();
+    // FAILSAFE — this flag gates every section below the fold. If
+    // runAfterInteractions is starved, Home renders barely one screen of
+    // content, which leaves the page with nothing to scroll and reads exactly
+    // like a frozen screen. Deferring the tail is a perf nicety; never
+    // rendering it is a broken page.
+    const failsafe = setTimeout(() => setTailMounted(true), 1500);
+    return () => { task.cancel(); clearTimeout(failsafe); };
   }, []);
 
 

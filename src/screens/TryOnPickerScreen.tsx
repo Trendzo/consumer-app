@@ -6,9 +6,17 @@ import { C, T, SP, BORDER, HELV, HEADER_TOP } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, CARD } from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
+import { listCategoryTree } from '../services/catalog';
 import { CatalogSection, CatalogEmpty } from '../components/CatalogState';
 
-const CATS = ['All', 'Tops', 'Dresses', 'Outerwear', 'Bottoms'];
+/**
+ * Chips are built from the LIVE taxonomy, not from this list.
+ *
+ * They used to be these five hardcoded words, and — worse — `cat` was never
+ * read by the query, so tapping a chip highlighted it and returned the exact
+ * same products. Real top-level categories, filtered server-side by slug.
+ */
+const ALL = 'All';
 
 /**
  * Pick what to try on FIRST — search / explore products, tap one to try it on.
@@ -24,7 +32,22 @@ export default function TryOnPickerScreen() {
   const { gender } = useApp();
   const mode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const [q, setQ] = useState('');
-  const [cat, setCat] = useState('All');
+  const [cat, setCat] = useState(ALL);
+  /** Top-level categories that actually have stock, from /catalog/categories. */
+  const [cats, setCats] = useState<{ label: string; slug: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listCategoryTree(gender)
+      .then((roots) => {
+        if (cancelled) return;
+        setCats(roots.filter((r) => r.listingCount > 0).map((r) => ({ label: r.label, slug: r.slug })));
+      })
+      .catch(() => { if (!cancelled) setCats([]); });
+    return () => { cancelled = true; };
+  }, [gender]);
+  // A chip chosen on the her rail is meaningless on the him rail.
+  useEffect(() => { setCat(ALL); }, [gender]);
+  const catSlug = cat === ALL ? undefined : cats.find((c) => c.label === cat)?.slug;
 
   // Debounced so a fast typist does not fire a request per keystroke.
   const [term, setTerm] = useState('');
@@ -47,6 +70,8 @@ export default function TryOnPickerScreen() {
    */
   const { products: results, status, reload } = useCatalogProducts({
     ...(term ? { search: term } : { gender }),
+    // The chip actually narrows the query now.
+    ...(catSlug ? { categorySlug: catSlug } : {}),
     limit: 40,
   });
 
@@ -73,7 +98,7 @@ export default function TryOnPickerScreen() {
 
         {/* CATEGORY CHIPS */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SP.s, marginTop: SP.m }}>
-          {CATS.map((c) => (
+          {[ALL, ...cats.map((c) => c.label)].map((c) => (
             <Pressable key={c} onPress={() => setCat(c)} style={[{ paddingHorizontal: 14, paddingVertical: 7, backgroundColor: cat === c ? C.ink : C.white }, BORDER(1)]}>
               <Text style={[T.caption, { color: cat === c ? C.white : C.ink }]}>{c}</Text>
             </Pressable>

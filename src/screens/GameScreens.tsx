@@ -1177,6 +1177,8 @@ export function TryOnScreen() {
   const isRealListing = listingId.startsWith('lst_');
 
   const [garmentOptions, setGarmentOptions] = useState<GarmentOption[]>([]);
+  /** Why there are no garments — so a dead Try button can explain itself. */
+  const [garmentError, setGarmentError] = useState<string | null>(null);
   const [selectedGarment, setSelectedGarment] = useState<GarmentOption | null>(null);
   const [garmentsLoading, setGarmentsLoading] = useState(false);
 
@@ -1188,14 +1190,31 @@ export function TryOnScreen() {
     if (!isRealListing) return;
     let cancelled = false;
     setGarmentsLoading(true);
+    setGarmentError(null);
     getProductDetail(listingId)
       .then((d) => {
         if (cancelled) return;
         const opts = buildGarmentOptions(d);
         setGarmentOptions(opts);
         setSelectedGarment(opts[0] ?? null);
+        // A product that loaded but has no usable image is a REAL answer, and a
+        // different one from "the request failed" — say which.
+        if (opts.length === 0) setGarmentError('This product has no picture to try on.');
       })
-      .catch(() => { /* leave it empty — the UI shows "no image to try on" */ })
+      .catch((e: any) => {
+        if (cancelled) return;
+        // This used to swallow the error entirely. The consequence was severe:
+        // no garments means `selectedGarment` stays null, which makes the Try
+        // button hit its `!selectedGarment` guard and return silently — the
+        // button looked broken with nothing explaining why. The API is on a
+        // tier that cold-starts slowly, so this path is hit routinely, not
+        // rarely.
+        setGarmentError(
+          e?.code === 'timeout' || e?.code === 'unreachable'
+            ? "Couldn't reach the store — check your connection and tap Try again."
+            : e?.message || "Couldn't load this product's images.",
+        );
+      })
       .finally(() => { if (!cancelled) setGarmentsLoading(false); });
     return () => { cancelled = true; };
   }, [listingId, isRealListing]);
@@ -1225,6 +1244,18 @@ export function TryOnScreen() {
   // Copyable error inspector — every step logs, errors pop this modal open so
   // the user can copy the full trace instead of chasing disappearing toasts.
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  /**
+   * Why the last attempt failed, rendered INLINE next to Try again.
+   *
+   * Failures used to be reported only by a transient toast (for the coded
+   * errors) or by a <Modal> (for everything else) — and this screen is itself
+   * a `transparentModal`, so a nested Modal frequently never presents on iOS.
+   * The result was a retry button with no explanation at all. Inline text is
+   * in the normal view tree, so it cannot be swallowed by either problem.
+   */
+  const [failReason, setFailReason] = useState<string | null>(null);
+  /** Fullscreen result viewer. An in-tree overlay, NOT a Modal, for the same reason. */
+  const [viewerOpen, setViewerOpen] = useState(false);
   const [logLines, setLogLines] = useState<string[]>([]);
   useEffect(() => { const unsub = subscribeTryOnLog(setLogLines); return () => { unsub(); }; }, []);
   const openErrorInspector = (msg: string) => setErrorMsg(msg);
@@ -1293,7 +1324,14 @@ export function TryOnScreen() {
       showToast('Not available', 'Try-on works on store products only', 'x');
       return;
     }
+    // Explain, never no-op. Without a garment the generate call cannot run, and
+    // returning quietly here is what made the button feel dead.
+    if (!garment) {
+      showToast('Try-on unavailable', garmentError ?? 'Still loading this product — try again in a moment', 'x');
+      return;
+    }
     setAttemptFailed(false);
+    setFailReason(null);
     setGenerating(true);
     setGeneratedPhoto(null);
     try {
@@ -1319,17 +1357,27 @@ export function TryOnScreen() {
       // Friendly copy for the failures the shopper can act on; everything else
       // goes to the copyable inspector.
       if (e?.code === 'rate_limited') {
+        setFailReason('Try-on is busy right now. Give it a moment and tap Try again.');
         showToast('Try-on is busy', 'Give it a moment and try again', 'clock');
         return;
       }
       if (e?.code === 'invalid_state') {
+        setFailReason('This product has no picture to try on.');
         showToast('No image to try on', 'This product has no picture to work from', 'x');
         return;
       }
       if (e?.code === 'not_found') {
+        setFailReason('That item is no longer available.');
         showToast('Product unavailable', 'That item is no longer available', 'x');
         return;
       }
+      if (e?.code === 'timeout' || e?.code === 'unreachable') {
+        setFailReason("Couldn't reach the server. Check your connection and tap Try again.");
+        return;
+      }
+      // Unknown failure: show it inline AND keep the copyable inspector for the
+      // full log. Inline is what the shopper reads; the inspector is for us.
+      setFailReason(e?.message || String(e));
       openErrorInspector(e?.message || String(e));
     } finally {
       setGenerating(false);
@@ -1480,12 +1528,20 @@ export function TryOnScreen() {
             </>
           ) : generatedPhoto ? (
             <>
-              <CachedImage
-                source={{ uri: generatedPhoto }}
-                style={StyleSheet.absoluteFillObject as any}
-                resizeMode="cover"
-                onError={(e: any) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
-              />
+              {/* Tappable. The result used to be a bare image with no press
+                  target at all, so there was literally no way to open it — it
+                  could only ever be seen cover-cropped inside this small box. */}
+              <Pressable onPress={() => setViewerOpen(true)} style={StyleSheet.absoluteFillObject as any}>
+                <CachedImage
+                  source={{ uri: generatedPhoto }}
+                  style={StyleSheet.absoluteFillObject as any}
+                  resizeMode="cover"
+                  onError={(e: any) => openErrorInspector(`Generated image failed to load: ${e.nativeEvent?.error || 'unknown'}\nURL: ${generatedPhoto}`)}
+                />
+              </Pressable>
+              <View pointerEvents="none" style={[{ position: 'absolute', bottom: 10, right: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                <Text style={[T.micro, { color: C.ink }]}>Tap to enlarge</Text>
+              </View>
               <View style={[{ position: 'absolute', top: 10, left: 10, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
                 <Text style={[T.micro, { color: C.ink }]}>AI try-on</Text>
               </View>
@@ -1543,15 +1599,41 @@ export function TryOnScreen() {
             <Text style={[T.micro, { flex: 1, color: C.dim }]}>Virtual try-on works on store products only.</Text>
           </View>
         ) : cameraOn ? null : generatedPhoto ? (
-          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-            <BrutalButton label="Save" icon="bookmark" onPress={saveLook} style={{ flex: 1 }} />
-            <BrutalButton label="Share" icon="share-2" variant="outline" onPress={shareLook} style={{ flex: 1 }} />
-          </View>
+          <>
+            <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
+              <BrutalButton label="Save" icon="bookmark" onPress={saveLook} style={{ flex: 1 }} />
+              <BrutalButton label="Share" icon="share-2" variant="outline" onPress={shareLook} style={{ flex: 1 }} />
+            </View>
+            {/* Escape hatch. After a successful try-on the only way back to the
+                gallery/camera chooser was a 30x30 'x' tucked in the image
+                corner, so it read as "I can never pick another photo". */}
+            <BrutalButton
+              label="New photo"
+              icon="image"
+              variant="outline"
+              onPress={() => { setGeneratedPhoto(null); setUploadedPhoto(null); setAttemptFailed(false); setFailReason(null); genKeyRef.current = null; uploadPhoto(); }}
+              style={{ marginTop: SP.s }}
+            />
+          </>
         ) : attemptFailed && uploadedPhoto && !generating ? (
-          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
-            <BrutalButton label="Try again" icon="zap" onPress={() => { if (selectedGarment) runTryOn(uploadedPhoto, selectedGarment); }} disabled={!selectedGarment} style={{ flex: 1 }} />
-            <BrutalButton label="New photo" icon="image" variant="outline" onPress={uploadPhoto} style={{ flex: 1 }} />
-          </View>
+          <>
+            {/* WHY it failed, in the view tree — never only a toast or a Modal. */}
+            <View style={[{ marginTop: SP.l, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+              <Text style={[T.bodyB, { color: C.ink }]}>Couldn't generate the look</Text>
+              <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>
+                {failReason ?? 'Something went wrong. Tap Try again.'}
+              </Text>
+              {errorMsg ? (
+                <Pressable onPress={() => setErrorMsg(errorMsg)} hitSlop={8} style={{ marginTop: 8 }}>
+                  <Text style={[T.micro, { color: C.ink, textDecorationLine: 'underline' }]}>See details</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s }}>
+              <BrutalButton label="Try again" icon="zap" onPress={() => { if (selectedGarment) runTryOn(uploadedPhoto, selectedGarment); }} disabled={!selectedGarment} style={{ flex: 1 }} />
+              <BrutalButton label="New photo" icon="image" variant="outline" onPress={uploadPhoto} style={{ flex: 1 }} />
+            </View>
+          </>
         ) : !generating ? (
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l }}>
             <BrutalButton label="Choose photo" icon="image" onPress={uploadPhoto} style={{ flex: 1 }} />
@@ -1618,6 +1700,19 @@ export function TryOnScreen() {
       </ScrollView>
 
       {/* ═══ ERROR INSPECTOR — copyable modal with full trace ═══ */}
+      {viewerOpen && generatedPhoto ? (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', zIndex: 999 }]}>
+          <CachedImage source={{ uri: generatedPhoto }} style={StyleSheet.absoluteFillObject as any} resizeMode="contain" />
+          <Pressable
+            onPress={() => setViewerOpen(false)}
+            hitSlop={12}
+            style={[{ position: 'absolute', top: 54, right: 16, width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }, BORDER(1)]}
+          >
+            <Feather name="x" size={18} color={C.ink} />
+          </Pressable>
+        </View>
+      ) : null}
+
       <Modal visible={!!errorMsg} transparent animationType="fade" onRequestClose={() => setErrorMsg(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: SP.l }}>
           <View style={[{ backgroundColor: C.white, padding: SP.l, maxHeight: '85%' }, BORDER(1)]}>

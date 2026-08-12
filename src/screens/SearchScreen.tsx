@@ -72,12 +72,33 @@ export default function SearchScreen() {
     inputRef.current?.focus();
     p.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) });
   }, []);
+  /**
+   * Pop exactly once, whatever happens to the animation — see the same guard in
+   * CategoryZoomScreen and ProductDetailScreen.
+   *
+   * Search is a `transparentModal`. Popping only from `withTiming`'s completion
+   * callback meant an INTERRUPTED close (`fin === false`) never popped at all,
+   * leaving an invisible full-screen sheet mounted over the app that swallowed
+   * every touch — the "everything is frozen after coming back" bug. Dismissing
+   * the keyboard mid-close is exactly the kind of thing that interrupts it.
+   */
+  const popped = useRef(false);
+  const popFailsafe = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const popNow = () => {
+    if (popped.current) return;
+    popped.current = true;
+    if (popFailsafe.current) { clearTimeout(popFailsafe.current); popFailsafe.current = null; }
+    nav.goBack();
+  };
+  useEffect(() => () => { if (popFailsafe.current) clearTimeout(popFailsafe.current); }, []);
+
   const goClose = () => {
     if (closing.current) return;
     closing.current = true;
     Keyboard.dismiss();
+    popFailsafe.current = setTimeout(popNow, CLOSE_MS + 160);
     p.value = withTiming(0, { duration: CLOSE_MS, easing: Easing.in(Easing.cubic) }, (fin) => {
-      if (fin) runOnJS(nav.goBack)();
+      if (fin) runOnJS(popNow)();
     });
   };
 

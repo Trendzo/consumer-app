@@ -79,6 +79,31 @@ export default function CategoryZoomScreen() {
   // so a pathological device can't leave the screen frozen pre-flight.
   useEffect(() => { const t = setTimeout(startFlight, 400); return () => clearTimeout(t); }, []);
 
+  /**
+   * Pop EXACTLY once, whatever happens to the animation.
+   *
+   * This screen is a `transparentModal`, so if it never pops it stays mounted
+   * invisibly OVER the whole app and its full-screen views swallow every touch —
+   * which reads to the shopper as "Home is frozen after coming back".
+   *
+   * The close used to pop only from `withTiming`'s completion callback, gated on
+   * `if (fin)`. An INTERRUPTED animation reports `fin === false` (another
+   * animation targets the same shared value, the screen loses focus, the app is
+   * backgrounded mid-close), so the pop simply never ran — and because
+   * `closing.current` was already true, tapping back again did nothing at all.
+   * Same pattern, same failsafe as ProductDetailScreen.
+   */
+  const popped = useRef(false);
+  const popFailsafe = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const popNow = () => {
+    if (popped.current) return;
+    popped.current = true;
+    if (popFailsafe.current) { clearTimeout(popFailsafe.current); popFailsafe.current = null; }
+    nav.goBack();
+  };
+  // Never leave a timer behind if the screen goes away by some other route.
+  useEffect(() => () => { if (popFailsafe.current) clearTimeout(popFailsafe.current); }, []);
+
   const goBack = () => {
     if (closing.current) return;
     closing.current = true;
@@ -94,8 +119,11 @@ export default function CategoryZoomScreen() {
     // NOTE: the grid stays MOUNTED during the reverse flight — unmounting it
     // here caused a JS hitch that delayed the animation (dome parked at full
     // size, then snapped). It simply fades out with the same progress value.
+    // Pops no matter what, a beat after the flight should have landed. If the
+    // animation completed, popNow already ran and this is a no-op.
+    popFailsafe.current = setTimeout(popNow, CLOSE_MS + 160);
     p.value = withTiming(0, { duration: CLOSE_MS, easing: CLOSE_EASE }, (fin) => {
-      if (fin) runOnJS(nav.goBack)();
+      if (fin) runOnJS(popNow)();
     });
   };
 
