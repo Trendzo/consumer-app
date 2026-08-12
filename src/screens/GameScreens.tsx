@@ -1159,7 +1159,7 @@ export function TryOnScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const incomingProduct = route.params?.product;
-  const { showToast, requireAuth } = useApp();
+  const { showToast, requireAuth, getToken } = useApp();
 
   /**
    * Try-on always runs against the product the shopper arrived with.
@@ -1350,6 +1350,17 @@ export function TryOnScreen() {
        * lands back on the try-on they asked for instead of having to start over.
        */
       if (e instanceof TryOnAuthRequiredError) {
+        // requireAuth() returns TRUE — and shows NO sheet — when AppState already
+        // holds a token. But generateTryOn checks a different store
+        // (getAuthToken() in services/api). When those two disagree the shopper
+        // is never asked to sign in and the retry fails identically, forever.
+        // Say so rather than looping in silence.
+        const appThinksSignedIn = !!getToken();
+        if (appThinksSignedIn) {
+          setFailReason('Your session expired. Log out from Profile, sign in again, then retry.');
+          openErrorInspector('Auth desync: app holds a session but the API layer has no token. Sign out and back in.');
+          return;
+        }
         // This was the ONLY failure path that left `failReason` unset, so the
         // screen fell back to "Something went wrong" — the least useful thing it
         // could say, for the one cause the shopper can actually fix. Worse, the
@@ -1385,8 +1396,12 @@ export function TryOnScreen() {
       }
       // Unknown failure: show it inline AND keep the copyable inspector for the
       // full log. Inline is what the shopper reads; the inspector is for us.
-      setFailReason(e?.message || String(e));
-      openErrorInspector(e?.message || String(e));
+      // Name the CODE as well as the message. "Something went wrong" told us
+      // nothing across three rebuilds; a code points straight at the cause.
+      const code = e?.code ? ` [${e.code}]` : '';
+      const status = e?.status ? ` (HTTP ${e.status})` : '';
+      setFailReason(`${e?.message || String(e)}${code}${status}`);
+      openErrorInspector(`${e?.message || String(e)}${code}${status}\n\n${getTryOnLog().join('\n')}`);
     } finally {
       setGenerating(false);
     }
@@ -1721,8 +1736,15 @@ export function TryOnScreen() {
         </View>
       ) : null}
 
-      <Modal visible={!!errorMsg} transparent animationType="fade" onRequestClose={() => setErrorMsg(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: SP.l }}>
+      {/* IN-TREE overlay, not a <Modal>.
+          This screen is a `transparentModal`, and an RN Modal opened from inside
+          one is a separate presented controller that can OUTLIVE the screen: pop
+          try-on while it is up and an invisible layer stays over the app,
+          swallowing every touch — which reads as "Home froze after going back".
+          Same bug, same fix as the delivery-terms sheet and the result viewer.
+          An absolutely-positioned View belongs to this screen and dies with it. */}
+      {errorMsg ? (
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: SP.l, zIndex: 1000 }]}>
           <View style={[{ backgroundColor: C.white, padding: SP.l, maxHeight: '85%' }, BORDER(1)]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={[T.h3]}>Try-on failed</Text>
@@ -1754,7 +1776,7 @@ export function TryOnScreen() {
             </View>
           </View>
         </View>
-      </Modal>
+      ) : null}
     </View>
   );
 }
