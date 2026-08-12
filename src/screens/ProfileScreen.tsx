@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, SP, BORDER, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { getLoyalty } from '../services/loyalty';
-import { deleteAccount, DeletionUnsupportedError, ACCOUNT_DELETION_URL } from '../services/account';
+import { deleteAccount, DeletionUnsupportedError, deletionMailto, ACCOUNT_DELETION_EMAIL } from '../services/account';
 
 const APP_VERSION = '1.0.0';
 const BAND = '#F4F4F4';       // light grey separator band
@@ -193,13 +193,20 @@ export default function ProfileScreen() {
                     // for a deletion that did not happen — hand the shopper the
                     // hosted flow instead.
                     if (e instanceof DeletionUnsupportedError) {
+                      // Email, NOT the hosted page: that page has no form and
+                      // simply tells the reader to use this screen, so linking
+                      // to it from here would be a loop that deletes nothing.
                       showConfirm({
-                        title: 'Finish on the web',
-                        msg: 'Account deletion opens in your browser. You stay signed in here until it completes.',
-                        confirmLabel: 'Continue',
+                        title: 'Request deletion by email',
+                        msg: `We'll open a prefilled email to ${ACCOUNT_DELETION_EMAIL}. Send it and your account will be deleted. You stay signed in until it is actioned.`,
+                        confirmLabel: 'Open email',
                         cancelLabel: 'Cancel',
-                        icon: 'external-link',
-                        onConfirm: () => { void Linking.openURL(ACCOUNT_DELETION_URL); },
+                        icon: 'mail',
+                        onConfirm: () => {
+                          Linking.openURL(deletionMailto(user?.phone)).catch(() =>
+                            showToast('No mail app', `Email ${ACCOUNT_DELETION_EMAIL} to delete your account`, 'mail'),
+                          );
+                        },
                       });
                       return;
                     }

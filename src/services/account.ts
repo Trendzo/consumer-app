@@ -17,8 +17,31 @@
 // Once the backend ships the route, the fallback simply stops being reached.
 import { request, ApiError } from './api';
 
-/** The hosted deletion page — the fallback while the API route does not exist. */
+/** The hosted deletion page. Informational only — see the note below. */
 export const ACCOUNT_DELETION_URL = 'https://backend-qpmx.onrender.com/account-deletion';
+
+/**
+ * Support address, and the ONLY working fallback today.
+ *
+ * Do not fall back to ACCOUNT_DELETION_URL: that page carries no form and no
+ * endpoint. It instructs the reader to "Sign in, open Profile, tap Delete
+ * account" — this screen — so sending them there from here is a loop that
+ * deletes nothing. The page's own escape hatch is this email address.
+ */
+export const ACCOUNT_DELETION_EMAIL = 'trendzodevelopment@gmail.com';
+
+/** A prefilled deletion request, so the shopper does not have to compose one. */
+export function deletionMailto(phone?: string): string {
+  const subject = 'Delete my Trendzo account';
+  const body = [
+    'I would like my Trendzo account permanently deleted.',
+    '',
+    `Registered mobile: ${phone || '(please fill in)'}`,
+    '',
+    'I understand this removes my account, saved addresses, bag and order history.',
+  ].join('\n');
+  return `mailto:${ACCOUNT_DELETION_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
 /** Thrown when the backend has no deletion route, so the UI can offer the web flow. */
 export class DeletionUnsupportedError extends Error {
