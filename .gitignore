@@ -57,3 +57,4 @@ fastlane/Preview.html
 fastlane/screenshots
 *.p8
 fastlane/screenshots/
+build/
