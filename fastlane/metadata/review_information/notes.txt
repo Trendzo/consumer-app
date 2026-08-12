@@ -1,0 +1,19 @@
+Trendzo is a fashion marketplace for India.
+
+SIGNING IN
+Sign-in is a phone number plus a 4-digit OTP. Please use the demo credentials provided: enter the
+phone number, then the code 1234. This bypasses the SMS, which cannot be delivered outside India.
+
+WHAT TO TRY
+- Home: browse edits, categories and Steals.
+- Tap any product to open it, choose a size and add to bag.
+- Bag > Checkout: address, delivery method, then Review Order.
+- Payments run through Razorpay. No real charge is made with the demo account.
+
+PERMISSIONS
+- Location is requested only when adding a delivery address, to pin it for delivery routing.
+- Camera and photo library are requested only for virtual try-on, when you choose a photo.
+
+NOTES
+Express delivery, store pickup and Try and Buy are available where partner stores operate
+(currently Mumbai). Outside those areas standard delivery is offered.

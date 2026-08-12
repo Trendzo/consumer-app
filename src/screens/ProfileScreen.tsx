@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, Pressable, StatusBar } from 'react-native';
+import { View, Text, ScrollView, Pressable, StatusBar, Linking } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, SP, BORDER, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { getLoyalty } from '../services/loyalty';
+import { deleteAccount, DeletionUnsupportedError, ACCOUNT_DELETION_URL } from '../services/account';
 
 const APP_VERSION = '1.0.0';
 const BAND = '#F4F4F4';       // light grey separator band
@@ -169,7 +170,49 @@ export default function ProfileScreen() {
             >
               <Text style={H(15, '800', NEW, { letterSpacing: 0.5 })}>LOG OUT</Text>
             </Pressable>
-            <Text style={H(12, '400', C.dim, { letterSpacing: 0.5, textAlign: 'center', marginTop: SP.xl })}>APP VERSION {APP_VERSION}</Text>
+            {/* ─── Delete account ───────────────────────────────────────────
+                REQUIRED by App Store Review Guideline 5.1.1(v): an app that
+                creates accounts must let you delete one from inside the app.
+                Deliberately two-step and plain about what is lost — this is
+                irreversible and must never be a single stray tap. */}
+            <Pressable
+              onPress={() => showConfirm({
+                title: 'Delete your account?',
+                msg: 'This permanently deletes your account, saved addresses, bag and order history. It cannot be undone.',
+                confirmLabel: 'Delete account',
+                cancelLabel: 'Keep my account',
+                danger: true,
+                icon: 'trash-2',
+                onConfirm: async () => {
+                  try {
+                    await deleteAccount();
+                    showToast('Account deleted', 'Your account has been permanently removed', 'check');
+                    signOut();
+                  } catch (e: any) {
+                    // The backend has no deletion route yet. Never claim success
+                    // for a deletion that did not happen — hand the shopper the
+                    // hosted flow instead.
+                    if (e instanceof DeletionUnsupportedError) {
+                      showConfirm({
+                        title: 'Finish on the web',
+                        msg: 'Account deletion opens in your browser. You stay signed in here until it completes.',
+                        confirmLabel: 'Continue',
+                        cancelLabel: 'Cancel',
+                        icon: 'external-link',
+                        onConfirm: () => { void Linking.openURL(ACCOUNT_DELETION_URL); },
+                      });
+                      return;
+                    }
+                    showToast("Couldn't delete account", e?.message || 'Please try again', 'x');
+                  }
+                },
+              })}
+              style={{ height: 52, alignItems: 'center', justifyContent: 'center', marginTop: SP.s }}
+            >
+              <Text style={H(13, '700', C.dim, { letterSpacing: 0.5, textDecorationLine: 'underline' })}>DELETE ACCOUNT</Text>
+            </Pressable>
+
+            <Text style={H(12, '400', C.dim, { letterSpacing: 0.5, textAlign: 'center', marginTop: SP.l })}>APP VERSION {APP_VERSION}</Text>
           </View>
         )}
 

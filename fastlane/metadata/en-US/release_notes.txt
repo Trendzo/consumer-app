@@ -1,0 +1,6 @@
+Faster, steadier and a lot less fiddly.
+
+- Category and try-on filters now actually filter. Picking Jackets inside Outerwear narrows the whole category, not just what is on screen.
+- Fixed a freeze that could leave the app stuck after launch or after coming back from search and category pages.
+- Virtual try-on now tells you what went wrong instead of failing silently, and you can open the result full screen.
+- Store pickup shows real stores near you with real distances and opening hours.
