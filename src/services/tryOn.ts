@@ -20,6 +20,7 @@
 
 import { Image } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { API_BASE } from '../config/env';
 import { getAuthToken, request, ApiError } from './api';
 
@@ -133,13 +134,46 @@ function guessMime(uri: string, fallbackName: string): string {
 
 // Upload the person photo to the backend and return its public URL. Multipart
 // needs raw fetch (not the JSON request() helper), same pattern as reels upload.
+/**
+ * Shrink the selfie before it goes over the wire.
+ *
+ * A photo straight out of the iPhone gallery is ~12 MP and 3-5 MB (HEIC or
+ * PNG). Pushing that to a cold free-tier backend over a mobile uplink took
+ * ~192 SECONDS on device — long enough that iOS killed the connection itself
+ * ("Operation timed out" on the flow). Downscaling to 1280px of JPEG typically
+ * turns 4 MB into ~200 KB, which is the difference between a try-on that works
+ * and one that appears to do nothing.
+ *
+ * Also normalises HEIC to JPEG. `guessMime` always claimed image/jpeg because
+ * the filename it was handed ended in .jpg, so a HEIC was being uploaded under
+ * the wrong content type.
+ *
+ * Best-effort: if manipulation fails we upload the original rather than losing
+ * the attempt entirely.
+ */
+async function shrinkForUpload(localUri: string): Promise<string> {
+  try {
+    const out = await ImageManipulator.manipulateAsync(
+      localUri,
+      [{ resize: { width: 1280 } }],
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    log(`compressed person photo → ${out.uri.slice(-40)}`);
+    return out.uri;
+  } catch (e: any) {
+    log(`compress failed (${e?.message || e}) — uploading original`);
+    return localUri;
+  }
+}
+
 async function uploadPerson(rawUri: unknown): Promise<string> {
-  const localUri = await toLocalFile(rawUri, 'person.jpg');
+  const original = await toLocalFile(rawUri, 'person.jpg');
+  const localUri = await shrinkForUpload(original);
   const form = new FormData();
   form.append('file', {
     uri: localUri,
     name: 'person.jpg',
-    type: guessMime(localUri, 'person.jpg'),
+    type: 'image/jpeg',
   } as unknown as Blob);
 
   const headers: Record<string, string> = {};
@@ -147,11 +181,22 @@ async function uploadPerson(rawUri: unknown): Promise<string> {
   if (token) headers.Authorization = `Bearer ${token}`;
   // Do NOT set Content-Type — fetch adds the multipart boundary itself.
   log('uploading person photo → POST /uploads');
+  // TIMEOUT. This was a bare fetch with no abort, so a stalled upload hung
+  // forever — the request never failed, it just never finished, and the screen
+  // sat on "Generating…" until the OS gave up ~3 minutes later. 60s is generous
+  // for a ~200KB body even on a cold backend.
   let res: Response;
+  const ctrl = new AbortController();
+  const killer = setTimeout(() => ctrl.abort(), 60_000);
   try {
-    res = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers, body: form as any });
-  } catch {
+    res = await fetch(`${API_BASE}/uploads`, { method: 'POST', headers, body: form as any, signal: ctrl.signal });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw new Error('Uploading your photo timed out. Check your connection and try again.');
+    }
     throw new Error("Can't reach the server. Check your connection.");
+  } finally {
+    clearTimeout(killer);
   }
   const payload: any = await res.json().catch(() => null);
   const url = payload?.data?.url;
