@@ -1350,6 +1350,14 @@ export function TryOnScreen() {
        * lands back on the try-on they asked for instead of having to start over.
        */
       if (e instanceof TryOnAuthRequiredError) {
+        // This was the ONLY failure path that left `failReason` unset, so the
+        // screen fell back to "Something went wrong" — the least useful thing it
+        // could say, for the one cause the shopper can actually fix. Worse, the
+        // sign-in sheet is a <Modal> and this screen is a `transparentModal`, so
+        // iOS is asked to present a modal from a controller that is already
+        // presenting one and it may never appear. State it in the panel too, so
+        // the instruction survives even when the sheet does not.
+        setFailReason('Sign in to try this on. Open Profile and sign in, then come back.');
         showToast('Sign in required', 'Sign in to try this on', 'lock');
         requireAuth(() => { void runTryOn(personUri, garment); });
         return;
