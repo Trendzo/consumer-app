@@ -261,7 +261,19 @@ function MainTabs() {
       // Home's auto-rotating banners and looping video otherwise keep
       // rendering (and dropping frames) behind whichever tab is open. Each
       // tab thaws with full state the moment it regains focus.
-      screenOptions={{ headerShown: false, freezeOnBlur: true }}
+      // freezeOnBlur DISABLED — it was the root cause of the frozen Home.
+      // react-freeze suspends a blurred screen's React tree. Five screens in
+      // this app are `transparentModal` (ProductDetail, CategoryZoom, Search,
+      // TryOn, TryOnPicker), so opening ANY of them blurs and freezes the tab
+      // underneath. On return the tree unfreezes and Reanimated re-binds — and
+      // Home's scroll is a useAnimatedScrollHandler on an animated ScrollView,
+      // which re-binds to STALE native views and silently stops responding.
+      // That is "Home is stuck after going back from any page".
+      // ProductDetailScreen already carries a hand-rolled workaround for the
+      // same effect ("animations run without drawing"); rather than repeat that
+      // patch on every screen, drop the optimisation that causes it. The cost is
+      // that parked screens keep rendering; the benefit is an app that responds.
+      screenOptions={{ headerShown: false, freezeOnBlur: false }}
     >
       <Tab.Screen name="HomeTab" component={HomeScreen} />
       <Tab.Screen name="ReelsTab" component={ReelsScreen} />
@@ -476,7 +488,7 @@ function MainApp({ gateReady = true }: { gateReady?: boolean }) {
           the same treatment the tab navigator already had. Push/pop animations
           are native-driven; what made them choppy was blurred screens (Home
           especially) continuing to render underneath the transition. */}
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right', freezeOnBlur: true }}>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right', freezeOnBlur: false }}>
         <Stack.Screen name="Tabs" component={MainTabs} />
         {/* Profile moved out of the bottom tabs — still reachable as a pushed
             screen (opened from the Home header). */}

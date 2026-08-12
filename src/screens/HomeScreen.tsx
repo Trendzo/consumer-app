@@ -172,7 +172,7 @@ export default function HomeScreen() {
   const floatSearchRef = useRef<any>(null);
   const openSearch = (_r?: React.RefObject<any>) => nav.navigate('Search');
   const insets = useSafeAreaInsets();
-  const { gender, curveProgress, showConfirm, tabBarOffset } = useApp();
+  const { gender, curveProgress, showConfirm, tabBarOffset, requireAuth } = useApp();
   // Where the shopper is. Drives the header line and the CMS city filter — city-targeted rails
   // were shipped with the payload but nothing ever told the server which city to filter for.
   const place = usePlace();
@@ -1143,7 +1143,7 @@ export default function HomeScreen() {
             })()}
             {/* plain "Explore" text link, pinned to the bottom (no box/bg) */}
             <Pressable
-              onPress={() => { if (!openLink(nav, tryOnSection.items[0]?.link)) nav.navigate('TryOnPicker'); }}
+              onPress={() => requireAuth(() => { if (!openLink(nav, tryOnSection.items[0]?.link)) nav.navigate('TryOnPicker'); })}
               style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}
             >
               <Text style={[T.button, { color: C.ink }]}>{tryOnSection.ctaLabel ?? 'View'}</Text>

@@ -854,7 +854,12 @@ export default function ProductDetailScreen() {
       <Animated.View
         style={[{ position: 'absolute', right: SP.l, bottom: 104, zIndex: 50 }, contentStyle]}
       >
-        <Pressable onPress={() => nav.navigate('TryOn', { product })}>
+        {/* Sign in FIRST. Try-on is auth-gated server-side, and asking from
+            inside the try-on screen never worked: requireAuth returns true
+            without showing a sheet when AppState holds a token, and a <Modal>
+            opened from a transparentModal may not present at all. Gating here
+            means the sheet opens from a screen that can actually show it. */}
+        <Pressable onPress={() => requireAuth(() => nav.navigate('TryOn', { product }))}>
           <MV
             from={{ scale: 1 }}
             animate={{ scale: 1.06 }}

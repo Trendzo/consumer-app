@@ -29,7 +29,7 @@ const ALL = 'All';
 export default function TryOnPickerScreen() {
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const { gender } = useApp();
+  const { gender, requireAuth } = useApp();
   const mode: 'ar' | 'photo' = route.params?.mode || 'ar';
   const [q, setQ] = useState('');
   const [cat, setCat] = useState(ALL);
@@ -122,7 +122,7 @@ export default function TryOnPickerScreen() {
         >
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             {results.map((p) => (
-              <Pressable key={p.id} onPress={() => nav.navigate('TryOn', { mode, product: p })} style={{ width: CARD.w, marginBottom: SP.m }}>
+              <Pressable key={p.id} onPress={() => requireAuth(() => nav.navigate('TryOn', { mode, product: p }))} style={{ width: CARD.w, marginBottom: SP.m }}>
                 <View style={[{ height: CARD.imgH, overflow: 'hidden', backgroundColor: C.hairline }, BORDER(1)]}>
                   <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   {/* CTA overlay — black is allowed for call-to-action */}
