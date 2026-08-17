@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, ActivityIndicator, RefreshControl, Linking, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -12,6 +12,7 @@ import {
 } from '../services/orders';
 import { openRazorpayCheckout } from '../services/razorpay-checkout';
 import { listReturns, type ReturnRow } from '../services/returns';
+import { keepItem, returnItem } from '../services/door';
 import {
   activeStep, bucketOf, canCancel, canOpenReturn, canRetryPayment, exceptionFor,
   handoverProof, isLive, METHOD_LABEL, returnDaysLeftFor, statusLabel, stepsFor, toApiMethod,
@@ -108,18 +109,47 @@ export function OrderTrackingScreen() {
   }, [orderId]);
 
   // Fetch on focus, then poll only while the order is still moving. A delivered or
-  // cancelled order never changes again, so polling it is pure battery burn.
+  // cancelled order never changes again, so polling it is pure battery burn. During the
+  // live try-on window (at_door) poll faster so the driver's accept/reject shows quickly.
   useFocusEffect(useCallback(() => {
     mounted.current = true;
     load();
-    const t = setInterval(() => {
-      setOrder((cur) => { if (!cur || isLive(cur.status)) load(); return cur; });
+    const slow = setInterval(() => {
+      setOrder((cur) => { if (!cur || (isLive(cur.status) && cur.status !== 'at_door')) load(); return cur; });
     }, POLL_MS);
-    return () => { mounted.current = false; clearInterval(t); };
+    const fast = setInterval(() => {
+      setOrder((cur) => { if (cur?.status === 'at_door') load(); return cur; });
+    }, 6000);
+    return () => { mounted.current = false; clearInterval(slow); clearInterval(fast); };
   }, [load]));
+
+  // Customer-driven door decisions.
+  const decideDoor = useCallback(async (itemId: string, choice: 'keep' | 'return') => {
+    if (!orderId || busy) return;
+    setBusy(true);
+    try {
+      if (choice === 'keep') await keepItem(orderId, itemId);
+      else await returnItem(orderId, itemId);
+      await load();
+      showToast(choice === 'keep' ? 'Kept' : 'Return requested', choice === 'keep' ? 'Enjoy your item!' : 'The rider will collect it', choice === 'keep' ? 'check' : 'corner-up-left');
+    } catch (e: any) {
+      showToast('Could not update', e?.message || 'Please try again', 'alert-circle');
+    } finally {
+      setBusy(false);
+    }
+  }, [orderId, busy, load, showToast]);
 
   const method: Method = toApiMethod(order?.deliveryMethod ?? lastOrder?.method);
   const status = order?.status ?? '';
+  // Tick once a second while the try-on window is live so the Keep/Return controls disable
+  // exactly at expiry (the backend rejects late choices; this avoids a confusing error).
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    if (status !== 'at_door') return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [status]);
+  const doorWindowClosed = !!order?.doorWindowExpiresAt && Date.parse(order.doorWindowExpiresAt) <= nowTs;
   const steps = useMemo(() => stepsFor(method), [method]);
   const active = activeStep(steps, status);
   // Refund copy is gated on the server's authoritative "was the shopper charged"
@@ -286,10 +316,13 @@ export function OrderTrackingScreen() {
             </View>
           )}
           {method === 'try_and_buy' && !!order.doorWindowExpiresAt && status === 'at_door' && (
-            <View style={[{ marginTop: 12, padding: SP.s, backgroundColor: '#FFF8E1' }, BORDER(1)]}>
-              <Text style={[T.caption, { color: C.ink }]}>
-                {`Trial window closes at ${fmtTime(order.doorWindowExpiresAt)}`}
-              </Text>
+            <View style={[{ marginTop: 12, padding: SP.m, backgroundColor: '#FFF8E1' }, BORDER(1)]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Feather name="clock" size={15} color={C.ink} />
+                <Text style={[T.body, { color: C.ink, flex: 1 }]}>Try-on in progress</Text>
+                <TrialCountdown expiresAt={order.doorWindowExpiresAt} />
+              </View>
+              <Text style={[T.caption, { color: C.dim, marginTop: 4 }]}>Choose Keep or Return for each item below before the timer ends.</Text>
             </View>
           )}
         </View>
@@ -369,7 +402,9 @@ export function OrderTrackingScreen() {
                     <Text style={[T.caption, { color: C.dim }]} numberOfLines={1}>{it.brandSnap}</Text>
                     <Text style={[T.productName, { marginTop: 1 }]} numberOfLines={2}>{it.listingNameSnap}</Text>
                     <Text style={[T.micro, { color: C.dim, marginTop: 3 }]}>{`${it.attributesLabelSnap} · Qty ${it.qty}`}</Text>
-                    <OutcomeChip outcome={it.outcome} />
+                    {status === 'at_door'
+                      ? <DoorItemControl item={it} busy={busy} windowExpired={doorWindowClosed} onKeep={() => decideDoor(it.id, 'keep')} onReturn={() => decideDoor(it.id, 'return')} />
+                      : <OutcomeChip outcome={it.outcome} />}
                   </View>
                   <Text style={[T.price]}>{`₹${rupees(it.netLinePaise).toLocaleString()}`}</Text>
                 </View>
@@ -597,6 +632,74 @@ function OutcomeChip({ outcome }: { outcome: string }) {
       <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(10), letterSpacing: 0.3, color: meta.color }}>
         {meta.label.toUpperCase()}
       </Text>
+    </View>
+  );
+}
+
+// Live try-on countdown (ticks every second off the server deadline).
+function TrialCountdown({ expiresAt }: { expiresAt: string }) {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const remain = Math.max(0, Date.parse(expiresAt) - now);
+  const m = Math.floor(remain / 60000);
+  const s = Math.floor((remain % 60000) / 1000);
+  const over = remain <= 0;
+  return (
+    <View style={[{ paddingHorizontal: 8, paddingVertical: 3, backgroundColor: over ? '#C1121F' : C.ink }, BORDER(1)]}>
+      <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(12), color: C.white }}>
+        {over ? 'Time up' : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`}
+      </Text>
+    </View>
+  );
+}
+
+// Per-item Keep/Return during the door window, or the resolved status once decided.
+function DoorItemControl({
+  item, busy, windowExpired, onKeep, onReturn,
+}: {
+  item: { doorState?: string; agentReturnReason?: string | null };
+  busy: boolean;
+  windowExpired: boolean;
+  onKeep: () => void;
+  onReturn: () => void;
+}) {
+  const st = item.doorState ?? 'undecided';
+  if (st === 'undecided') {
+    // Once the window closes the customer can no longer choose — the rider wraps up and
+    // undecided items are kept. Show that instead of buttons that would be rejected.
+    if (windowExpired) {
+      return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: C.dim }} />
+          <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(11), color: C.dim }}>Window closed · keeping this item</Text>
+        </View>
+      );
+    }
+    return (
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+        <Pressable disabled={busy} onPress={onKeep} style={[{ flex: 1, alignItems: 'center', paddingVertical: 9, backgroundColor: C.ink }, BORDER(1)]}>
+          <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(12), color: C.white }}>Keep</Text>
+        </Pressable>
+        <Pressable disabled={busy} onPress={onReturn} style={[{ flex: 1, alignItems: 'center', paddingVertical: 9, backgroundColor: C.white }, BORDER(1)]}>
+          <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(12), color: C.ink }}>Return</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  const copy: Record<string, { label: string; color: string }> = {
+    kept: { label: 'Kept', color: '#1B8A5A' },
+    return_requested: { label: 'Return requested · waiting for the rider', color: '#B0740A' },
+    return_accepted: { label: 'Return accepted', color: '#1B8A5A' },
+    return_rejected: { label: `Return not accepted${item.agentReturnReason ? ' · ' + item.agentReturnReason : ''}`, color: '#C1121F' },
+  };
+  const m = copy[st] ?? { label: st, color: C.dim };
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: m.color }} />
+      <Text numberOfLines={2} style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(11), letterSpacing: 0.2, color: m.color, flex: 1 }}>{m.label}</Text>
     </View>
   );
 }

@@ -115,6 +115,11 @@ export type OrderDetailItem = {
   lineSubtotalPaise: number;
   netLinePaise: number;
   outcome: string;
+  // Live customer-driven try-on staging (meaningful only while status === 'at_door').
+  customerDoorChoice?: 'keep' | 'return' | null;
+  agentDoorDecision?: 'accept_return' | 'reject_return' | null;
+  agentReturnReason?: string | null;
+  doorState?: 'undecided' | 'kept' | 'return_requested' | 'return_accepted' | 'return_rejected';
 };
 
 /** Consumer-facing fields of the order-detail row (whitelisted by the backend shaper).
@@ -160,6 +165,7 @@ export type OrderDetail = {
   pickupSlotStart?: string | null;
   pickupSlotEnd?: string | null;
   doorWindowExpiresAt?: string | null;
+  doorWindowExtendedAt?: string | null;
   /** Server-computed return eligibility — deadline, reason, and per-item verdicts.
    *  The app used to run its own 7-day counter, a second copy of a rule that
    *  lives in open-return.ts and also depends on item outcome + final_sale. */
