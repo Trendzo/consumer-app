@@ -507,30 +507,37 @@ export function ShopByOccasionScreen() {
   const [active, setActive] = useState(found === -1 ? 0 : found);
   const occ = occasions[Math.min(active, Math.max(0, occasions.length - 1))];
   /**
-   * The grid is the occasion's real collection when the backend has one.
+   * The grid is the occasion's collection. Nothing else.
    *
-   * `GET /catalog/collections/:slug` resolves an occasion collection straight
-   * from the live catalog (listings tagged with that occasion), so "Wear it to
-   * Brunch" means it. When no such collection exists the page falls back to a
-   * plain browse and RENAMES the heading, because calling a general browse
-   * "Wear it to Brunch" would be the same lie in a different place.
+   * `GET /catalog/collections/:slug?gender=` resolves an occasion straight from the live
+   * catalog — the slug is the occasion tag itself, and gender narrows to that rail plus
+   * unisex. There is deliberately NO fallback to a generic browse: this page previously
+   * rendered one whenever the lookup came back empty, which meant every occasion showed
+   * an identical grid under a heading promising Brunch or Gym. An empty occasion now
+   * says it is empty, and a failed request says it failed.
    */
   const occId = occ?.id ?? '';
-  const [occProducts, setOccProducts] = useState<Product[] | null>(null);
+  const [occState, setOccState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const [occProducts, setOccProducts] = useState<Product[]>([]);
+  // Bumped by Retry; in the effect's deps so pressing it actually refetches.
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    setOccProducts(null);
+    setOccState('loading');
+    setOccProducts([]);
     // No occasions at all (section disabled, or every one out of window) — nothing to resolve.
-    if (!occId) { setOccProducts([]); return; }
-    listCollectionProducts(occId)
-      .then((rows) => { if (!cancelled) setOccProducts(rows); })
-      .catch(() => { if (!cancelled) setOccProducts([]); });
+    if (!occId) { setOccState('missing'); return; }
+    listCollectionProducts(occId, { gender, limit: SECTION_PAGE_SIZE })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.status === 'ok') { setOccProducts(res.products); setOccState('ready'); }
+        else setOccState(res.status);
+      })
+      .catch(() => { if (!cancelled) setOccState('error'); });
     return () => { cancelled = true; };
-  }, [occId]);
-  const hasOccCollection = !!occProducts && occProducts.length > 0;
-  const browse = useCatalogProducts({ gender, limit: SECTION_PAGE_SIZE, enabled: occProducts !== null && !hasOccCollection });
-  const grid = hasOccCollection ? occProducts.slice(0, 8) : browse.products.slice(0, 8);
-  const gridStatus = occProducts === null ? 'loading' : hasOccCollection ? 'ready' : browse.status;
+  }, [occId, gender, reloadKey]);
+  const grid = occProducts.slice(0, 8);
+  const gridStatus = occState === 'loading' ? 'loading' : occState === 'ready' ? 'ready' : 'error';
 
   // Every hook above runs unconditionally; only the render short-circuits.
   //
@@ -610,16 +617,25 @@ export function ShopByOccasionScreen() {
 
         {/* ── CURATED GRID ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <Text style={[T.h2, { textTransform: 'uppercase' }]}>
-            {hasOccCollection ? `Wear it to ${occ.label}` : 'Fresh in store'}
-          </Text>
+          {/* The heading always names the occasion, because the grid always IS the
+              occasion — there is no longer a generic-browse case to rename around. */}
+          <Text style={[T.h2, { textTransform: 'uppercase' }]}>{`Wear it to ${occ.label}`}</Text>
         </View>
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
           <CatalogSection
             status={gridStatus}
             count={grid.length}
-            onRetry={browse.reload}
-            empty={<CatalogEmpty title="Nothing here yet" sub="No live listings for this moment right now." />}
+            onRetry={() => setReloadKey((n) => n + 1)}
+            empty={
+              <CatalogEmpty
+                title={occState === 'missing' ? 'Not stocked yet' : 'Nothing here yet'}
+                sub={
+                  occState === 'missing'
+                    ? `No products are tagged for ${occ.label} right now.`
+                    : 'No live listings for this moment right now.'
+                }
+              />
+            }
           >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
               {grid.map((p, i) => (

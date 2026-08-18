@@ -48,11 +48,15 @@ function useCollectionProducts(def: CollectionDef | null, appGender: 'her' | 'hi
 
     (async () => {
       try {
-        // 1 — real curated collection
+        // 1 — real curated collection. When the collection EXISTS its answer is final,
+        // empty included: falling through to a category browse because a real
+        // collection happens to be empty would render unrelated products under its
+        // name. Only a genuinely missing collection (404) drops to the mapping below.
         if (q.collection) {
-          const rows = await listCollectionProducts(q.collection);
+          const res = await listCollectionProducts(q.collection, { gender });
           if (id !== runId.current) return;
-          if (rows.length) { setProducts(rows); setStatus('ready'); return; }
+          if (res.status === 'ok') { setProducts(res.products); setStatus('ready'); return; }
+          if (res.status === 'error') { setStatus('error'); return; }
         }
 
         // 2 — mapped category slugs, merged in order and de-duplicated. Fetched
