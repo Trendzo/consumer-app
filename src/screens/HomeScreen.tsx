@@ -21,7 +21,7 @@ import {
 } from '../data/mockData';
 import { ProductGridSkeleton, CatalogError, Shimmer } from '../components/CatalogState';
 import type { Product, Category, Brand, Bundle, Occasion } from '../data/mockData';
-import { listProducts, listBrands, listBundles, listOccasions } from '../services/catalog';
+import { listProducts, listBrands, listBundles, listOccasions, getCollection as fetchCollection } from '../services/catalog';
 import { warmCatalog } from '../services/prefetch';
 import { useApp } from '../state/AppState';
 // ── Home CMS ──────────────────────────────────────────────────────────────────
@@ -1408,35 +1408,9 @@ function LazySection({ scrollY, baseY, children }: {
   );
 }
 
-// ─── FLASH TIMER — isolated so the 1s countdown re-renders ONLY itself, not the whole
-//     HomeScreen (a per-second full re-render was hitching the Play & Win deck animation). ───
-function FlashTimer({ curveSmStyle }: { curveSmStyle: any }) {
-  const [time, setTime] = useState({ h: 2, m: 47, s: 19 });
-  // Tick only while the screen is focused — no per-second work when off-screen.
-  useFocusEffect(useCallback(() => {
-    const t = setInterval(() => {
-      setTime(prev => {
-        let { h, m, s } = prev;
-        s -= 1;
-        if (s < 0) { s = 59; m -= 1; }
-        if (m < 0) { m = 59; h -= 1; }
-        if (h < 0) { h = 23; }
-        return { h, m, s };
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, []));
-  return (
-    <View style={{ flexDirection: 'row', gap: 2 }}>
-      {[String(time.h).padStart(2, '0'), String(time.m).padStart(2, '0'), String(time.s).padStart(2, '0')].map((n, i) => (
-        <Animated.View key={i} style={[{ paddingHorizontal: 6, paddingVertical: 3, backgroundColor: C.white }, curveSmStyle]}>
-          <Text style={[T.monoB]}>{n}</Text>
-        </Animated.View>
-      ))}
-    </View>
-  );
-}
-
+// FlashTimer lived here: a countdown starting at a hardcoded 2:47:19 that wrapped back
+// to 23h on reaching zero. It was never rendered, and the Flash Fit screen ran a second,
+// different fake clock. Countdowns now come from the featured drop's endsAt.
 // ─── CAMPAIGN BANNER — swipeable, auto-rotating Trendzo campaign posters ───
 // Posters and their tints are the `home.hero` CMS section now. The art is 1080×1440 (3:4) and
 // the banner box matches, so posters show uncropped — that constraint is on whoever uploads,
@@ -2947,24 +2921,41 @@ const FlashTile = React.memo(function FlashTile({ label, img, h, onOpen }: {
 });
 
 function FlashFitBundle({ section, onOpen }: { section: CmsSection; onOpen?: (label: string) => void }) {
+  const { gender } = useApp();
   // Right tile = full column height; left-top (t-shirt) is taller than
   // left-bottom (shoe) so the two left tiles are intentionally uneven.
   const GRID_H = Math.round(W * 0.95);             // full height → right (jeans) tile
   const topH = Math.round(GRID_H * 0.56);          // left-top (t-shirt) — the taller one
   const bottomH = GRID_H - topH - SP.s;            // left-bottom (shoe) — the shorter one
 
-  // The grid has three fixed slots, so the first three resolvable items fill them in order:
-  // left-top, left-bottom, right. Fewer than three simply leaves a slot empty rather than
-  // reflowing into a layout nobody designed.
-  const tiles = useMemo(
-    () =>
-      section.items
-        .map((item) => ({ item, source: resolveMedia(item, IMG.card), label: str(item.content, 'label') }))
-        .filter(withSource)
-        .slice(0, 3),
-    [section.items],
-  );
-  if (tiles.length === 0) return null;
+  /**
+   * The three tiles are the featured DROP's first three members.
+   *
+   * They used to be CMS items carrying a label and an image and nothing else — a
+   * caption reading "Jeans" over stock art, pointing at no product, identical for every
+   * shopper and unrelated to anything sellable. The drop is curated in Collections, so
+   * that is where this is edited now, and tapping a tile opens the real product.
+   */
+  const dropSlug = str(section.config, 'collectionSlug');
+  const [members, setMembers] = useState<Product[]>([]);
+  const [endsAt, setEndsAt] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!dropSlug) { setMembers([]); return; }
+    fetchCollection(dropSlug, { gender })
+      .then((res) => {
+        if (cancelled || res.status !== 'ok') return;
+        setMembers(res.collection.products);
+        setEndsAt(res.collection.endsAt);
+      })
+      .catch(() => { if (!cancelled) setMembers([]); });
+    return () => { cancelled = true; };
+  }, [dropSlug, gender]);
+
+  // The grid has three fixed slots. Fewer than three members leaves the section out
+  // entirely rather than reflowing into a layout nobody designed.
+  const tiles = members.slice(0, 3);
+  if (tiles.length < 3) return null;
 
   return (
     <View style={{ marginTop: SP.xl, backgroundColor: C.white }}>
@@ -2980,11 +2971,11 @@ function FlashFitBundle({ section, onOpen }: { section: CmsSection; onOpen?: (la
       {/* bento grid — tall tiles on the diagonal */}
       <View style={{ flexDirection: 'row', gap: SP.s, padding: SP.l }}>
         <View style={{ flex: 1, gap: SP.s }}>
-          {tiles[0] ? <FlashTile label={tiles[0].label} img={tiles[0].source} h={topH} onOpen={onOpen} /> : null}
-          {tiles[1] ? <FlashTile label={tiles[1].label} img={tiles[1].source} h={bottomH} onOpen={onOpen} /> : null}
+          <FlashTile label={tiles[0]!.name} img={tiles[0]!.img} h={topH} onOpen={onOpen} />
+          <FlashTile label={tiles[1]!.name} img={tiles[1]!.img} h={bottomH} onOpen={onOpen} />
         </View>
         <View style={{ flex: 1.35 }}>
-          {tiles[2] ? <FlashTile label={tiles[2].label} img={tiles[2].source} h={GRID_H} onOpen={onOpen} /> : null}
+          <FlashTile label={tiles[2]!.name} img={tiles[2]!.img} h={GRID_H} onOpen={onOpen} />
         </View>
       </View>
     </View>

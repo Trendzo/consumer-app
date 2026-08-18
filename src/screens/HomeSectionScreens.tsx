@@ -19,7 +19,11 @@ import { useApp } from '../state/AppState';
 import type { Product } from '../data/mockData';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
 import { CatalogSection, CatalogEmpty, ProductRailSkeleton, Shimmer } from '../components/CatalogState';
-import { listCollectionProducts } from '../services/catalog';
+import {
+  getCollection as fetchCollection,
+  listCollectionProducts,
+  type CollectionDetail,
+} from '../services/catalog';
 // ── Home CMS ──────────────────────────────────────────────────────────────────
 // The hero art, price bands, story copy, occasion notes and both campaign Edit pages below
 // used to be eight hardcoded arrays in this file. They are CMS sections now (`page.*`), with
@@ -698,47 +702,57 @@ const NON_APPAREL = [
 ];
 
 /**
- * Pick up to three WEARABLE products from DIFFERENT categories to make a
- * head-to-toe fit.
+ * One curated drop member as a tile.
  *
- * Distinct categories are what make it read as an outfit rather than three
- * shirts. Falls back to fewer pieces (or none) when the catalog cannot supply
- * them — the section hides itself rather than padding.
+ * This replaced `assembleFit`, which built the "look" on the client by taking the
+ * cheapest catalog page, discarding anything whose category name substring-matched a
+ * hardcoded NON_APPAREL list, and keeping the first three distinct categories. That
+ * produced three unrelated cheap items — not an outfit — and it silently changed
+ * whenever prices moved. Curation belongs to whoever builds the drop.
  */
-function assembleFit(products: Product[]): FitPiece[] {
-  const seen = new Set<string>();
-  const out: FitPiece[] = [];
-  for (const p of products) {
-    const cat = (p.category || '').toLowerCase();
-    if (NON_APPAREL.some((c) => cat.includes(c))) continue;
-    if (cat && seen.has(cat)) continue;
-    if (cat) seen.add(cat);
-    out.push({
-      slot: p.category || 'Piece',
-      label: p.name,
-      price: p.price,
-      original: p.original,
-      img: p.img,
-      product: p,
-    });
-    if (out.length === 3) break;
-  }
-  return out;
+function toFitPiece(p: Product): FitPiece {
+  return {
+    slot: p.category || 'Piece',
+    label: p.name,
+    price: p.price,
+    original: p.original,
+    img: p.img,
+    product: p,
+  };
 }
 
-function useFlashCountdown() {
-  const [t, setT] = useState({ h: 5, m: 32, s: 8 });
+/**
+ * Time left until `endsAt`, or null when the drop has no end date.
+ *
+ * This used to start at a hardcoded {h:5, m:32, s:8}, count down per mount, and wrap
+ * back to 23 hours on reaching zero — so every shopper saw a different "remaining"
+ * time, reopening the screen reset it, and nothing ever actually expired. The Home
+ * screen ran a second copy starting at 2:47:19, so the two disagreed with each other.
+ *
+ * Now it counts to a real timestamp. Null end date means no countdown at all rather
+ * than an invented one.
+ */
+function useFlashCountdown(endsAt: string | null | undefined) {
+  const endMs = endsAt ? new Date(endsAt).getTime() : null;
+  const remaining = useCallback(() => {
+    if (endMs == null || !Number.isFinite(endMs)) return null;
+    const ms = endMs - Date.now();
+    if (ms <= 0) return { h: 0, m: 0, s: 0, done: true };
+    return {
+      h: Math.floor(ms / 3_600_000),
+      m: Math.floor((ms % 3_600_000) / 60_000),
+      s: Math.floor((ms % 60_000) / 1000),
+      done: false,
+    };
+  }, [endMs]);
+
+  const [t, setT] = useState(remaining);
   useFocusEffect(useCallback(() => {
-    const id = setInterval(() => setT((p) => {
-      let { h, m, s } = p;
-      s -= 1;
-      if (s < 0) { s = 59; m -= 1; }
-      if (m < 0) { m = 59; h -= 1; }
-      if (h < 0) { h = 23; }
-      return { h, m, s };
-    }), 1000);
+    setT(remaining());
+    if (endMs == null) return;
+    const id = setInterval(() => setT(remaining()), 1000);
     return () => clearInterval(id);
-  }, []));
+  }, [remaining, endMs]));
   return t;
 }
 
@@ -760,8 +774,14 @@ function CountdownCell({ n }: { n: string }) {
  * way by isolating its own countdown in a leaf component; this screen never got
  * the same treatment. Only these three digits re-render now.
  */
-function FlashCountdown() {
-  const time = useFlashCountdown();
+/**
+ * Renders nothing when the drop has no end date — the clock is hidden, not faked.
+ * The component stays in the tree so a drop that later gets an end date shows it
+ * without any layout change.
+ */
+function FlashCountdown({ endsAt }: { endsAt: string | null | undefined }) {
+  const time = useFlashCountdown(endsAt);
+  if (!time) return null;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       <CountdownCell n={String(time.h).padStart(2, '0')} />
@@ -780,14 +800,45 @@ export function FlashFitScreen() {
   const nav = useNavigation<any>();
   const { gender, showToast, addToCart } = useApp();
   const { section, status: cmsStatus } = useCmsSection('page.flash_fit', gender);
-  const time = useFlashCountdown();
-  // Cheapest first: this page's whole promise is "under ₹999".
-  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
-  const fit = useMemo(() => assembleFit(products), [products]);
+  // The featured drop is chosen by admin on `home.flash_fit`; this page reads the same
+  // slug so both surfaces show one drop rather than two independently-improvised ones.
+  const { section: homeFlash } = useCmsSection('home.flash_fit', gender);
+  const dropSlug = str(homeFlash.config, 'collectionSlug');
+
+  /**
+   * The fit IS the drop. It used to be assembled on the client by taking the cheapest
+   * page of the catalog, skipping anything whose category name matched a hardcoded
+   * NON_APPAREL list, and keeping the first three distinct categories — so the "look"
+   * was three unrelated cheap items that changed whenever prices moved, and no one
+   * could curate it. Now an admin curates a drop and this renders its members.
+   */
+  const [drop, setDrop] = useState<{ status: 'loading' | 'ready' | 'missing' | 'error'; data: CollectionDetail | null }>(
+    { status: 'loading', data: null },
+  );
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setDrop({ status: 'loading', data: null });
+    if (!dropSlug) { setDrop({ status: 'missing', data: null }); return; }
+    fetchCollection(dropSlug, { gender })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.status === 'ok') setDrop({ status: 'ready', data: res.collection });
+        else setDrop({ status: res.status, data: null });
+      })
+      .catch(() => { if (!cancelled) setDrop({ status: 'error', data: null }); });
+    return () => { cancelled = true; };
+  }, [dropSlug, gender, reloadKey]);
+
+  const members = drop.data?.products ?? [];
+  const fit = useMemo(() => members.slice(0, 3).map(toFitPiece), [members]);
   const total = fit.reduce((s, p) => s + p.price, 0);
   const totalOriginal = fit.reduce((s, p) => s + p.original, 0);
   const saved = totalOriginal - total;
-  const flashDeals = useMemo(() => products.filter((p) => p.price <= 999), [products]);
+  // The rest of the drop, not a hardcoded "under ₹999" over an unrelated catalog page.
+  const flashDeals = members.slice(3);
+  const status = drop.status === 'ready' ? 'ready' : drop.status === 'loading' ? 'loading' : 'error';
+  const reload = () => setReloadKey((n) => n + 1);
   const cellW = (W - SP.l * 2 - SP.s) / 2;
 
   // Actually adds the pieces. This was a toast and nothing else — the bag never
@@ -817,7 +868,7 @@ export function FlashFitScreen() {
                 </>
               )}
             </View>
-            <FlashCountdown />
+            <FlashCountdown endsAt={drop.data?.endsAt} />
           </View>
         </View>
 

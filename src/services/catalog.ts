@@ -576,6 +576,66 @@ export type CollectionResult =
   | { status: 'missing' }
   | { status: 'error' };
 
+/** A collection plus its products — the drop's own window is what drives the countdown. */
+export type CollectionDetail = {
+  slug: string;
+  name: string;
+  kind: string;
+  /** Null when the drop has no end date. The UI hides the clock rather than inventing one. */
+  endsAt: string | null;
+  startsAt: string | null;
+  products: Product[];
+};
+
+export type CollectionDetailResult =
+  | { status: 'ok'; collection: CollectionDetail }
+  | { status: 'missing' }
+  | { status: 'error' };
+
+/**
+ * Full collection, including its time window. `listCollectionProducts` returns only the
+ * products; a drop needs `endsAt` to run a real countdown.
+ */
+export async function getCollection(
+  slug: string,
+  opts: { gender?: string; limit?: number } = {},
+): Promise<CollectionDetailResult> {
+  const params = new URLSearchParams();
+  if (opts.gender) params.set('gender', opts.gender);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const query = params.toString();
+
+  try {
+    const data = await cachedGet<{
+      slug: string;
+      name: string;
+      kind: string;
+      startsAt: string | null;
+      endsAt: string | null;
+      listings?: (ApiCard | ApiProduct)[];
+    }>(`/catalog/collections/${encodeURIComponent(slug)}${query ? `?${query}` : ''}`, {
+      auth: false,
+      ttlMs: 60_000,
+    });
+    return {
+      status: 'ok',
+      collection: {
+        slug: data.slug,
+        name: data.name,
+        kind: data.kind,
+        startsAt: data.startsAt ?? null,
+        endsAt: data.endsAt ?? null,
+        products: (data.listings ?? []).map((row) =>
+          isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct),
+        ),
+      },
+    };
+  } catch (e) {
+    const status = (e as { status?: number })?.status;
+    return { status: status === 404 ? 'missing' : 'error' };
+  }
+}
+
 export async function listCollectionProducts(
   slug: string,
   opts: { gender?: string; limit?: number } = {},
