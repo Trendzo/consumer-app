@@ -1542,7 +1542,7 @@
           "content": { "textH": "left", "textV": "top" }
         },
         {
-          "key": "her-dresses",
+          "key": "dresses",
           "gender": "her",
           "assetKey": "category-banners/her/dresses",
           "imageUrl": null,
@@ -1551,7 +1551,7 @@
           "content": { "textH": "left", "textV": "bottom" }
         },
         {
-          "key": "her-coords",
+          "key": "coords",
           "gender": "her",
           "assetKey": "category-banners/her/coords",
           "imageUrl": null,
@@ -1641,7 +1641,7 @@
           "content": { "textH": "right", "textV": "bottom" }
         },
         {
-          "key": "her-jewelry",
+          "key": "jewelry",
           "gender": "her",
           "assetKey": "category-banners/her/jewelry",
           "imageUrl": null,
@@ -1686,7 +1686,7 @@
           "content": { "textH": "left", "textV": "top" }
         },
         {
-          "key": "him-ethnic",
+          "key": "ethnic",
           "gender": "him",
           "assetKey": "category-banners/him/ethnic",
           "imageUrl": null,
@@ -1695,7 +1695,7 @@
           "content": { "textH": "left", "textV": "top" }
         },
         {
-          "key": "him-formal",
+          "key": "formal",
           "gender": "him",
           "assetKey": "category-banners/him/formal",
           "imageUrl": null,
