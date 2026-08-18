@@ -159,12 +159,37 @@ export function StealsScreen() {
     }
   }, [bands, wantMaxPaise]);
 
-  // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
-  // the catalog rather than from whatever the first page happened to contain.
-  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
   const activeBand = bands[band] ?? bands[0];
   const activeMax = activeBand?.max ?? Infinity;
   const activeLabel = activeBand?.label ?? 'All deals';
+
+  /**
+   * The tile's category, carried through from the CMS item.
+   *
+   * Without it this screen queried the whole catalog cheapest-first, so a tile reading
+   * "T-shirts under ₹1499" returned face serum and beard oil — the cheapest things in
+   * the catalog, whatever they were — and every tile showed the same grid because the
+   * price was the only thing that varied.
+   */
+  const categorySlug: string | undefined =
+    typeof route.params?.categorySlug === 'string' && route.params.categorySlug
+      ? route.params.categorySlug
+      : undefined;
+
+  // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
+  // the catalog rather than from whatever the first page happened to contain.
+  const { products, status, reload } = useCatalogProducts({
+    gender,
+    sort: 'price_asc',
+    limit: SECTION_PAGE_SIZE,
+    ...(categorySlug ? { categorySlug } : {}),
+    ...(Number.isFinite(activeMax) ? { maxPricePaise: Math.round(activeMax * 100) } : {}),
+  });
+
+  // Also filtered here. Not a fallback that invents data — the ceiling is applied
+  // server-side too, and re-applying a numeric bound is idempotent. It keeps the band
+  // honest against a backend that predates `maxPricePaise` and silently drops it,
+  // rather than showing a ₹4,000 jacket under "Under ₹2499".
   const deals = useMemo(() => products.filter((p) => p.price <= activeMax), [products, activeMax]);
 
   return (

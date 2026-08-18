@@ -314,6 +314,8 @@ export async function listProducts(opts: {
   categorySlug?: string;
   search?: string;
   sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating';
+  /** Price ceiling in paise, applied server-side against the cheapest shoppable variant. */
+  maxPricePaise?: number;
   limit?: number;
   offset?: number;
   /** Abort when the screen unmounts or its parameters change. */
@@ -341,6 +343,7 @@ export async function listProducts(opts: {
       categorySlug: opts.categorySlug,
       search,
       sort: opts.sort,
+      maxPricePaise: opts.maxPricePaise,
       view: 'card',
       limit,
       offset: opts.offset,

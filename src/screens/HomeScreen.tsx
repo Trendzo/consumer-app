@@ -961,14 +961,22 @@ export default function HomeScreen() {
               .map((item) => ({ item, source: resolveMedia(item, IMG.card) }))
               .filter(withSource)
               .slice(0, 3);
-            // Carry the tile's OWN price ceiling through, so "Under ₹999" opens
-            // the ₹999 band instead of "All deals". The authored link is a bare
-            // `{route:'Steals'}` with no params, so the ceiling is merged in as
+            // Carry the tile's OWN price ceiling AND category through, so "T-shirts
+            // under ₹1499" opens the ₹1499 band scoped to T-shirts. The authored link
+            // is a bare `{route:'Steals'}` with no params, so both are merged in as
             // extraParams rather than requiring every tile to be re-authored.
+            //
+            // The category is what was missing: the label alone is decoration, so every
+            // tile used to open the same all-category grid with only the price differing.
             const goSteals = (item: CmsItem) => () => {
               const maxPaise = priceCeilingPaise(item.content);
-              const params = maxPaise ? { maxPaise } : undefined;
-              if (!openLink(nav, item.link, params)) nav.navigate('Steals', params);
+              const categorySlug = str(item.content, 'categorySlug');
+              const params = {
+                ...(maxPaise ? { maxPaise } : {}),
+                ...(categorySlug ? { categorySlug } : {}),
+              };
+              const merged = Object.keys(params).length ? params : undefined;
+              if (!openLink(nav, item.link, merged)) nav.navigate('Steals', merged);
             };
             if (steals.length === 0) return null;
             return (
