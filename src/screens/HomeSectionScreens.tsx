@@ -626,19 +626,10 @@ export function ShopByOccasionScreen() {
           </View>
         </View>
 
-        {/* ── QUICK MOMENT CARDS — the other occasions, at a glance ── */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.l }}>
-          {occasions.map((o, i) => (
-            <Pressable key={o.id} onPress={() => setActive(i)} style={{ width: 108 }}>
-              <View style={[{ height: 128, overflow: 'hidden' }, BORDER(1)]}>
-                <LinearGradient colors={o.tint} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
-                <CachedImage source={o.img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                {active === i && <View style={[StyleSheet.absoluteFillObject, { borderWidth: 2, borderColor: C.ink }]} />}
-              </View>
-              <Text style={[T.caption, { textAlign: 'center', marginTop: 6, color: active === i ? C.ink : C.dim }]}>{o.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        {/* The card carousel that used to sit here was a SECOND occasion selector,
+            duplicating the pill row above it — same occasions, same setActive, two
+            controls competing to show which one is active. Removed; the pills are the
+            selector and the hero is the answer. */}
 
         {/* ── CURATED GRID ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
