@@ -7,6 +7,7 @@ import Animated, { useDerivedValue, useAnimatedStyle, withTiming, interpolateCol
 import { C, T, SP, BORDER, HEADER_TOP, rf } from '../theme/brutal';
 import { BrutalStatusBar, CachedImage, BrutalButton, OptionSheet, useKeyboardHeight } from '../components/Brutal';
 import { listRewards, type Reward } from '../services/spin';
+import { listCoupons, type Coupon } from '../services/promotions';
 import { DeliveryTermsSheet } from '../components/DeliveryTermsSheet';
 import { useApp } from '../state/AppState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,13 +17,16 @@ import {
   type PickupSlot,
 } from '../services/orders';
 import { openRazorpayCheckout } from '../services/razorpay-checkout';
-import { readCouponOutcome, type CouponOutcome } from '../services/coupons';
+import { readCouponOutcome, retryAsVoucher, type CouponOutcome, type CodeKind } from '../services/coupons';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { pointsToRupees, type AppConfig } from '../services/appConfig';
 import { updateMe } from '../services/auth';
 import { getWallet } from '../services/wallet';
 import { getLoyalty } from '../services/loyalty';
+
+/** The Home/Bag highlighter — the one accent, shared so the two receipts match. */
+const YELLOW = '#F2E63C';
 /**
  * Two tenders, because two is what checkout actually does: pay now through the gateway, or
  * pay on handover. `id` is the value the backend takes.
@@ -48,9 +52,12 @@ type PayId = (typeof PAYMENTS)[number]['id'];
 
 // Delivery methods — mirrors the Bag's buckets so a per-bucket checkout shows the same
 // labels. Try & Buy is a first-class method here, not an add-on toggle on express.
-type BagMethod = 'express' | 'standard' | 'pickup';
+//
+// `standard` is gone from both: the app offered a "Standard · 2-3 days" option
+// that no store fulfils, hardcoded here and again in the Bag.
+type BagMethod = 'express' | 'try_and_buy' | 'pickup';
 /** What the backend prices and places. Try & Buy is its own method, not a flag on express. */
-type DeliveryChoice = 'express' | 'standard' | 'pickup' | 'try_and_buy';
+type DeliveryChoice = BagMethod;
 /**
  * Copy only — deliberately no `fee`.
  *
@@ -69,16 +76,21 @@ const deliveryMetaFrom = (cfg: AppConfig): Record<DeliveryChoice, DeliveryMeta> 
   const one = (id: DeliveryChoice, fallback: DeliveryMeta): DeliveryMeta => {
     const m = by.get(id);
     if (!m) return fallback;
-    return { label: `${m.label} · ${m.etaLabel}`, sub: m.blurb, icon: m.icon };
+    // Try & Buy carries NO eta. `app-config` ships "Next day" for it and this
+    // rendered "Try & Buy · Next day" on the review page — a next-day delivery
+    // promise attached to a doorstep-trial slot that is scheduled separately.
+    return {
+      label: id === 'try_and_buy' || !m.etaLabel ? m.label : `${m.label} · ${m.etaLabel}`,
+      sub: m.blurb,
+      icon: m.icon,
+    };
   };
   return {
     express: one('express', { label: 'Express · 60 min', sub: 'From your nearest store', icon: 'zap' }),
-    standard: one('standard', { label: 'Standard · 2-3 days', sub: 'Tracked shipping · door-to-door', icon: 'package' }),
     pickup: one('pickup', { label: 'Instore pickup', sub: 'Collect at your nearest store', icon: 'map-pin' }),
-    // Not one of the Bag's buckets, so config may not describe it.
     try_and_buy: one('try_and_buy', {
       label: 'Try & Buy',
-      sub: 'Try at home, keep what you love, pay-back for the rest',
+      sub: 'Try it on at your door, keep what fits',
       icon: 'home',
     }),
   };
@@ -159,16 +171,8 @@ export default function ReviewOrderScreen() {
   // Charges/terms bottom sheet — opened from the ⓘ next to the bill's delivery
   // line and the note under the method cards.
   const [showTerms, setShowTerms] = useState(false);
-  /**
-   * Express, Try & Buy and store pickup. Standard is offered only when the shopper arrived on
-   * it, so an existing standard bag is never silently switched to a different fee.
-   */
-  const methodChoices = useMemo<DeliveryChoice[]>(
-    () => (preMethod === 'standard'
-      ? ['standard', 'express', 'try_and_buy', 'pickup']
-      : ['express', 'try_and_buy', 'pickup']),
-    [preMethod],
-  );
+  /** The three methods the storefront sells: express, the doorstep trial, and collection. */
+  const methodChoices = useMemo<DeliveryChoice[]>(() => ['express', 'try_and_buy', 'pickup'], []);
   // MUST be memoised. `items` is an effect dependency of the pricing call below;
   // computing it inline made a new array identity on every render, so priceCart →
   // setPricing → re-render → new `items` → priceCart looped a POST /pricing/cart
@@ -187,19 +191,47 @@ export default function ReviewOrderScreen() {
   // A real code, typed by the customer and validated by the server. This was a
   // BOOLEAN that toggled a hardcoded 'TRENDZO50' worth ₹50 — and `placeIt` never
   // transmitted it, so the discount appeared on screen but not on the charge.
-  const [couponInput, setCouponInput] = useState('');
-  const [couponCode, setCouponCode] = useState<string | null>(null);
+  //
+  // A code applied in the Bag arrives as a route param and is applied here
+  // straight away: it used to be dropped at the door, so the shopper watched
+  // their discount disappear and had to type the same code a second time.
+  const [couponInput, setCouponInput] = useState<string>(route.params?.code ?? '');
+  const [couponCode, setCouponCode] = useState<string | null>(route.params?.code ?? null);
+  /** Which field the code travels in — see CodeKind. Vouchers are NOT coupons. */
+  const [codeKind, setCodeKind] = useState<CodeKind>((route.params?.codeKind as CodeKind) ?? 'coupon');
   const [couponOutcome, setCouponOutcome] = useState<CouponOutcome>({ state: 'none' });
-  // Myntra-style one-tap apply: every held coupon in a sheet with its own Apply,
-  // instead of copy → navigate → paste. The manual input stays for typed codes.
+  // Myntra-style one-tap apply: every code the shopper can use in a sheet with
+  // its own Apply, instead of copy → navigate → paste. The manual input stays
+  // for typed codes.
   const [couponSheet, setCouponSheet] = useState(false);
+  /** Personal, single-use codes: wheel prizes and support grants. Vouchers. */
   const [heldCoupons, setHeldCoupons] = useState<Reward[]>([]);
+  /**
+   * Public, live coupons from /promotions/active.
+   *
+   * The sheet used to list ONLY /consumer/rewards, so for everyone who had never
+   * won anything it opened empty under the heading "Your coupons" — while the
+   * storefront had running coupons the whole time and the product page was
+   * advertising them. Both lists are shown, each labelled for what it is.
+   */
+  const [publicCoupons, setPublicCoupons] = useState<Coupon[]>([]);
   const openCouponSheet = () => {
     setCouponSheet(true);
-    if (!getToken()) return; // sheet shows the sign-in hint
+    listCoupons()
+      .then((cs) => setPublicCoupons(cs.filter((c) => c.active)))
+      .catch(() => { /* keep whatever list is showing */ });
+    if (!getToken()) return; // the personal list needs a session
     listRewards()
       .then((rs) => setHeldCoupons(rs.filter((r) => r.state === 'available' && !!r.code)))
       .catch(() => { /* keep whatever list is showing */ });
+  };
+  /** Apply a code whose kind we already know (tapped in the sheet). */
+  const applyCode = (code: string, kind: CodeKind) => {
+    animateNext();
+    setCouponInput(code);
+    setCodeKind(kind);
+    setCouponCode(code); // repriced server-side, same as a typed code
+    setCouponSheet(false);
   };
   const [useReward, setUseReward] = useState(false);
   // Payment is picked INLINE on the page (was a bottom-sheet modal).
@@ -312,8 +344,11 @@ export default function ReviewOrderScreen() {
     setPricingErr(null);
     priceCart(
       items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
-      couponCode ?? undefined,
+      // A voucher sent in `couponCode` comes back `not_found` — they are two
+      // separate inputs on the pricing engine. See CodeKind.
+      codeKind === 'coupon' ? couponCode ?? undefined : undefined,
       {
+        ...(codeKind === 'voucher' && couponCode ? { voucherCode: couponCode } : {}),
         deliveryMethod: apiMethod,
         paymentMethod: effectivePayId,
         // Quote with the same points the placement will redeem. Without this the
@@ -328,7 +363,7 @@ export default function ReviewOrderScreen() {
       .then((p) => {
         if (cancelled) return;
         setPricing(p);
-        setCouponOutcome(readCouponOutcome(couponCode, p.aggregate.couponPaise, p.rejectedCodes));
+        setCouponOutcome(readCouponOutcome(couponCode, p.aggregate.couponPaise, p.rejectedCodes, codeKind));
       })
       .catch((e: any) => {
         if (cancelled) return;
@@ -340,7 +375,13 @@ export default function ReviewOrderScreen() {
       })
       .finally(() => { if (!cancelled) setPricingLoading(false); });
     return () => { cancelled = true; };
-  }, [items, allPriceable, apiMethod, effectivePayId, couponCode, useReward, rewardPoints, applyWallet, quoteNonce]);
+  }, [items, allPriceable, apiMethod, effectivePayId, couponCode, codeKind, useReward, rewardPoints, applyWallet, quoteNonce]);
+
+  // "No such coupon" means the code is a voucher, not that it is bad. One retry
+  // in the other field; a second failure is reported as the server wrote it.
+  useEffect(() => {
+    if (retryAsVoucher(couponOutcome)) setCodeKind('voucher');
+  }, [couponOutcome]);
 
   // Pickup: load the store's upcoming windows. A pickup cart is single-store by
   // backend rule, so the first bucket's store is the one to ask about.
@@ -482,7 +523,7 @@ export default function ReviewOrderScreen() {
         // something it already rejected. Placement re-validates independently —
         // if the coupon lapsed between quoting and paying, the order is priced
         // without it rather than at a total we invented.
-        ...(couponApplied && couponCode ? { couponCode } : {}),
+        ...(couponApplied && couponCode ? (codeKind === 'voucher' ? { voucherCode: couponCode } : { couponCode }) : {}),
         // Redeem points only when the customer opted in AND has a balance.
         ...(useReward && rewardPoints > 0 ? { pointsToRedeem: rewardPoints } : {}),
         ...(applyWallet ? { applyWallet: true } : {}),
@@ -524,10 +565,13 @@ export default function ReviewOrderScreen() {
     }
   };
 
+  // `neg` is now actually rendered. It was accepted and thrown away, so every
+  // saving on this page printed in plain ink while the identical line in the Bag
+  // was green — the same order, two different-looking bills.
   const Row = ({ k, v, neg, bold }: { k: string; v: string; neg?: boolean; bold?: boolean }) => (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 }}>
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 }}>
       <Text style={bold ? [T.bodyB] : [T.body, { color: C.dim }]}>{k}</Text>
-      <Text style={bold ? [T.price] : [T.bodyB]}>{v}</Text>
+      <Text style={bold ? [T.price] : [T.bodyB, neg ? { color: C.green } : null]}>{v}</Text>
     </View>
   );
 
@@ -668,16 +712,25 @@ export default function ReviewOrderScreen() {
               })}
             </View>
             {apiMethod === 'try_and_buy' && (
-              <Text style={[T.micro, { color: C.dim, marginTop: SP.s }]}>
-                Try & Buy is prepaid — you're refunded for whatever you send back at the door.
-              </Text>
+              <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: SP.s, marginTop: SP.s, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                {/* The prepaid symbol, so the constraint reads at a glance
+                    instead of being buried in a sentence. */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 3, backgroundColor: C.ink }}>
+                  <Feather name="lock" size={10} color={C.white} />
+                  <Text style={[T.micro, { color: C.white, letterSpacing: 1 }]}>PREPAID</Text>
+                </View>
+                <Text style={[T.micro, { color: C.dim, flex: 1 }]} numberOfLines={2}>
+                  Pay now, get refunded for whatever you hand back at the door.
+                </Text>
+              </View>
             )}
-            {/* Charges live in the bill, not on the cards — this line says so and
-                opens the full terms for every method. */}
+            {/* Charges live in the bill, not on the cards. ONE line, and no em
+                dashes: it used to wrap onto three and read as a sentence
+                fragment split by punctuation. */}
             <Pressable onPress={() => setShowTerms(true)} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: SP.s }}>
               <Feather name="info" size={12} color={C.dim} />
-              <Text style={[T.micro, { color: C.dim, flex: 1 }]}>
-                Delivery & Try-at-home charges are added in the bill below · <Text style={{ textDecorationLine: 'underline' }}>Terms & policies</Text>
+              <Text style={[T.micro, { color: C.dim, flex: 1 }]} numberOfLines={1}>
+                Charges are itemised below · <Text style={{ textDecorationLine: 'underline' }}>Terms & policies</Text>
               </Text>
             </Pressable>
 
@@ -686,13 +739,25 @@ export default function ReviewOrderScreen() {
             <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
               {items.map((it, i) => (
                 <View key={it.id + '-' + i} style={{ flexDirection: 'row', gap: SP.m, padding: SP.m, borderTopWidth: i > 0 ? 1 : 0, borderColor: C.hairline }}>
-                  <View style={[{ width: 64, height: 80, backgroundColor: C.hairline, overflow: 'hidden' }, BORDER(1)]}>
+                  <View style={[{ width: 82, height: 102, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                     <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   </View>
+                  {/* Same anatomy as the Bag's line: micro-caps brand, product
+                      name, then bordered SIZE / QTY chips. The two screens listed
+                      the identical item in two different layouts. */}
                   <View style={{ flex: 1 }}>
-                    <Text style={[T.caption]} numberOfLines={1}>{it.brand}</Text>
-                    <Text style={[T.productName, { marginTop: 1 }]} numberOfLines={1}>{it.name}</Text>
-                    <Text style={[T.caption, { marginTop: 4 }]}>{`Size ${it.size}  ·  Qty ${it.qty}`}</Text>
+                    <Text style={[T.micro, { color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }]} numberOfLines={1}>{it.brand}</Text>
+                    <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{it.name}</Text>
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                      {!!it.size && (
+                        <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                          <Text style={[T.micro, { color: C.ink }]}>SIZE {it.size}</Text>
+                        </View>
+                      )}
+                      <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                        <Text style={[T.micro, { color: C.ink }]}>QTY {it.qty}</Text>
+                      </View>
+                    </View>
                     {/* Line price from the quote when it has arrived. The cart's own `price` is
                         a client-side copy captured when the item was added and can be stale;
                         `netLinePaise` is what this line is actually charged. The struck-out MRP
@@ -717,56 +782,66 @@ export default function ReviewOrderScreen() {
               ))}
             </View>
 
-            {/* COUPON — a real code, validated server-side when the cart re-prices */}
+            {/* COUPON — a real code, validated server-side when the cart re-prices.
+                The applied state matches the Bag exactly: a green tick, the code,
+                the saving in green, and one Remove. It used to be a bare bold line
+                on the review page and a grey "Applied" slab in the Bag, for the
+                same thing. */}
             <View style={[{ padding: SP.m, marginTop: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Feather name="tag" size={16} color={C.ink} />
-                {couponApplied ? (
-                  <>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[T.bodyB]}>{`${couponCode} applied`}</Text>
-                      {/* A code that discounts shipping rather than the items saves a
-                          real amount but contributes ₹0 to the coupon line — say
-                          "applied" and let the totals speak, never "You saved ₹0". */}
-                      <Text style={[T.caption, { marginTop: 1, color: C.green }]}>
-                        {couponOff > 0 ? `You saved ₹${couponOff}` : 'Discount applied to your total'}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => { animateNext(); setCouponCode(null); setCouponInput(''); setCouponOutcome({ state: 'none' }); }}
-                      style={[{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.ink }, BORDER(1)]}
-                    >
-                      <Text style={[T.caption, { color: C.white }]}>Remove</Text>
-                    </Pressable>
-                  </>
-                ) : (
-                  <>
-                    <TextInput
-                      value={couponInput}
-                      onChangeText={setCouponInput}
-                      placeholder="Enter coupon code"
-                      placeholderTextColor={C.dim}
-                      autoCapitalize="characters"
-                      style={[T.bodyB, { flex: 1, padding: 0, letterSpacing: 1 }]}
-                    />
-                    <Pressable
-                      onPress={() => {
-                        const code = couponInput.trim().toUpperCase();
-                        if (!code) return;
-                        animateNext();
-                        setCouponCode(code);
-                      }}
-                      style={[{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: C.white }, BORDER(1)]}
-                    >
-                      <Text style={[T.caption, { color: C.ink }]}>Apply</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-              {couponOutcome.state === 'rejected' && (
+              {couponApplied ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: C.green }}>
+                    <Feather name="check" size={16} color={C.white} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[T.bodyB]} numberOfLines={1}>{`${couponCode} applied`}</Text>
+                    {/* A code that discounts shipping rather than the items saves a
+                        real amount but contributes ₹0 to the coupon line — say
+                        "applied" and let the totals speak, never "You saved ₹0". */}
+                    <Text style={[T.micro, { marginTop: 1, color: C.green }]}>
+                      {couponOff > 0 ? `You save ₹${couponOff} on this order` : 'Discount applied to your total'}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => { animateNext(); setCouponCode(null); setCouponInput(''); setCodeKind('coupon'); setCouponOutcome({ state: 'none' }); }}
+                    hitSlop={8}
+                    style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}
+                  >
+                    <Text style={[T.caption, { color: C.ink }]}>Remove</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="tag" size={16} color={C.ink} />
+                  <TextInput
+                    value={couponInput}
+                    onChangeText={setCouponInput}
+                    placeholder="Enter coupon code"
+                    placeholderTextColor={C.dim}
+                    autoCapitalize="characters"
+                    style={[T.bodyB, { flex: 1, padding: 0, letterSpacing: 1 }]}
+                  />
+                  <Pressable
+                    onPress={() => {
+                      const code = couponInput.trim().toUpperCase();
+                      if (!code) return;
+                      animateNext();
+                      setCodeKind('coupon');
+                      setCouponCode(code);
+                    }}
+                    disabled={!couponInput.trim()}
+                    style={[{ paddingHorizontal: 12, paddingVertical: 7, backgroundColor: couponInput.trim() ? C.ink : C.white }, BORDER(1)]}
+                  >
+                    <Text style={[T.caption, { color: couponInput.trim() ? C.white : C.dim }]}>Apply</Text>
+                  </Pressable>
+                </View>
+              )}
+              {/* A first-pass `not_found` on a coupon is not a verdict — the
+                  voucher retry is already in flight. */}
+              {couponOutcome.state === 'rejected' && !retryAsVoucher(couponOutcome) && (
                 <Text style={[T.caption, { marginTop: 6, color: '#C1121F' }]}>{couponOutcome.message}</Text>
               )}
-              {/* One-tap path — opens the held-coupons sheet. */}
+              {/* One-tap path — opens the sheet with every usable code. */}
               {!couponCode && (
                 <Pressable onPress={openCouponSheet} hitSlop={6} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
                   <Feather name="tag" size={12} color={C.ink} />
@@ -775,38 +850,64 @@ export default function ReviewOrderScreen() {
               )}
             </View>
 
-            {/* COUPON SHEET — every held code, one Apply per row (Myntra-style). */}
-            <OptionSheet visible={couponSheet} title="Your coupons" onClose={() => setCouponSheet(false)}>
-              <ScrollView style={{ maxHeight: 380 }} contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
-                {!token ? (
+            {/* COUPON SHEET — the public offers that are live right now AND the
+                personal codes this account holds, one Apply per row. */}
+            <OptionSheet visible={couponSheet} title="Coupons & offers" onClose={() => setCouponSheet(false)}>
+              <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
+                {publicCoupons.length === 0 && heldCoupons.length === 0 ? (
                   <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
-                    Sign in to see the coupons you hold.
+                    {token
+                      ? 'No coupons are available on your account right now.'
+                      : 'No offers are running right now. Sign in to see codes issued to you.'}
                   </Text>
-                ) : heldCoupons.length === 0 ? (
-                  <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
-                    No coupons yet — win them in Spin & Win and Push & Win.
-                  </Text>
-                ) : (
-                  heldCoupons.map((r) => (
-                    <View key={r.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
-                      <Feather name="tag" size={16} color={C.ink} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[T.monoB, { letterSpacing: 1 }]}>{r.code}</Text>
-                        <Text style={[T.micro, { color: C.dim, marginTop: 1 }]} numberOfLines={1}>{r.name}</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          animateNext();
-                          setCouponInput(r.code);
-                          setCouponCode(r.code); // repriced server-side, same as a typed code
-                          setCouponSheet(false);
-                        }}
-                        style={[{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}
-                      >
-                        <Text style={[T.caption, { color: C.white }]}>Apply</Text>
-                      </Pressable>
+                ) : null}
+
+                {publicCoupons.length > 0 && (
+                  <Text style={[T.micro, { color: C.dim, letterSpacing: 1.5 }]}>AVAILABLE OFFERS</Text>
+                )}
+                {publicCoupons.map((c) => (
+                  <View key={c.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                    <Feather name="tag" size={16} color={C.ink} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.monoB, { letterSpacing: 1 }]}>{c.code}</Text>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 1 }]} numberOfLines={1}>
+                        {`${c.discount} · ${c.min}${c.expires ? ` · till ${c.expires}` : ''}`}
+                      </Text>
                     </View>
-                  ))
+                    <Pressable
+                      onPress={() => applyCode(c.code, 'coupon')}
+                      style={[{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}
+                    >
+                      <Text style={[T.caption, { color: C.white }]}>Apply</Text>
+                    </Pressable>
+                  </View>
+                ))}
+
+                {heldCoupons.length > 0 && (
+                  <Text style={[T.micro, { color: C.dim, letterSpacing: 1.5, marginTop: SP.s }]}>WON BY YOU</Text>
+                )}
+                {heldCoupons.map((r) => (
+                  <View key={r.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+                    <Feather name="gift" size={16} color={C.ink} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[T.monoB, { letterSpacing: 1 }]}>{r.code}</Text>
+                      <Text style={[T.micro, { color: C.dim, marginTop: 1 }]} numberOfLines={1}>{r.name}</Text>
+                    </View>
+                    <Pressable
+                      // A reward IS a voucher — it goes in `voucherCode`, and
+                      // sending it as a coupon is what made every won prize come
+                      // back "That code does not exist".
+                      onPress={() => applyCode(r.code, 'voucher')}
+                      style={[{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.ink }, BORDER(1)]}
+                    >
+                      <Text style={[T.caption, { color: C.white }]}>Apply</Text>
+                    </Pressable>
+                  </View>
+                ))}
+                {!token && (
+                  <Text style={[T.micro, { color: C.dim, textAlign: 'center', marginTop: SP.s }]}>
+                    Sign in to see the codes issued to you.
+                  </Text>
                 )}
               </ScrollView>
             </OptionSheet>
@@ -883,38 +984,54 @@ export default function ReviewOrderScreen() {
               })}
             </View>
 
-            {/* PRICE DETAILS */}
-            <Text style={[T.h3, { marginTop: SP.xl, marginBottom: 8, textTransform: 'uppercase' }]}>Price details</Text>
-            <View style={[{ padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
+            {/* PRICE DETAILS — the Bag's receipt card, exactly: the same ORDER
+                SUMMARY header, the same ghost ₹, the same green discount rows and
+                the same yellow-highlighted total. The two screens used to show the
+                same numbers in two different visual languages, which is why the
+                bill looked like it had changed on the way to checkout. */}
+            <View style={[{ marginTop: SP.xl, backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
+              <Text style={{ position: 'absolute', right: -8, bottom: -24, fontFamily: 'Inter_900Black', fontSize: rf(110), color: 'rgba(0,0,0,0.03)' }}>₹</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
+                <Text style={[T.caption, { color: C.ink, fontFamily: 'Inter_600SemiBold', letterSpacing: 1.5 }]}>ORDER SUMMARY</Text>
+                <Feather name="file-text" size={14} color={C.ink} />
+              </View>
+              <View style={{ padding: SP.m }}>
               {agg ? (
                 <>
                   {/* `itemsSubtotalPaise` is the GROSS line subtotal; the promo/coupon/loyalty
                       rows below subtract from it, and the arithmetic on screen adds up to the
                       Total. It used to have the MRP saving added back onto it, which made the
                       first row disagree with the last. */}
-                  <Row k="Item total" v={`₹${subtotal}`} />
-                  {mrpSavings > 0 && <Row k="Discount on MRP" v={`− ₹${mrpSavings}`} neg />}
-                  {couponOff > 0 && <Row k={`Coupon (${couponCode})`} v={`− ₹${couponOff}`} neg />}
-                  {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`− ₹${rewardOff}`} neg />}
-                  {walletApplied > 0 && <Row k="Trendzo Wallet" v={`− ₹${walletApplied}`} neg />}
+                  <Row k="Subtotal" v={`₹${subtotal}`} />
+                  {mrpSavings > 0 && <Row k="Discount on MRP" v={`−₹${mrpSavings}`} neg />}
+                  {couponOff > 0 && <Row k={`Coupon · ${couponCode}`} v={`−₹${couponOff}`} neg />}
+                  {rewardOff > 0 && <Row k="MyTrendz Rewards" v={`−₹${rewardOff}`} neg />}
+                  {walletApplied > 0 && <Row k="Trendzo Wallet" v={`−₹${walletApplied}`} neg />}
                   {/* Try & Buy is priced INTO deliveryFeePaise by the engine, so it is never a
                       separate line — listing it again would bill it twice on screen.
                       The ⓘ opens the full charges/terms sheet for every method. */}
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 }}>
                     <Pressable onPress={() => setShowTerms(true)} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                       <Text style={[T.body, { color: C.dim }]}>
-                        {apiMethod === 'try_and_buy' ? 'Delivery & Try at home' : 'Delivery'}
+                        {apiMethod === 'try_and_buy' ? 'Delivery & try at home' : 'Delivery'}
                       </Text>
                       <Feather name="info" size={13} color={C.dim} />
                     </Pressable>
                     <Text style={[T.bodyB]}>{deliveryFee === 0 ? 'Free' : `₹${deliveryFee}`}</Text>
                   </View>
-                  {taxAmt > 0 && <Row k="Taxes · GST" v={`₹${taxAmt}`} />}
+                  {taxAmt > 0 && <Row k="Tax · GST" v={`₹${taxAmt}`} />}
                   <View style={{ height: 1, backgroundColor: C.hairline, marginVertical: 4 }} />
-                  <Row k="Total amount" v={`₹${total}`} bold />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 }}>
+                    <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
+                    <View>
+                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: YELLOW }} />
+                      <Text style={[T.h1]}>₹{total}</Text>
+                    </View>
+                  </View>
+                  <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>Inclusive of all taxes.</Text>
                 </>
               ) : pricingErr ? (
-                <View style={{ alignItems: 'center', gap: SP.s }}>
+                <View style={{ alignItems: 'center', gap: SP.s, paddingVertical: SP.s }}>
                   <Feather name="alert-circle" size={18} color="#c1121f" />
                   <Text style={[T.caption, { color: '#c1121f', textAlign: 'center' }]}>{pricingErr}</Text>
                   <Pressable onPress={() => setQuoteNonce((n) => n + 1)} hitSlop={10}>
@@ -922,21 +1039,23 @@ export default function ReviewOrderScreen() {
                   </Pressable>
                 </View>
               ) : !allPriceable ? (
-                <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
+                <Text style={[T.caption, { color: C.dim, textAlign: 'center', paddingVertical: SP.s }]}>
                   {items.length === 0
                     ? 'Nothing to price yet.'
                     : "Some items can't be priced — remove them from your bag to continue."}
                 </Text>
               ) : (
-                <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
+                <Text style={[T.caption, { color: C.dim, textAlign: 'center', paddingVertical: SP.s }]}>
                   {pricingLoading ? 'Getting the latest prices…' : 'Prices not confirmed yet.'}
                 </Text>
               )}
+              </View>
             </View>
 
             {/* SAVINGS BANNER */}
             {totalSavings > 0 && (
-              <View style={[{ marginTop: SP.m, padding: SP.m, alignItems: 'center', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+              <View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: SP.m, padding: SP.m, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                <Feather name="check-circle" size={15} color={C.green} />
                 <Text style={[T.bodyB, { color: C.green }]}>{`You're saving ₹${totalSavings} on this order`}</Text>
               </View>
             )}

@@ -17,8 +17,21 @@ const TOKEN_KEY = '@closetx/token';
 const USER_KEY = '@closetx/user';
 const ONBOARDED_KEY = '@closetx/onboarded';
 
-export type DeliveryMethod = 'express' | 'standard' | 'pickup';
+/**
+ * The buckets the Bag splits into, and the only methods checkout offers.
+ *
+ * `standard` is gone: the app sold a "Standard · 2-3 days" option that no store
+ * fulfils, hardcoded identically in the Bag and in Review Order. What the
+ * storefront actually does is express, the doorstep trial, and collection.
+ */
+export type DeliveryMethod = 'express' | 'try_and_buy' | 'pickup';
 type CartItem = Product & { qty: number; size: string; method: DeliveryMethod; variantId?: string };
+
+/** Anything not one of the three live buckets (a line parked under the retired
+ *  `standard` before this build) lands in express rather than a bucket that no
+ *  longer renders — which would make it invisible but still billed. */
+const asMethod = (m: unknown): DeliveryMethod =>
+  m === 'try_and_buy' || m === 'pickup' ? m : 'express';
 
 type AppCtx = {
   // auth
@@ -57,8 +70,8 @@ type AppCtx = {
   toggleFavorite: (p: Product) => void;
   isFavorite: (id: string) => boolean;
   // last order
-  lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
-  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => void;
+  lastOrder: { id: string; total: number; items: number; method?: 'express' | 'standard' | 'pickup' | 'try_and_buy' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null } | null;
+  placeOrder: (info?: { method?: 'express' | 'standard' | 'pickup' | 'try_and_buy' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => void;
   // Brutalist toast — message shown at bottom of screen (matches UI, not system Alert).
   // Toast/confirm STATE lives in uiBus (read only by BrutalToast/BrutalConfirm)
   // so showing one doesn't re-render every context consumer in the app.
@@ -300,7 +313,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return next;
     }), []);
 
-  const addToCart = useCallback((p: Product, size = 'M', method: DeliveryMethod = 'express', variantId?: string) => {
+  const addToCart = useCallback((p: Product, size = 'M', methodArg: DeliveryMethod = 'express', variantId?: string) => {
+    const method = asMethod(methodArg);
     setCart(prev => {
       // Merge when it's the same delivery method AND (same variant if we have a variant id,
       // otherwise same product + size). Keeps separate lines for different sizes/variants.
@@ -315,7 +329,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setCart(prev => prev.map(it => (it.id === id ? { ...it, qty: Math.max(1, qty) } : it)));
   }, []);
   const updateMethod = useCallback((id: string, method: DeliveryMethod) => {
-    setCart(prev => prev.map(it => (it.id === id ? { ...it, method } : it)));
+    setCart(prev => prev.map(it => (it.id === id ? { ...it, method: asMethod(method) } : it)));
   }, []);
   const clearCart = useCallback(() => setCart([]), []);
 
@@ -386,7 +400,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isFavorite = useCallback((id: string) => favoritesRef.current.some(f => f.id === id), []);
 
   // Reuses the cartRef declared above for cart sync — it is already kept current.
-  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => {
+  const placeOrder = useCallback((info?: { method?: 'express' | 'standard' | 'pickup' | 'try_and_buy' | 'tryandbuy'; store?: { id: string; name: string; addr: string; eta: string; slot?: string; code?: string } | null; id?: string; total?: number; items?: number; keepCart?: boolean }) => {
     // Real order id/total come from the backend when available; fall back to a local
     // synthesised order for the mock (guest) path so the success/tracking UI still works.
     const current = cartRef.current;

@@ -6,7 +6,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, StackActions, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, HELV, HEADER_TOP, rf } from '../theme/brutal';
-import { BrutalButton, BrutalIconBtn, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
+import { BrutalButton, BrutalIconBtn, BagButton, CenterModal, OptionSheet, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { RichText } from '../components/RichText';
 import { ReviewComposer } from '../components/ReviewComposer';
@@ -59,12 +59,19 @@ export default function ProductDetailScreen() {
   const hasProduct = !!product.id;
   // Stable so the "More to Love" rail's ProductCard memo can hold.
   const pushProduct = useCallback((p: any) => nav.push('ProductDetail', { product: p }), [nav]);
-  // Best live coupon to advertise on this page, or null when none is running.
-  const [topCoupon, setTopCoupon] = useState<Coupon | null>(null);
+  // Every live coupon, not just the headline one. The banner advertises the
+  // first; tapping it opens a sheet with all of them and their real terms — the
+  // banner used to be inert, so a shopper who wanted to know what "Min ₹999"
+  // meant, or whether a second code existed, had nowhere to go.
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [couponSheet, setCouponSheet] = useState(false);
+  /** Which coupon's fine print is expanded in the sheet. */
+  const [openCouponId, setOpenCouponId] = useState<string | null>(null);
+  const topCoupon = coupons[0] ?? null;
   useEffect(() => {
     let cancelled = false;
     listCoupons()
-      .then((cs) => { if (!cancelled) setTopCoupon(cs.find((c) => c.active) ?? null); })
+      .then((cs) => { if (!cancelled) setCoupons(cs.filter((c) => c.active)); })
       .catch(() => { /* no banner rather than a fake one */ });
     return () => { cancelled = true; };
   }, []);
@@ -173,9 +180,20 @@ export default function ProductDetailScreen() {
 
   const s = React.useMemo(() => makeS(), []);
   const [size, setSize] = useState<string | null>(null);
-  // Pending Add/Buy action while the user is sent to pick a size inline
-  // (was a bottom-sheet modal; now the page scrolls to the size row instead).
+  /**
+   * The pending Add/Buy action while the CENTRED size modal is open.
+   *
+   * Tapping "Add to bag" without a size used to fire a "Pick a size" toast and
+   * scroll the page — a notification with no instruction and no obvious next
+   * step, which read as the button simply not working. It now blocks with a
+   * modal in the middle of the screen: choose a size there and the action the
+   * shopper originally asked for continues by itself.
+   */
   const [sizeSheet, setSizeSheet] = useState<null | 'add' | 'buy'>(null);
+  /** The centred "Added to bag" confirmation. Closes itself after a beat. */
+  const [addedModal, setAddedModal] = useState<null | { size: string }>(null);
+  const addedTimer = useRef<any>(null);
+  useEffect(() => () => { if (addedTimer.current) clearTimeout(addedTimer.current); }, []);
   const [needSize, setNeedSize] = useState(false);
   // Size-row position = INFO section's y in the scroll + the row's y inside it.
   const infoYRef = useRef(0);
@@ -482,13 +500,12 @@ export default function ProductDetailScreen() {
 
   const doAdd = (sz: string) => {
     addToCart(product, sz, undefined, variantFor(sz));
-    // bottom: 36 — the default 108 put the toast in the same band as the floating
-    // Try On FAB (bottom: 104), colliding with it. This lands it just BELOW the
-    // FAB; zIndex keeps it above the fixed CTA bar for its 3.6s life.
-    showToast('Added to bag', `${product.name} · Size ${sz}`, 'shopping-bag', {
-      label: 'View bag',
-      onPress: goBag,
-    }, 36);
+    // Confirmed in the CENTRE of the screen, where the size modal just was, so
+    // the two steps read as one flow — and it dismisses itself so nothing is
+    // left for the shopper to close.
+    setAddedModal({ size: sz });
+    if (addedTimer.current) clearTimeout(addedTimer.current);
+    addedTimer.current = setTimeout(() => setAddedModal(null), 1600);
   };
   // Buy now → SINGLE-ITEM checkout. The line goes to Review Order as a param
   // and the bag is left exactly as it is: it used to be added to the cart and
@@ -499,13 +516,11 @@ export default function ProductDetailScreen() {
     const line = { ...product, qty: 1, size: sz || 'M', method: 'express', variantId: variantFor(sz) };
     requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder', { buyNow: line }), 60));
   };
-  // Require a size first — NO modal: scroll the page to the size row, flag it,
-  // and remember the pending action so tapping a size continues it in-place.
+  // Require a size first — a centred modal, not a toast. The inline row is still
+  // highlighted underneath so the page and the modal agree about what is missing.
   const askSize = (action: 'add' | 'buy') => {
     setSizeSheet(action);
     setNeedSize(true);
-    scrollRef.current?.scrollTo?.({ y: Math.max(0, infoYRef.current + sizeLocalYRef.current - 90), animated: true });
-    showToast('Pick a size', 'Choose a size to continue', 'maximize-2');
   };
   // A single product has no size axis, so there is nothing to ask for — demanding
   // one would strand the shopper on a picker that isn't rendered.
@@ -521,6 +536,8 @@ export default function ProductDetailScreen() {
     if (action === 'add') setTimeout(() => doAdd(sz), 80);
     else if (action === 'buy') setTimeout(() => doBuy(sz), 80);
   };
+  /** Tapping a size in the inline row when nothing is pending: just select it. */
+  const selectSize = (sz: string) => (sizeSheet ? pickSize(sz) : setSize(sz));
 
   // Opened without a product (a bad deep link, a stale nav param). Say so
   // instead of rendering a page for the demo coat that used to stand in here.
@@ -567,8 +584,10 @@ export default function ProductDetailScreen() {
           <Feather name="search" size={15} color={C.dim} />
           <Text style={[T.body, { color: C.dim }]} numberOfLines={1}>Search products...</Text>
         </Pressable>
-        {/* ONE bag only — pop to the real Tabs, then switch to the Bag tab */}
-        <BrutalIconBtn icon="shopping-bag" onPress={goBag} />
+        {/* ONE bag only — pop to the real Tabs, then switch to the Bag tab.
+            BagButton carries the live count: this was a bare glyph, so adding
+            an item from here changed nothing visible in the header. */}
+        <BagButton onPress={goBag} />
       </Animated.View>
       <Animated.View style={[{ height: 1, backgroundColor: C.ink, zIndex: 30, elevation: 30 }, contentStyle]} />
 
@@ -656,16 +675,24 @@ export default function ProductDetailScreen() {
               invalid. Now it renders the live coupon from /promotions/active, or
               nothing at all. */}
           {topCoupon && (
-            <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}>
+            <Pressable
+              onPress={() => { setOpenCouponId(topCoupon.id); setCouponSheet(true); }}
+              style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, marginTop: SP.m }, BORDER(1)]}
+            >
               <Feather name="tag" size={16} color={C.ink} />
               <View style={{ flex: 1 }}>
                 <Text style={[T.bodyB]}>{`${topCoupon.discount} with ${topCoupon.code}`}</Text>
-                <Text style={[T.micro, { marginTop: 1 }]}>{`${topCoupon.min} · apply it at checkout`}</Text>
+                <Text style={[T.micro, { marginTop: 1 }]}>
+                  {coupons.length > 1
+                    ? `${topCoupon.min} · ${coupons.length} offers · tap for details`
+                    : `${topCoupon.min} · tap to see where it applies`}
+                </Text>
               </View>
               <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
                 <Text style={[T.monoB, { color: C.white }]}>{topCoupon.code}</Text>
               </View>
-            </View>
+              <Feather name="chevron-right" size={16} color={C.ink} />
+            </Pressable>
           )}
 
           <View style={{ height: 1, backgroundColor: C.ink, marginTop: SP.l }} />
@@ -705,7 +732,7 @@ export default function ProductDetailScreen() {
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
             {sizes.map(sz => (
-              <Pressable key={sz} onPress={() => pickSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1)]}>
+              <Pressable key={sz} onPress={() => selectSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1)]}>
                 <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
               </Pressable>
             ))}
@@ -908,8 +935,111 @@ export default function ProductDetailScreen() {
         </Animated.View>
       )}
 
-      {/* Size selection is fully inline now — no bottom-sheet modal. Add/Buy
-          without a size scrolls to the size row and continues from there. */}
+      {/* ── SIZE — centred modal, shown when Add/Buy is tapped without one.
+             Picking a size here IS the confirmation: the pending action runs
+             straight afterwards, so nothing has to be tapped twice. ── */}
+      <CenterModal
+        visible={!!sizeSheet}
+        title="Select a size"
+        icon="maximize-2"
+        onClose={() => { setSizeSheet(null); setNeedSize(false); }}
+      >
+        <View style={{ padding: SP.l }}>
+          <View style={{ flexDirection: 'row', gap: SP.m, alignItems: 'center' }}>
+            <View style={[{ width: 54, height: 66, overflow: 'hidden', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+              <CachedImage source={{ uri: product.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[T.micro, { color: C.dim, letterSpacing: 1 }]} numberOfLines={1}>{String(brandName || '').toUpperCase()}</Text>
+              <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{product.name}</Text>
+              <Text style={[T.price, { marginTop: 3 }]}>₹{product.price}</Text>
+            </View>
+          </View>
+          <Text style={[T.caption, { color: C.dim, marginTop: SP.l }]}>
+            {sizeSheet === 'buy' ? 'Choose a size to continue to checkout' : 'Choose a size to add this to your bag'}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s, flexWrap: 'wrap' }}>
+            {sizes.map((sz) => (
+              <Pressable
+                key={sz}
+                onPress={() => pickSize(sz)}
+                style={[{ minWidth: 52, paddingHorizontal: 12, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}
+              >
+                <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable
+            onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })}
+            hitSlop={6}
+            style={{ marginTop: SP.m, flexDirection: 'row', alignItems: 'center', gap: 5 }}
+          >
+            <Feather name="info" size={12} color={C.dim} />
+            <Text style={[T.caption, { textDecorationLine: 'underline' }]}>Size guide</Text>
+          </Pressable>
+        </View>
+      </CenterModal>
+
+      {/* ── ADDED TO BAG — the same centre of the screen, auto-dismissed. ── */}
+      <CenterModal visible={!!addedModal} onClose={() => setAddedModal(null)} maxWidth={330}>
+        <View style={{ padding: SP.l, alignItems: 'center' }}>
+          <View style={[{ width: 54, height: 54, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }]}>
+            <Feather name="check" size={26} color={C.white} />
+          </View>
+          <Text style={[T.h2, { marginTop: SP.m, textTransform: 'uppercase', textAlign: 'center' }]}>Added to bag</Text>
+          <Text style={[T.caption, { color: C.dim, marginTop: 6, textAlign: 'center' }]} numberOfLines={2}>
+            {`${product.name}${addedModal ? ` · Size ${addedModal.size}` : ''}`}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.l, alignSelf: 'stretch' }}>
+            <BrutalButton label="Keep browsing" variant="outline" small onPress={() => setAddedModal(null)} style={{ flex: 1 }} />
+            <BrutalButton label="View bag" small onPress={() => { setAddedModal(null); goBag(); }} style={{ flex: 1 }} />
+          </View>
+        </View>
+      </CenterModal>
+
+      {/* ── OFFERS — every live coupon with its real terms, from
+             /promotions/active. Opened from the offer banner above. ── */}
+      <OptionSheet visible={couponSheet} title="Offers & coupons" onClose={() => setCouponSheet(false)}>
+        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
+          {coupons.length === 0 ? (
+            <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
+              No offers are running right now.
+            </Text>
+          ) : coupons.map((c) => {
+            const expanded = openCouponId === c.id;
+            return (
+              <View key={c.id} style={[{ backgroundColor: C.white }, BORDER(1)]}>
+                <Pressable
+                  onPress={() => setOpenCouponId(expanded ? null : c.id)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m }}
+                >
+                  <View style={[{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                    <Text style={[T.monoB, { color: C.ink }]}>{c.code}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[T.bodyB]} numberOfLines={1}>{c.discount}</Text>
+                    <Text style={[T.micro, { color: C.dim, marginTop: 1 }]} numberOfLines={1}>{`${c.min}${c.expires ? ` · till ${c.expires}` : ''}`}</Text>
+                  </View>
+                  <Feather name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={C.ink} />
+                </Pressable>
+                {expanded && (
+                  <View style={{ paddingHorizontal: SP.m, paddingBottom: SP.m, borderTopWidth: 1, borderColor: C.hairline, paddingTop: SP.s }}>
+                    {c.terms.map((t, i) => (
+                      <View key={i} style={{ flexDirection: 'row', gap: 8, marginTop: i === 0 ? 0 : 6 }}>
+                        <Text style={[T.caption, { color: C.dim }]}>•</Text>
+                        <Text style={[T.caption, { color: C.dim, flex: 1, lineHeight: rf(17) }]}>{t}</Text>
+                      </View>
+                    ))}
+                    <Text style={[T.micro, { color: C.dim, marginTop: 10 }]}>
+                      Enter this code in your bag or on Review order. Eligibility is checked against your bag when you apply it.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </OptionSheet>
 
       {/* ── IMAGE VIEWER — full-screen, centred, ALL slides swipeable ── */}
       <Modal transparent visible={viewerIdx !== null} animationType="fade" statusBarTranslucent onRequestClose={() => setViewerIdx(null)}>

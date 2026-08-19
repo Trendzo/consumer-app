@@ -7,35 +7,30 @@ import React from 'react';
 import { View, Text, ScrollView, Pressable, Modal, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, rf } from '../theme/brutal';
 
+// Standard (2–3 day) shipping is NOT listed: the storefront does not sell it.
+// It stayed here describing a tracked multi-day courier long after every buy
+// path had been narrowed to express, the doorstep trial and store collection.
 const SECTIONS: { icon: string; title: string; points: string[] }[] = [
   {
     icon: 'zap',
     title: 'Express delivery',
     points: [
       'Delivered in about 60 minutes from your nearest partner store.',
-      'The delivery charge is shown in your bill before you pay — never after.',
+      'The delivery charge is shown in your bill before you pay, never after.',
       'Timer starts once the store confirms your order.',
       'If we miss the window by a lot, support will make it right.',
-    ],
-  },
-  {
-    icon: 'package',
-    title: 'Standard delivery',
-    points: [
-      'Arrives in 2–3 days, tracked door-to-door.',
-      'The delivery charge is shown in your bill before you pay.',
-      'Signature may be required on delivery.',
     ],
   },
   {
     icon: 'home',
     title: 'Try & Buy',
     points: [
-      'Your order arrives the next day. The agent waits at your door while you try everything on — up to 15 minutes.',
-      'Keep what fits, hand back the rest on the spot. You are refunded for whatever you return, usually within 3–5 working days.',
-      'Try & Buy is prepaid only (no COD) — the refund needs a payment to return to.',
+      'The agent waits at your door while you try everything on, up to the trial window shown at checkout.',
+      'Keep what fits and hand back the rest on the spot. You are refunded for whatever you return, usually within 3 to 5 working days.',
+      'Try & Buy is prepaid only. There is no cash on delivery, because the refund needs a payment to return to.',
       'The Try & Buy service charge covers the doorstep trial and applies even if you return everything.',
       'Returned items must be unworn beyond trying on, with all tags attached.',
     ],
@@ -44,7 +39,7 @@ const SECTIONS: { icon: string; title: string; points: string[] }[] = [
     icon: 'map-pin',
     title: 'In-store pickup',
     points: [
-      'Free — no delivery charge.',
+      'Free. No delivery charge.',
       'Show your pickup code at the counter to collect.',
       'Orders are held for 48 hours, then cancelled and refunded.',
     ],
@@ -53,7 +48,7 @@ const SECTIONS: { icon: string; title: string; points: string[] }[] = [
     icon: 'file-text',
     title: 'General',
     points: [
-      'All charges — delivery, service and GST — are itemised in your final bill before payment. What you see on the pay button is exactly what you are charged.',
+      'All charges (delivery, service and GST) are itemised in your final bill before payment. What you see on the pay button is exactly what you are charged.',
       'Refunds go back to the original payment method.',
       'Questions? Reach us any time from Profile → Support.',
     ],
@@ -61,12 +56,16 @@ const SECTIONS: { icon: string; title: string; points: string[] }[] = [
 ];
 
 export function DeliveryTermsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  // The last section used to run off the bottom of the screen and under the
+  // home indicator: the sheet is capped at 78% but its ScrollView had a fixed
+  // 40px tail, which is less than the inset on most phones. Pad by the real one.
+  const insets = useSafeAreaInsets();
   return (
     // animationType="none" + split animations, matching OptionSheet: "slide" slid
     // the WHOLE modal — scrim included — up from the bottom, so opening showed a
     // hard-edged black slab travelling up the screen. Now the scrim fades in
     // place and only the white sheet slides.
-    <Modal visible={open} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={open} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
       {/* Layout mirrors OptionSheet exactly, and must:
           the scrim is an ABSOLUTE FILL, never an in-flow sibling, and the 78%
           cap lives on a child of a flex:1 container.
@@ -85,14 +84,21 @@ export function DeliveryTermsSheet({ open, onClose }: { open: boolean; onClose: 
           <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onClose} />
         </MotiView>
         <MotiView from={{ translateY: 560 }} animate={{ translateY: 0 }} transition={{ type: 'timing', duration: 300 }} style={{ maxHeight: '78%' }}>
-        <View style={[{ backgroundColor: C.white }, BORDER(1)]}>
+        {/* flexShrink lets the header stay put and the ScrollView take the
+            remaining height. Without it the inner View kept its full content
+            height and the scroll area was clipped by the 78% cap instead of
+            scrolling inside it. */}
+        <View style={[{ backgroundColor: C.white, flexShrink: 1 }, BORDER(1)]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: SP.m, borderBottomWidth: 1, borderColor: C.hairline }}>
           <Text style={[T.h3, { textTransform: 'uppercase' }]}>Charges, terms & policies</Text>
           <Pressable onPress={onClose} hitSlop={12}>
             <Feather name="x" size={20} color={C.ink} />
           </Pressable>
         </View>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: 40 }}>
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: SP.l, paddingTop: SP.s, paddingBottom: SP.xl + insets.bottom }}
+          showsVerticalScrollIndicator={false}
+        >
           {SECTIONS.map((sec) => (
             <View key={sec.title} style={{ marginTop: SP.l }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

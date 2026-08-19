@@ -73,10 +73,14 @@ export const FALLBACK_CONFIG: AppConfig = {
   support: { email: 'care@trendzo.in', phone: null, address: null, hours: null },
   delivery: {
     methods: [
+      // Three methods, matching what the storefront sells: express, the doorstep
+      // trial, and collection. Multi-day "standard" shipping is NOT offered — it
+      // was in this fallback (and hardcoded in the Bag and Review screens as
+      // "2-3 days") long after the business stopped selling it, so an offline
+      // app advertised a delivery speed no store fulfils.
       { id: 'express', label: 'Express', blurb: 'From your nearest store, in under an hour', etaLabel: '60 min', icon: 'zap', feePaise: 9900 },
-      { id: 'standard', label: 'Standard', blurb: 'Tracked shipping, door to door', etaLabel: '2-3 days', icon: 'package', feePaise: 4900 },
+      { id: 'try_and_buy', label: 'Try & Buy', blurb: 'Try it on at your door, keep what fits', etaLabel: '', icon: 'home', feePaise: 9900 },
       { id: 'pickup', label: 'Store pickup', blurb: 'Collect at the counter with your code', etaLabel: 'In store', icon: 'map-pin', feePaise: 0 },
-      { id: 'try_and_buy', label: 'Try & Buy', blurb: 'Try at your door, keep what fits', etaLabel: 'Next day', icon: 'home', feePaise: 9900 },
     ],
     surgeMultiplier: 1,
   },

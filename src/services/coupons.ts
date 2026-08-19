@@ -52,21 +52,41 @@ export type RejectedCode = { code: string; kind: string; reason: string };
  */
 export type CouponOutcome =
   | { state: 'none' }
-  | { state: 'applied'; code: string; discountPaise: number }
-  | { state: 'rejected'; code: string; message: string };
+  | { state: 'applied'; code: string; kind: CodeKind; discountPaise: number }
+  | { state: 'rejected'; code: string; kind: CodeKind; reason: string; message: string };
+
+/**
+ * Which field the code travels in.
+ *
+ * `couponCode` and `voucherCode` are separate inputs on /pricing/*: a voucher
+ * sent as a coupon comes back `not_found` and vice versa. Codes chosen from a
+ * list carry their kind with them (public promotions are coupons, everything in
+ * /consumer/rewards is a voucher); a code the shopper TYPES is unknowable, so it
+ * is tried as a coupon and retried as a voucher on `not_found` — see
+ * `retryAsVoucher`.
+ */
+export type CodeKind = 'coupon' | 'voucher';
 
 export function readCouponOutcome(
   code: string | null,
   couponPaise: number,
   rejected: RejectedCode[] | undefined,
+  kind: CodeKind = 'coupon',
 ): CouponOutcome {
   if (!code) return { state: 'none' };
-  const hit = (rejected ?? []).find(
-    (r) => r.code.toUpperCase() === code.toUpperCase() && r.kind === 'coupon',
-  );
-  if (hit) return { state: 'rejected', code, message: couponRejectionMessage(hit.reason) };
+  const hit = (rejected ?? []).find((r) => r.code.toUpperCase() === code.toUpperCase());
+  if (hit) return { state: 'rejected', code, kind, reason: hit.reason, message: couponRejectionMessage(hit.reason) };
   // Not rejected ⇒ applied. `discountPaise` is the coupon-line saving specifically,
   // and is legitimately 0 when the code discounted shipping instead; callers show a
   // "− ₹x" row only when it is positive, so nothing claims a saving that isn't there.
-  return { state: 'applied', code, discountPaise: couponPaise };
+  return { state: 'applied', code, kind, discountPaise: couponPaise };
 }
+
+/**
+ * True when a code sent as a coupon should be re-sent as a voucher.
+ *
+ * The two namespaces don't overlap, so "no such coupon" is the server telling us
+ * we guessed the wrong field — not that the code is bad. One retry only.
+ */
+export const retryAsVoucher = (o: CouponOutcome): boolean =>
+  o.state === 'rejected' && o.kind === 'coupon' && o.reason === 'not_found';

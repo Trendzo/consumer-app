@@ -798,7 +798,7 @@ const FIT_SMALL_H = (FIT_BIG_H - SP.s) / 2;
 
 export function FlashFitScreen() {
   const nav = useNavigation<any>();
-  const { gender, showToast, addToCart } = useApp();
+  const { gender, showToast, addToCart, cart } = useApp();
   const { section, status: cmsStatus } = useCmsSection('page.flash_fit', gender);
   // The featured drop is chosen by admin on `home.flash_fit`; this page reads the same
   // slug so both surfaces show one drop rather than two independently-improvised ones.
@@ -847,6 +847,16 @@ export function FlashFitScreen() {
     fit.forEach((p) => addToCart(p.product, 'M'));
     showToast('Fit added', `${fit.length} piece${fit.length === 1 ? '' : 's'} in your bag`, 'shopping-bag');
   };
+  /**
+   * Whether every piece of today's fit is already in the bag.
+   *
+   * The button said "Add the fit" whatever the bag held, so tapping it a second
+   * time silently doubled the quantities and the shopper had no way of telling
+   * from this page that the look was already in there. When it is, the control
+   * becomes a confirmation that takes you to the bag instead.
+   */
+  const pieceInBag = (p: { product: { id: string } }) => cart.some((c) => c.id === p.product.id);
+  const fitInBag = fit.length > 0 && fit.every(pieceInBag);
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
@@ -886,11 +896,11 @@ export function FlashFitScreen() {
         </View>
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.m, flexDirection: 'row', gap: SP.s }}>
           {/* big piece (top) — opens the real product, not a category guess */}
-          <FitTile piece={fit[0]!} w={cellW} h={FIT_BIG_H} onPress={() => nav.navigate('ProductDetail', { product: fit[0]!.product })} />
+          <FitTile piece={fit[0]!} w={cellW} h={FIT_BIG_H} inBag={pieceInBag(fit[0]!)} onPress={() => nav.navigate('ProductDetail', { product: fit[0]!.product })} />
           {/* stacked pair (bottom + shoes) */}
           <View style={{ gap: SP.s }}>
-            <FitTile piece={fit[1]!} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('ProductDetail', { product: fit[1]!.product })} />
-            <FitTile piece={fit[2]!} w={cellW} h={FIT_SMALL_H} compact onPress={() => nav.navigate('ProductDetail', { product: fit[2]!.product })} />
+            <FitTile piece={fit[1]!} w={cellW} h={FIT_SMALL_H} compact inBag={pieceInBag(fit[1]!)} onPress={() => nav.navigate('ProductDetail', { product: fit[1]!.product })} />
+            <FitTile piece={fit[2]!} w={cellW} h={FIT_SMALL_H} compact inBag={pieceInBag(fit[2]!)} onPress={() => nav.navigate('ProductDetail', { product: fit[2]!.product })} />
           </View>
         </View>
 
@@ -913,9 +923,13 @@ export function FlashFitScreen() {
                   <Text style={[T.caption, { color: '#5FD08C', marginTop: 4 }]}>You save ₹{saved}</Text>
                 )}
               </View>
-              <Pressable onPress={buyTheFit} style={{ backgroundColor: '#fff', paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[T.button, { color: C.ink, fontSize: rf(14) }]}>Add the fit</Text>
-                <Feather name="arrow-right" size={16} color={C.ink} />
+              <Pressable
+                onPress={fitInBag ? () => nav.navigate('Tabs', { screen: 'CartTab' }) : buyTheFit}
+                style={{ backgroundColor: '#fff', paddingHorizontal: 18, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              >
+                <Feather name={fitInBag ? 'check' : 'plus'} size={16} color={C.ink} />
+                <Text style={[T.button, { color: C.ink, fontSize: rf(14) }]}>{fitInBag ? 'In your bag' : 'Add the fit'}</Text>
+                {!fitInBag && <Feather name="arrow-right" size={16} color={C.ink} />}
               </Pressable>
             </View>
           </View>
@@ -1230,13 +1244,20 @@ export function ForHimEditScreen() {
   return <GenderEditScreen content={content} title="For Him" loading={loading} />;
 }
 
-function FitTile({ piece, w, h, compact, onPress }: { piece: FitPiece; w: number; h: number; compact?: boolean; onPress: () => void }) {
+function FitTile({ piece, w, h, compact, inBag, onPress }: { piece: FitPiece; w: number; h: number; compact?: boolean; inBag?: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[{ width: w, height: h, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
       {/* slot chip */}
       <View style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, backgroundColor: C.ink, paddingHorizontal: 8, paddingVertical: 3 }}>
         <Text style={[T.micro, { color: '#fff', letterSpacing: 0.5 }]}>{piece.slot.toUpperCase()}</Text>
       </View>
+      {/* Already in the bag — a tick per piece, so a partly-added fit reads
+          correctly instead of looking untouched. */}
+      {inBag && (
+        <View style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: C.ink }}>
+          <Feather name="check" size={12} color="#fff" />
+        </View>
+      )}
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 14 }}>
         <CachedImage source={piece.img} style={{ width: '100%', height: compact ? '82%' : '78%' }} resizeMode="contain" />
       </View>

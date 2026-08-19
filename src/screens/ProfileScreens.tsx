@@ -1943,7 +1943,7 @@ export function TryAndBuyScreen() {
           {[
             { i: 1, t: maxItems ? `Add up to ${maxItems} items to your bag` : 'Add what you want to try to your bag' },
             { i: 2, t: 'Pick Try & Buy at checkout' },
-            { i: 3, t: `Courier delivers next day, waits ${windowLabel} at your door` },
+            { i: 3, t: `The agent brings your order and waits ${windowLabel} at your door` },
             { i: 4, t: 'Try everything on — keep what fits' },
             { i: 5, t: 'Return the rest on the spot · zero hassle, zero fee' },
           ].map((step, i) => (
