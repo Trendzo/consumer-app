@@ -1138,8 +1138,15 @@ export default function HomeScreen() {
             <Text style={[T.h2, { textAlign: 'center', textTransform: 'uppercase' }]}>{tryOnSection.title ?? 'See It On You'}</Text>
             <Text style={[T.caption, { color: C.dim, marginTop: 8, textAlign: 'center' }]}>{tryOnSection.subtitle ?? ''}</Text>
           </View>
-          {/* BIG BOX */}
-          <View style={[{ height: rf(430), overflow: 'hidden' }, BORDER(1)]}>
+          {/* BIG BOX — the WHOLE box is the tap target.
+              Only the small "View" caption at the very bottom was pressable, so
+              tapping the artwork (which is what the section invites) did
+              nothing at all — including not opening the sign-in sheet a guest
+              needs before try-on. */}
+          <Pressable
+            onPress={() => requireAuth(() => { if (!openLink(nav, tryOnSection.items[0]?.link)) nav.navigate('TryOnPicker'); })}
+            style={[{ height: rf(430), overflow: 'hidden' }, BORDER(1)]}
+          >
             {/* soft grey gradient backdrop */}
             <LinearGradient colors={['#C9C9C9', '#ECECEC']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFillObject} />
             {/* big wordmark near the TOP — sits behind the models' heads, where the cutout is transparent */}
@@ -1149,15 +1156,16 @@ export default function HomeScreen() {
               const cutout = resolveMedia(tryOnSection.items[0], IMG.hero);
               return cutout ? <CachedImage source={cutout} style={{ width: '100%', height: '100%' }} resizeMode="contain" /> : null;
             })()}
-            {/* plain "Explore" text link, pinned to the bottom (no box/bg) */}
-            <Pressable
-              onPress={() => requireAuth(() => { if (!openLink(nav, tryOnSection.items[0]?.link)) nav.navigate('TryOnPicker'); })}
+            {/* plain "Explore" caption, pinned to the bottom (no box/bg). Not a
+                Pressable any more — the box above owns the tap. */}
+            <View
+              pointerEvents="none"
               style={{ position: 'absolute', left: 0, right: 0, bottom: SP.m, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }}
             >
               <Text style={[T.button, { color: C.ink }]}>{tryOnSection.ctaLabel ?? 'View'}</Text>
               <Feather name="arrow-right" size={16} color={C.ink} />
-            </Pressable>
-          </View>
+            </View>
+          </Pressable>
         </View>
         </LazySection>
         )}

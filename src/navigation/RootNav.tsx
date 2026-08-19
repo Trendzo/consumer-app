@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, T, BORDER, HELV} from '../theme/brutal';
 import { BrutalToast, BrutalConfirm } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import { tabBarBus } from '../state/uiBus';
 
 /** Placeholder while a lazily-loaded screen's chunk resolves. Deliberately plain —
  *  it is on screen for a frame or two at most. */
@@ -481,6 +482,10 @@ function MainApp({ gateReady = true }: { gateReady?: boolean }) {
         // otherwise stay stuck off-screen. Fires on nav changes only, never on
         // scroll, so it doesn't fight the scroll-to-hide behaviour.
         const top = state?.routes?.[state.index ?? 0]?.name;
+        // The tab bar exists only while the tab navigator is the top route.
+        // BrutalToast reads this so a toast fired from a pushed screen sits on
+        // the bottom edge instead of floating 108px above nothing.
+        tabBarBus.set(top === 'Tabs');
         if (top === 'Tabs') tabBarOffset.value = withTiming(0, { duration: 200 });
       }}
     >

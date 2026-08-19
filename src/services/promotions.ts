@@ -23,6 +23,15 @@ export type Coupon = {
   min: string; // e.g. "Min ₹999" | "No minimum"
   expires: string; // e.g. "11 Sep"
   active: boolean;
+  /** One line saying what the code does — the sheet's headline. */
+  headline: string;
+  /** Where and when it applies, in plain sentences. Built only from fields the
+   *  API actually sends, so nothing here is invented. */
+  terms: string[];
+  /** Raw expiry, for anything that needs to compare rather than print it. */
+  validUntil: string;
+  /** True when the promotion is scoped to a single store. */
+  storeScoped: boolean;
 };
 
 const rupees = (paise: number) => Math.round(paise / 100);
@@ -45,17 +54,53 @@ function fmtExpiry(iso: string): string {
   catch { return ''; }
 }
 
+/** What the discount is applied against, in the shopper's words. */
+function appliesToLabel(p: ApiPromotion): string {
+  if (p.discountType === 'free_shipping' || p.appliedTo === 'shipping') return 'your delivery charge';
+  if (p.appliedTo === 'shipping') return 'your delivery charge';
+  return 'your order total';
+}
+
+/**
+ * The fine print, assembled from what the promotion actually carries.
+ *
+ * Deliberately NOT a fixed paragraph of legal boilerplate: every line here maps
+ * to a field on the promotion, so a coupon with no minimum does not claim one
+ * and a catalogue-wide coupon is not described as store-only.
+ */
+function termsFor(p: ApiPromotion): string[] {
+  const c = p.config ?? {};
+  const out: string[] = [];
+  out.push(`Applies to ${appliesToLabel(p)} when you enter ${p.code ?? p.name} at checkout.`);
+  if (c.minOrderPaise != null) out.push(`Your bag must be at least ₹${rupees(c.minOrderPaise)} before delivery and taxes.`);
+  else out.push('No minimum bag value.');
+  if (c.maxDiscountPaise != null) out.push(`Capped at ₹${rupees(c.maxDiscountPaise)} off in total.`);
+  if (c.firstOrderOnly) out.push('First order only — one per new account.');
+  if (c.perConsumerLimit != null) out.push(`Can be used ${c.perConsumerLimit} time${c.perConsumerLimit === 1 ? '' : 's'} per account.`);
+  out.push(p.storeId ? 'Valid at one partner store only — the bag will say if it does not apply.' : 'Valid across all Trendzo stores.');
+  const exp = fmtExpiry(p.validUntil);
+  if (exp) out.push(`Valid until ${exp}.`);
+  out.push('One code per order. Eligibility is confirmed against your bag when you apply it.');
+  return out;
+}
+
+function toCoupon(p: ApiPromotion): Coupon {
+  return {
+    id: p.id,
+    code: p.code as string,
+    discount: discountLabel(p),
+    min: minLabel(p),
+    expires: fmtExpiry(p.validUntil),
+    active: true,
+    headline: `${discountLabel(p)} on ${appliesToLabel(p)}`,
+    terms: termsFor(p),
+    validUntil: p.validUntil,
+    storeScoped: !!p.storeId,
+  };
+}
+
 /** Coupons the user can apply at checkout (mechanism='coupon' with a code). */
 export async function listCoupons(): Promise<Coupon[]> {
   const rows = await request<ApiPromotion[]>('/promotions/active', { auth: false });
-  return rows
-    .filter((p) => p.mechanism === 'coupon' && !!p.code)
-    .map((p) => ({
-      id: p.id,
-      code: p.code as string,
-      discount: discountLabel(p),
-      min: minLabel(p),
-      expires: fmtExpiry(p.validUntil),
-      active: true,
-    }));
+  return rows.filter((p) => p.mechanism === 'coupon' && !!p.code).map(toCoupon);
 }

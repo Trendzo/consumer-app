@@ -1,13 +1,14 @@
 // Reusable brutalism primitives
 import React, { ReactNode, useRef, useEffect, useSyncExternalStore } from 'react';
-import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform, KeyboardAvoidingView, Keyboard } from 'react-native';
+import { View, Text, Pressable, TextInput, StatusBar, StyleSheet, ViewStyle, TextStyle, Animated, Image, Modal, Dimensions, Platform, KeyboardAvoidingView, Keyboard, ScrollView } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV, HEADER_TOP } from '../theme/brutal';
 import { useApp } from '../state/AppState';
-import { toastBus, confirmBus } from '../state/uiBus';
+import { toastBus, confirmBus, tabBarBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
 // CachedImage — drop-in `<Image>` replacement backed by expo-image.
@@ -133,6 +134,11 @@ export function BrutalToast() {
   // Toast state comes from the uiBus — showing/hiding a toast re-renders only
   // this host component (it used to re-render the whole tree, twice).
   const toast = useSyncExternalStore(toastBus.subscribe, toastBus.get);
+  // True only while the tab navigator is the top route. Everywhere else there
+  // is no bar to clear, and the old fixed 108px offset left the toast hovering
+  // over a gap of nothing. See tabBarBus.
+  const hasTabBar = useSyncExternalStore(tabBarBus.subscribe, tabBarBus.get);
+  const insets = useSafeAreaInsets();
   const { hideToast } = useApp();
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -143,19 +149,31 @@ export function BrutalToast() {
     }).start();
   }, [toast]);
   if (!toast) return null;
+  // Floating pill above the tab bar; a full-width bar welded to the bottom edge
+  // when there is no tab bar. An explicit `bottom` from a caller always wins.
+  const pinned = toast.bottom == null && !hasTabBar;
   return (
     <Animated.View
       pointerEvents="box-none"
       style={{
         position: 'absolute',
-        left: 0, right: 0, bottom: toast.bottom ?? 108,
-        alignItems: 'center',
+        left: 0, right: 0,
+        bottom: toast.bottom ?? (hasTabBar ? 108 : 0),
+        alignItems: pinned ? 'stretch' : 'center',
         zIndex: 9999,
         transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) }],
         opacity: anim,
       }}
     >
-      <View style={[{ flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.ink, maxWidth: '92%', overflow: 'hidden' }, BORDER(1)]}>
+      <View style={[
+        { flexDirection: 'row', alignItems: 'stretch', backgroundColor: C.ink, overflow: 'hidden' },
+        BORDER(1),
+        pinned
+          // Welded to the bottom: no side margins, no rounded gap, and the home
+          // indicator padded from inside so the strip still touches the edge.
+          ? { paddingBottom: insets.bottom, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0 }
+          : { maxWidth: '92%' },
+      ]}>
         <Pressable onPress={hideToast} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 10, flex: 1 }}>
           <View style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
             <Feather name={(toast.icon as any) || 'check'} size={14} color={C.ink} />
@@ -299,6 +317,91 @@ export function BrutalIconBtn({ icon, onPress, size = 38, active }: { icon: keyo
         </Pressable>
       </Reanimated.View>
     </Animated.View>
+  );
+}
+
+/**
+ * The bag icon, with the live item count on it.
+ *
+ * Every header used to render a bare `shopping-bag` glyph, so adding something
+ * to the bag changed the count in the tab bar and nowhere else — from a product
+ * page (which has no tab bar) there was no confirmation at all that the item had
+ * landed. One component so the badge can never drift between headers.
+ *
+ * `light` draws it for a dark/photographic background (Category's hero bar).
+ */
+export function BagButton({ onPress, light, size = 38, bare }: { onPress?: () => void; light?: boolean; size?: number; bare?: boolean }) {
+  const { cartCount } = useApp();
+  const badge = cartCount > 99 ? '99+' : String(cartCount);
+  return (
+    <View>
+      {bare ? (
+        <Pressable onPress={onPress} hitSlop={10} style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+          <Feather name="shopping-bag" size={20} color={light ? '#fff' : C.ink} />
+        </Pressable>
+      ) : (
+        <BrutalIconBtn icon="shopping-bag" onPress={onPress} size={size} />
+      )}
+      {cartCount > 0 && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, paddingHorizontal: 4,
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: light ? '#fff' : C.ink,
+            borderWidth: 1, borderColor: light ? C.ink : '#fff',
+          }}
+        >
+          <Text style={{ fontFamily: HELV, fontWeight: '700', fontSize: rf(9), color: light ? C.ink : '#fff' }}>{badge}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The app-standard CENTRED modal — the counterpart to OptionSheet.
+ *
+ * Used where a bottom sheet reads as "more page" but the choice is a hard stop:
+ * picking a size before the item can go in the bag, and the confirmation that
+ * follows. Same ink/hairline language as BrutalConfirm, but the caller owns the
+ * body.
+ */
+export function CenterModal({ visible, title, icon, onClose, children, maxWidth = 400 }: {
+  visible: boolean;
+  title?: string;
+  icon?: keyof typeof Feather.glyphMap;
+  onClose: () => void;
+  children?: ReactNode;
+  maxWidth?: number;
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: SP.l }}>
+        <MotiView
+          from={{ opacity: 0, translateY: 24, scale: 0.94 }}
+          animate={{ opacity: 1, translateY: 0, scale: 1 }}
+          transition={{ type: 'timing', duration: 220 }}
+          onStartShouldSetResponder={() => true}
+          style={[{ width: '100%', maxWidth, backgroundColor: '#FFFFFF', overflow: 'hidden' }, BORDER(2)]}
+        >
+          {!!title && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.ink }}>
+              {!!icon && (
+                <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.white }}>
+                  <Feather name={icon} size={14} color={C.ink} />
+                </View>
+              )}
+              <Text style={[T.h3, { color: C.white, flex: 1, textTransform: 'uppercase' }]}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={10}>
+                <Feather name="x" size={16} color={C.white} />
+              </Pressable>
+            </View>
+          )}
+          {children}
+        </MotiView>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -542,6 +645,7 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
    * riding above the keyboard.
    */
   const [kb, setKb] = React.useState(0);
+  const insets = useSafeAreaInsets();
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const show = Keyboard.addListener('keyboardDidShow', (e) => setKb(e.endCoordinates?.height ?? 0));
@@ -562,13 +666,22 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
           <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} />
         </MotiView>
         {/* sheet — slides UP from the bottom (shutter), never fades */}
+        {/* The height cap lives HERE, on a child of the flex:1 container — a
+            percentage cannot resolve against an auto-height parent, which is the
+            same Yoga trap DeliveryTermsSheet documents. */}
         <MotiView
           from={{ translateY: 520 }}
           animate={{ translateY: 0 }}
           transition={{ type: 'timing', duration: 300 }}
+          style={{ maxHeight: '88%' }}
         >
           {/* stop taps from falling through to the scrim */}
-          <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, paddingBottom: Platform.OS === 'ios' ? 28 : 16 + kb }, BORDER(1)]}>
+          {/* Bottom padding is the REAL home-indicator inset, not a guessed 28/16:
+              on a tall phone the last row of a sheet sat under the gesture bar
+              and the tail of a long list was simply unreachable. The sheet is
+              also capped at 88% of the screen so its content scrolls inside the
+              sheet instead of growing past the top of the display. */}
+          <Pressable onPress={() => {}} style={[{ backgroundColor: C.bg, flexShrink: 1, paddingBottom: (kb > 0 ? 16 + kb : insets.bottom + 16) }, BORDER(1)]}>
             {/* solid fill below the sheet — when the keyboard lifts it, the gap
                 underneath stays sheet-white, never a transparent hole */}
             <View pointerEvents="none" style={{ position: 'absolute', top: '100%', left: -1, right: -1, height: 600, backgroundColor: C.bg }} />
@@ -579,19 +692,25 @@ export function OptionSheet({ visible, title, options, selected, onSelect, onClo
                 <Feather name="x" size={18} color={C.ink} />
               </Pressable>
             </View>
-            {children ?? (options ?? []).map((o) => {
-              const on = o === selected;
-              return (
-                <Pressable
-                  key={o}
-                  onPress={() => onSelect?.(o)}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline, backgroundColor: on ? C.ink : 'transparent' }}
-                >
-                  <Text style={[T.body, { color: on ? C.white : C.ink, fontFamily: HELV, fontWeight: on ? '700' : '400' }]}>{o}</Text>
-                  {on && <Feather name="check" size={16} color={C.white} />}
-                </Pressable>
-              );
-            })}
+            {/* Scrollable: a category filter can have twenty sub-categories, and
+                with the sheet capped the tail was clipped with no way to reach it. */}
+            {children ?? (
+              <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+                {(options ?? []).map((o) => {
+                  const on = o === selected;
+                  return (
+                    <Pressable
+                      key={o}
+                      onPress={() => onSelect?.(o)}
+                      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline, backgroundColor: on ? C.ink : 'transparent' }}
+                    >
+                      <Text style={[T.body, { color: on ? C.white : C.ink, fontFamily: HELV, fontWeight: on ? '700' : '400' }]}>{o}</Text>
+                      {on && <Feather name="check" size={16} color={C.white} />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
           </Pressable>
         </MotiView>
       </KeyboardAvoidingView>

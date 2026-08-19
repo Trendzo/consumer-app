@@ -7,12 +7,12 @@ import LottieView from 'lottie-react-native';
 import { MotiView } from 'moti';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, T, SP, BORDER, rf, HEADER_TOP } from '../theme/brutal';
-import { BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, ProductCard, OptionSheet } from '../components/Brutal';
+import { BrutalStatusBar, CachedImage, FadeInUp, BrutalIconBtn, BagButton, ProductCard, OptionSheet } from '../components/Brutal';
 import { TrendzoLogo } from '../components/TrendzoLogo';
 import { useZoom } from '../navigation/ZoomTransition';
 import { useApp } from '../state/AppState';
 import { ProductGridSkeleton, CatalogEmpty, CatalogError } from '../components/CatalogState';
-import type { Product, Category } from '../data/mockData';
+import type { Product } from '../data/mockData';
 import { listProducts, listCategories, isBackendCategoryId, getFacets, listCategoryTree, type CategoryNode } from '../services/catalog';
 import { resolveAsset } from '../content/media';
 import { openLocationPicker, usePlace } from '../state/location';
@@ -40,6 +40,21 @@ const SORT_PARAM: Record<string, 'newest' | 'price_asc' | 'price_desc' | 'rating
   'PRICE: LOW TO HIGH': 'price_asc',
   'PRICE: HIGH TO LOW': 'price_desc',
   RATING: 'rating',
+};
+
+/**
+ * The listing's real colourways, for the list row's swatches.
+ *
+ * `cardToProduct` pads: one colour becomes `[hex, hex]`, none becomes the
+ * neutral grey pair. Both would render as "two colourways" if taken at face
+ * value, so duplicates are collapsed and the neutral placeholder is dropped.
+ */
+const NEUTRAL_SWATCHES = new Set(['#f3f3f3', '#e5e5e5', '#eeeeee']);
+const swatchesOf = (colors: unknown): string[] => {
+  if (!Array.isArray(colors)) return [];
+  const seen = Array.from(new Set(colors.filter((c): c is string => typeof c === 'string').map((c) => c.toLowerCase())));
+  const real = seen.filter((c) => !NEUTRAL_SWATCHES.has(c));
+  return real.slice(0, 4);
 };
 
 // Same text shadow the Home hero uses for white copy over photos.
@@ -111,8 +126,16 @@ export default function CategoryScreen() {
   const [facetCats, setFacetCats] = useState<{ label: string; slug: string; count: number }[]>([]);
   const [sort, setSort] = useState('NEWEST');
   const [grid, setGrid] = useState<2 | 1>(2);
-  const [genderTab, setGenderTab] = useState<'MEN' | 'WOMEN'>('MEN');
-  const [sheet, setSheet] = useState<null | 'sort' | 'gender' | 'filter'>(null);
+  /**
+   * No MEN/WOMEN switch here.
+   *
+   * The rail is chosen once, on Home, and carried in AppState as `gender`. This
+   * screen had its OWN `genderTab` state that started at MEN regardless of the
+   * shopper's rail, was never passed to the product query, and only recoloured
+   * the flash-sale Lottie — so the button said "MEN" while a WOMEN's category
+   * was on screen, and switching it changed nothing but its own label.
+   */
+  const [sheet, setSheet] = useState<null | 'sort' | 'filter'>(null);
   const insets = useSafeAreaInsets();
   // Live products for this category. The browser passes a real category — by slug for
   // a parent ("tops", which covers every sub-category under it) or a leaf
@@ -276,17 +299,20 @@ export default function CategoryScreen() {
   // quietly return an empty grid.
   useEffect(() => { setFilter('ALL'); setFacetCats([]); }, [catId, catSlug, searchTerm, gender]);
   // Open / close the shared OptionSheet (it owns its own slide + fade animation).
-  const openSheet = (s: 'sort' | 'gender' | 'filter') => setSheet(s);
+  const openSheet = (s: 'sort' | 'filter') => setSheet(s);
   const closeSheet = () => setSheet(null);
 
-  // Real category tree for the quick-switch chips under the hero — tapping one
-  // swaps this page in place (setParams re-runs the product effect above).
-  const [chips, setChips] = useState<Category[]>([]);
-  useEffect(() => {
-    let dead = false;
-    listCategories(gender).then((c) => { if (!dead) setChips(c); }).catch(() => {});
-    return () => { dead = true; };
-  }, [gender]);
+  /**
+   * The chips under the hero are the SUB-CATEGORIES of the category you opened.
+   *
+   * They used to be `listCategories(gender)` — every top-level category in the
+   * store. So opening Footwear showed chips for Dresses, Tops, Ethnic Wear and
+   * everything else, and tapping one navigated away from the page you had just
+   * opened. Inside Footwear the useful choices are Sneakers, Heels, Boots; those
+   * are `facetCats`, the real children of this node (same source the Filter
+   * sheet uses), and tapping one narrows the grid in place instead of leaving.
+   */
+  const chips = facetCats;
 
   // Per-category hero art (bundled webp) — ink band when nothing matches.
   const bannerArt = isFlash ? null : bannerFor(label, gender);
@@ -341,7 +367,7 @@ export default function CategoryScreen() {
   const HDR = '#FFFFFF';
   const HDR0 = 'rgba(255,255,255,0)';
   // Pink cart for HER — recolour the Lottie's layers via colorFilters (MEN keeps the originals).
-  const cartFilters = genderTab === 'WOMEN'
+  const cartFilters = gender === 'her'
     ? ['Cart 2/BLF3 Outlines', 'Orange/BLF3 Outlines', 'Red/BLF3 Outlines', 'Black/BLF3 Outlines'].map((keypath) => ({ keypath, color: '#FF3D77' }))
     : undefined;
 
@@ -361,36 +387,82 @@ export default function CategoryScreen() {
 
       </FadeInUp>
     ) : (
-      /* LIST VIEW — horizontal rows */
+      /* ═══ LIST VIEW — a wide row has room for more than a name and a price,
+             and it looked broken without it: a 160px-tall card with four short
+             lines pinned to the top and a third of the row left blank. It now
+             carries what the card projection genuinely knows — the category, the
+             colourways, the saving, and the delivery promise — plus the discount
+             flag on the image. Nothing here is invented; a field the listing
+             does not have simply does not render. ═══ */
       <FadeInUp delay={(i % 6) * 30} style={S.listItem}>
         <Pressable onPress={() => openZoom(zoomRefs.current['l' + p.id], p.img, p, { brand: label })} style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-          <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 160, backgroundColor: C.white, borderRightWidth: 1, borderColor: C.hairline }}>
+          <View ref={(el) => { zoomRefs.current['l' + p.id] = el; }} collapsable={false} style={{ width: 130, height: 172, backgroundColor: C.white, borderRightWidth: 1, borderColor: C.hairline }}>
             <CachedImage source={{ uri: p.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            {p.discount > 0 && (
+              <View style={{ position: 'absolute', top: 0, left: 0, backgroundColor: C.ink, paddingHorizontal: 7, paddingVertical: 3 }}>
+                <Text style={[T.micro, { color: C.white }]}>{`-${p.discount}%`}</Text>
+              </View>
+            )}
           </View>
           <View style={{ flex: 1, padding: SP.m, justifyContent: 'space-between' }}>
             <View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={[T.caption, { color: C.ink }]}>{p.brand}</Text>
-                {!!p.ratingCount && <Text style={[T.micro]}>{`${p.ratingCount} review${p.ratingCount === 1 ? '' : 's'}`}</Text>}
+                <Text style={[T.micro, { color: C.dim, letterSpacing: 1 }]} numberOfLines={1}>{(p.brand ?? '').toUpperCase()}</Text>
+                {/* Rating only when the product actually has one — an unrated
+                    listing showed "★ 0" once the invented nudge was removed. */}
+                {p.rating > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <Ionicons name="star" size={11} color={C.ink} />
+                    <Text style={[T.caption, { color: C.ink }]}>{p.rating}</Text>
+                    {!!p.ratingCount && <Text style={[T.micro, { color: C.dim }]}>{`(${p.ratingCount})`}</Text>}
+                  </View>
+                )}
               </View>
               <Text style={[T.productName, { marginTop: 4 }]} numberOfLines={2}>{p.name}</Text>
-              {/* Rating only when the product actually has one — an unrated
-                  listing showed "★ 0" once the invented nudge was removed. */}
-              {p.rating > 0 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                  <Ionicons name="star" size={11} color={C.ink} />
-                  <Text style={[T.caption, { color: C.ink }]}>{p.rating}</Text>
-                </View>
-              )}
+              {/* The listing's own category and occasion tag, side by side —
+                  the two things that tell you what this actually is. */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
+                {!!p.category && (
+                  <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                    <Text style={[T.micro, { color: C.ink }]} numberOfLines={1}>{p.category}</Text>
+                  </View>
+                )}
+                {!!p.tag && p.discount === 0 && (
+                  <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                    <Text style={[T.micro, { color: C.ink }]} numberOfLines={1}>{p.tag}</Text>
+                  </View>
+                )}
+              </View>
+              {/* Colourways, DEDUPED and unlabelled. The card projection pads a
+                  single-colour listing to `[hex, hex]` and a colourless one to a
+                  neutral pair, so counting this array would announce "2 colours"
+                  for a product that comes in one. Swatches only, and none at all
+                  when there is no real colour to show. */}
+              {(() => {
+                const swatches = swatchesOf(p.colors);
+                return swatches.length ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+                    {swatches.map((c, ci) => (
+                      <View key={ci} style={[{ width: 13, height: 13, backgroundColor: c }, BORDER(1)]} />
+                    ))}
+                  </View>
+                ) : null;
+              })()}
             </View>
-            <View>
-              <Text style={[T.price]}>₹{p.price}</Text>
-              {p.discount > 0 && (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: SP.s }}>
+              <View>
                 <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                  <Text style={[T.mrp]}>₹{p.original}</Text>
-                  <Text style={[T.discount]}>{'-' + p.discount + '%'}</Text>
+                  <Text style={[T.price]}>₹{p.price}</Text>
+                  {p.discount > 0 && <Text style={[T.mrp]}>₹{p.original}</Text>}
                 </View>
-              )}
+                {p.discount > 0 && (
+                  <Text style={[T.micro, { color: C.green, marginTop: 2 }]}>{`You save ₹${p.original - p.price}`}</Text>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Feather name="zap" size={11} color={C.dim} />
+                <Text style={[T.micro, { color: C.dim }]}>60 min</Text>
+              </View>
             </View>
           </View>
         </Pressable>
@@ -419,9 +491,9 @@ export default function CategoryScreen() {
             <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
               <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color="#fff" />
             </Pressable>
-            <Pressable onPress={goBag} hitSlop={10}>
-              <Feather name="shopping-bag" size={20} color="#fff" />
-            </Pressable>
+            {/* Carries the live bag count — it was a bare glyph, so adding
+                something from a product page changed nothing visible here. */}
+            <BagButton bare light size={22} onPress={goBag} />
           </View>
 
           {/* Title block, bottom-anchored like the home hero. No kicker (the
@@ -467,9 +539,7 @@ export default function CategoryScreen() {
             <Pressable onPress={() => setGrid(grid === 2 ? 1 : 2)} hitSlop={10} style={{ marginRight: SP.l }}>
               <Feather name={grid === 2 ? 'list' : 'grid'} size={20} color={C.ink} />
             </Pressable>
-            <Pressable onPress={goBag} hitSlop={10}>
-              <Feather name="shopping-bag" size={20} color={C.ink} />
-            </Pressable>
+            <BagButton bare size={22} onPress={goBag} />
           </View>
           <Pressable
             onPress={() => nav.navigate('Search')}
@@ -505,7 +575,7 @@ export default function CategoryScreen() {
             {/* ONE bag only — pop to the real Tabs first, then switch to the
                 Bag tab (direct navigate from over a transparentModal makes iOS
                 present a second Tabs as a sheet). */}
-            <BrutalIconBtn icon="shopping-bag" onPress={goBag} />
+            <BagButton onPress={goBag} />
           </View>
         </View>
 
@@ -556,22 +626,26 @@ export default function CategoryScreen() {
       <View>
         {/* Full-bleed hero scrolls away with the list; the pinned bar takes over. */}
         {heroBlock}
-        {/* ═══ CATEGORY CHIPS — the real tree; tap swaps this page in place ═══ */}
+        {/* ═══ SUB-CATEGORY CHIPS — what is actually inside this category.
+               Tapping one narrows the grid below without leaving the page. ═══ */}
         {chips.length > 0 && (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: SP.l, paddingTop: SP.m, gap: SP.s }}
           >
-            {chips.map((c) => {
-              const on = c.label.toLowerCase() === label.toLowerCase();
+            {[{ label: 'ALL', slug: '', count: total ?? 0 }, ...chips].map((c) => {
+              const on = filter === c.label;
               return (
                 <Pressable
-                  key={c.id}
-                  onPress={() => { if (!on) nav.setParams({ label: c.label, id: c.id, slug: undefined, search: undefined }); }}
-                  style={[{ paddingHorizontal: 14, paddingVertical: 8, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}
+                  key={c.slug || 'ALL'}
+                  onPress={() => setFilter(c.label)}
+                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: on ? C.ink : C.white }, BORDER(1)]}
                 >
                   <Text style={[T.caption, { color: on ? C.white : C.ink }]}>{c.label}</Text>
+                  {c.count > 0 && (
+                    <Text style={[T.micro, { color: on ? 'rgba(255,255,255,0.6)' : C.dim }]}>{c.count}</Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -613,11 +687,6 @@ export default function CategoryScreen() {
           <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>Sort</Text>
         </Pressable>
         <View style={{ width: 1, backgroundColor: C.hairline }} />
-        <Pressable onPress={() => openSheet('gender')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
-          <Feather name="users" size={15} color={C.ink} />
-          <Text style={[T.caption, { color: C.ink }]}>{genderTab}</Text>
-        </Pressable>
-        <View style={{ width: 1, backgroundColor: C.hairline }} />
         <Pressable onPress={() => openSheet('filter')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
           <Feather name="filter" size={15} color={C.ink} />
           <Text style={[T.caption, { color: C.ink }]} numberOfLines={1}>{filter === 'ALL' ? 'Filter' : filter}</Text>
@@ -631,14 +700,6 @@ export default function CategoryScreen() {
         options={SORTS}
         selected={sort}
         onSelect={(v) => { setSort(v); closeSheet(); }}
-        onClose={closeSheet}
-      />
-      <OptionSheet
-        visible={sheet === 'gender'}
-        title="Shop for"
-        options={['MEN', 'WOMEN']}
-        selected={genderTab}
-        onSelect={(v) => { setGenderTab(v as 'MEN' | 'WOMEN'); closeSheet(); }}
         onClose={closeSheet}
       />
       <OptionSheet

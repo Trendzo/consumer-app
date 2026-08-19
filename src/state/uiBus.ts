@@ -51,3 +51,14 @@ export type AuthSheetData = { onSuccess?: () => void } | null;
 export const toastBus = makeBus<ToastData>(null);
 export const confirmBus = makeBus<ConfirmData>(null);
 export const authBus = makeBus<AuthSheetData>(null);
+
+/**
+ * Whether the bottom tab bar is on screen right now.
+ *
+ * The toast used to sit at a fixed `bottom: 108` — the height that clears the
+ * tab bar. On every pushed screen (product, review order, category, try-on)
+ * there is no tab bar, so the toast floated with a 108px hole under it. The
+ * root navigator writes this on every state change; BrutalToast reads it and
+ * pins itself to the bottom edge when there is no bar to clear.
+ */
+export const tabBarBus = makeBus<boolean>(true);
