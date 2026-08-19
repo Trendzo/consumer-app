@@ -20,6 +20,8 @@ export type CatalogQuery = {
   categorySlug?: string;
   search?: string;
   sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating';
+  /** Price ceiling in paise, matched against the listing's cheapest shoppable variant. */
+  maxPricePaise?: number;
   limit?: number;
   offset?: number;
   /** Skip the request entirely (e.g. the screen has no query term yet). */
@@ -35,7 +37,7 @@ export type CatalogResult = {
 
 export function useCatalogProducts(query: CatalogQuery = {}): CatalogResult {
   const {
-    gender, categoryId, categorySlug, search, sort, limit, offset,
+    gender, categoryId, categorySlug, search, sort, limit, offset, maxPricePaise,
     enabled = true,
   } = query;
 
@@ -59,6 +61,7 @@ export function useCatalogProducts(query: CatalogQuery = {}): CatalogResult {
       ...(categoryId ? { categoryId } : {}),
       ...(categorySlug ? { categorySlug } : {}),
       ...(search ? { search } : {}),
+      ...(maxPricePaise != null ? { maxPricePaise } : {}),
       ...(sort ? { sort } : {}),
       ...(limit != null ? { limit } : {}),
       ...(offset != null ? { offset } : {}),
@@ -78,7 +81,7 @@ export function useCatalogProducts(query: CatalogQuery = {}): CatalogResult {
         setStatus('error');
       });
     return () => ac.abort();
-  }, [gender, categoryId, categorySlug, search, sort, limit, offset, enabled, nonce]);
+  }, [gender, categoryId, categorySlug, search, sort, limit, offset, maxPricePaise, enabled, nonce]);
 
   return { products, status, reload };
 }

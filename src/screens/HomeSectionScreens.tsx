@@ -19,7 +19,11 @@ import { useApp } from '../state/AppState';
 import type { Product } from '../data/mockData';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
 import { CatalogSection, CatalogEmpty, ProductRailSkeleton, Shimmer } from '../components/CatalogState';
-import { listCollectionProducts } from '../services/catalog';
+import {
+  getCollection as fetchCollection,
+  listCollectionProducts,
+  type CollectionDetail,
+} from '../services/catalog';
 // ── Home CMS ──────────────────────────────────────────────────────────────────
 // The hero art, price bands, story copy, occasion notes and both campaign Edit pages below
 // used to be eight hardcoded arrays in this file. They are CMS sections now (`page.*`), with
@@ -159,12 +163,37 @@ export function StealsScreen() {
     }
   }, [bands, wantMaxPaise]);
 
-  // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
-  // the catalog rather than from whatever the first page happened to contain.
-  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
   const activeBand = bands[band] ?? bands[0];
   const activeMax = activeBand?.max ?? Infinity;
   const activeLabel = activeBand?.label ?? 'All deals';
+
+  /**
+   * The tile's category, carried through from the CMS item.
+   *
+   * Without it this screen queried the whole catalog cheapest-first, so a tile reading
+   * "T-shirts under ₹1499" returned face serum and beard oil — the cheapest things in
+   * the catalog, whatever they were — and every tile showed the same grid because the
+   * price was the only thing that varied.
+   */
+  const categorySlug: string | undefined =
+    typeof route.params?.categorySlug === 'string' && route.params.categorySlug
+      ? route.params.categorySlug
+      : undefined;
+
+  // Cheapest first, so a "Under ₹499" band is filled from the actual bottom of
+  // the catalog rather than from whatever the first page happened to contain.
+  const { products, status, reload } = useCatalogProducts({
+    gender,
+    sort: 'price_asc',
+    limit: SECTION_PAGE_SIZE,
+    ...(categorySlug ? { categorySlug } : {}),
+    ...(Number.isFinite(activeMax) ? { maxPricePaise: Math.round(activeMax * 100) } : {}),
+  });
+
+  // Also filtered here. Not a fallback that invents data — the ceiling is applied
+  // server-side too, and re-applying a numeric bound is idempotent. It keeps the band
+  // honest against a backend that predates `maxPricePaise` and silently drops it,
+  // rather than showing a ₹4,000 jacket under "Under ₹2499".
   const deals = useMemo(() => products.filter((p) => p.price <= activeMax), [products, activeMax]);
 
   return (
@@ -507,30 +536,37 @@ export function ShopByOccasionScreen() {
   const [active, setActive] = useState(found === -1 ? 0 : found);
   const occ = occasions[Math.min(active, Math.max(0, occasions.length - 1))];
   /**
-   * The grid is the occasion's real collection when the backend has one.
+   * The grid is the occasion's collection. Nothing else.
    *
-   * `GET /catalog/collections/:slug` resolves an occasion collection straight
-   * from the live catalog (listings tagged with that occasion), so "Wear it to
-   * Brunch" means it. When no such collection exists the page falls back to a
-   * plain browse and RENAMES the heading, because calling a general browse
-   * "Wear it to Brunch" would be the same lie in a different place.
+   * `GET /catalog/collections/:slug?gender=` resolves an occasion straight from the live
+   * catalog — the slug is the occasion tag itself, and gender narrows to that rail plus
+   * unisex. There is deliberately NO fallback to a generic browse: this page previously
+   * rendered one whenever the lookup came back empty, which meant every occasion showed
+   * an identical grid under a heading promising Brunch or Gym. An empty occasion now
+   * says it is empty, and a failed request says it failed.
    */
   const occId = occ?.id ?? '';
-  const [occProducts, setOccProducts] = useState<Product[] | null>(null);
+  const [occState, setOccState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
+  const [occProducts, setOccProducts] = useState<Product[]>([]);
+  // Bumped by Retry; in the effect's deps so pressing it actually refetches.
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    setOccProducts(null);
+    setOccState('loading');
+    setOccProducts([]);
     // No occasions at all (section disabled, or every one out of window) — nothing to resolve.
-    if (!occId) { setOccProducts([]); return; }
-    listCollectionProducts(occId)
-      .then((rows) => { if (!cancelled) setOccProducts(rows); })
-      .catch(() => { if (!cancelled) setOccProducts([]); });
+    if (!occId) { setOccState('missing'); return; }
+    listCollectionProducts(occId, { gender, limit: SECTION_PAGE_SIZE })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.status === 'ok') { setOccProducts(res.products); setOccState('ready'); }
+        else setOccState(res.status);
+      })
+      .catch(() => { if (!cancelled) setOccState('error'); });
     return () => { cancelled = true; };
-  }, [occId]);
-  const hasOccCollection = !!occProducts && occProducts.length > 0;
-  const browse = useCatalogProducts({ gender, limit: SECTION_PAGE_SIZE, enabled: occProducts !== null && !hasOccCollection });
-  const grid = hasOccCollection ? occProducts.slice(0, 8) : browse.products.slice(0, 8);
-  const gridStatus = occProducts === null ? 'loading' : hasOccCollection ? 'ready' : browse.status;
+  }, [occId, gender, reloadKey]);
+  const grid = occProducts.slice(0, 8);
+  const gridStatus = occState === 'loading' ? 'loading' : occState === 'ready' ? 'ready' : 'error';
 
   // Every hook above runs unconditionally; only the render short-circuits.
   //
@@ -594,32 +630,32 @@ export function ShopByOccasionScreen() {
           </View>
         </View>
 
-        {/* ── QUICK MOMENT CARDS — the other occasions, at a glance ── */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SP.l, gap: SP.s, marginTop: SP.l }}>
-          {occasions.map((o, i) => (
-            <Pressable key={o.id} onPress={() => setActive(i)} style={{ width: 108 }}>
-              <View style={[{ height: 128, overflow: 'hidden' }, BORDER(1)]}>
-                <LinearGradient colors={o.tint} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
-                <CachedImage source={o.img} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-                {active === i && <View style={[StyleSheet.absoluteFillObject, { borderWidth: 2, borderColor: C.ink }]} />}
-              </View>
-              <Text style={[T.caption, { textAlign: 'center', marginTop: 6, color: active === i ? C.ink : C.dim }]}>{o.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        {/* The card carousel that used to sit here was a SECOND occasion selector,
+            duplicating the pill row above it — same occasions, same setActive, two
+            controls competing to show which one is active. Removed; the pills are the
+            selector and the hero is the answer. */}
 
         {/* ── CURATED GRID ── */}
         <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingHorizontal: SP.l, marginTop: SP.xl }}>
-          <Text style={[T.h2, { textTransform: 'uppercase' }]}>
-            {hasOccCollection ? `Wear it to ${occ.label}` : 'Fresh in store'}
-          </Text>
+          {/* The heading always names the occasion, because the grid always IS the
+              occasion — there is no longer a generic-browse case to rename around. */}
+          <Text style={[T.h2, { textTransform: 'uppercase' }]}>{`Wear it to ${occ.label}`}</Text>
         </View>
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.m }}>
           <CatalogSection
             status={gridStatus}
             count={grid.length}
-            onRetry={browse.reload}
-            empty={<CatalogEmpty title="Nothing here yet" sub="No live listings for this moment right now." />}
+            onRetry={() => setReloadKey((n) => n + 1)}
+            empty={
+              <CatalogEmpty
+                title={occState === 'missing' ? 'Not stocked yet' : 'Nothing here yet'}
+                sub={
+                  occState === 'missing'
+                    ? `No products are tagged for ${occ.label} right now.`
+                    : 'No live listings for this moment right now.'
+                }
+              />
+            }
           >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SP.s }}>
               {grid.map((p, i) => (
@@ -666,47 +702,57 @@ const NON_APPAREL = [
 ];
 
 /**
- * Pick up to three WEARABLE products from DIFFERENT categories to make a
- * head-to-toe fit.
+ * One curated drop member as a tile.
  *
- * Distinct categories are what make it read as an outfit rather than three
- * shirts. Falls back to fewer pieces (or none) when the catalog cannot supply
- * them — the section hides itself rather than padding.
+ * This replaced `assembleFit`, which built the "look" on the client by taking the
+ * cheapest catalog page, discarding anything whose category name substring-matched a
+ * hardcoded NON_APPAREL list, and keeping the first three distinct categories. That
+ * produced three unrelated cheap items — not an outfit — and it silently changed
+ * whenever prices moved. Curation belongs to whoever builds the drop.
  */
-function assembleFit(products: Product[]): FitPiece[] {
-  const seen = new Set<string>();
-  const out: FitPiece[] = [];
-  for (const p of products) {
-    const cat = (p.category || '').toLowerCase();
-    if (NON_APPAREL.some((c) => cat.includes(c))) continue;
-    if (cat && seen.has(cat)) continue;
-    if (cat) seen.add(cat);
-    out.push({
-      slot: p.category || 'Piece',
-      label: p.name,
-      price: p.price,
-      original: p.original,
-      img: p.img,
-      product: p,
-    });
-    if (out.length === 3) break;
-  }
-  return out;
+function toFitPiece(p: Product): FitPiece {
+  return {
+    slot: p.category || 'Piece',
+    label: p.name,
+    price: p.price,
+    original: p.original,
+    img: p.img,
+    product: p,
+  };
 }
 
-function useFlashCountdown() {
-  const [t, setT] = useState({ h: 5, m: 32, s: 8 });
+/**
+ * Time left until `endsAt`, or null when the drop has no end date.
+ *
+ * This used to start at a hardcoded {h:5, m:32, s:8}, count down per mount, and wrap
+ * back to 23 hours on reaching zero — so every shopper saw a different "remaining"
+ * time, reopening the screen reset it, and nothing ever actually expired. The Home
+ * screen ran a second copy starting at 2:47:19, so the two disagreed with each other.
+ *
+ * Now it counts to a real timestamp. Null end date means no countdown at all rather
+ * than an invented one.
+ */
+function useFlashCountdown(endsAt: string | null | undefined) {
+  const endMs = endsAt ? new Date(endsAt).getTime() : null;
+  const remaining = useCallback(() => {
+    if (endMs == null || !Number.isFinite(endMs)) return null;
+    const ms = endMs - Date.now();
+    if (ms <= 0) return { h: 0, m: 0, s: 0, done: true };
+    return {
+      h: Math.floor(ms / 3_600_000),
+      m: Math.floor((ms % 3_600_000) / 60_000),
+      s: Math.floor((ms % 60_000) / 1000),
+      done: false,
+    };
+  }, [endMs]);
+
+  const [t, setT] = useState(remaining);
   useFocusEffect(useCallback(() => {
-    const id = setInterval(() => setT((p) => {
-      let { h, m, s } = p;
-      s -= 1;
-      if (s < 0) { s = 59; m -= 1; }
-      if (m < 0) { m = 59; h -= 1; }
-      if (h < 0) { h = 23; }
-      return { h, m, s };
-    }), 1000);
+    setT(remaining());
+    if (endMs == null) return;
+    const id = setInterval(() => setT(remaining()), 1000);
     return () => clearInterval(id);
-  }, []));
+  }, [remaining, endMs]));
   return t;
 }
 
@@ -728,8 +774,14 @@ function CountdownCell({ n }: { n: string }) {
  * way by isolating its own countdown in a leaf component; this screen never got
  * the same treatment. Only these three digits re-render now.
  */
-function FlashCountdown() {
-  const time = useFlashCountdown();
+/**
+ * Renders nothing when the drop has no end date — the clock is hidden, not faked.
+ * The component stays in the tree so a drop that later gets an end date shows it
+ * without any layout change.
+ */
+function FlashCountdown({ endsAt }: { endsAt: string | null | undefined }) {
+  const time = useFlashCountdown(endsAt);
+  if (!time) return null;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
       <CountdownCell n={String(time.h).padStart(2, '0')} />
@@ -748,14 +800,45 @@ export function FlashFitScreen() {
   const nav = useNavigation<any>();
   const { gender, showToast, addToCart } = useApp();
   const { section, status: cmsStatus } = useCmsSection('page.flash_fit', gender);
-  const time = useFlashCountdown();
-  // Cheapest first: this page's whole promise is "under ₹999".
-  const { products, status, reload } = useCatalogProducts({ gender, sort: 'price_asc', limit: SECTION_PAGE_SIZE });
-  const fit = useMemo(() => assembleFit(products), [products]);
+  // The featured drop is chosen by admin on `home.flash_fit`; this page reads the same
+  // slug so both surfaces show one drop rather than two independently-improvised ones.
+  const { section: homeFlash } = useCmsSection('home.flash_fit', gender);
+  const dropSlug = str(homeFlash.config, 'collectionSlug');
+
+  /**
+   * The fit IS the drop. It used to be assembled on the client by taking the cheapest
+   * page of the catalog, skipping anything whose category name matched a hardcoded
+   * NON_APPAREL list, and keeping the first three distinct categories — so the "look"
+   * was three unrelated cheap items that changed whenever prices moved, and no one
+   * could curate it. Now an admin curates a drop and this renders its members.
+   */
+  const [drop, setDrop] = useState<{ status: 'loading' | 'ready' | 'missing' | 'error'; data: CollectionDetail | null }>(
+    { status: 'loading', data: null },
+  );
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setDrop({ status: 'loading', data: null });
+    if (!dropSlug) { setDrop({ status: 'missing', data: null }); return; }
+    fetchCollection(dropSlug, { gender })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.status === 'ok') setDrop({ status: 'ready', data: res.collection });
+        else setDrop({ status: res.status, data: null });
+      })
+      .catch(() => { if (!cancelled) setDrop({ status: 'error', data: null }); });
+    return () => { cancelled = true; };
+  }, [dropSlug, gender, reloadKey]);
+
+  const members = drop.data?.products ?? [];
+  const fit = useMemo(() => members.slice(0, 3).map(toFitPiece), [members]);
   const total = fit.reduce((s, p) => s + p.price, 0);
   const totalOriginal = fit.reduce((s, p) => s + p.original, 0);
   const saved = totalOriginal - total;
-  const flashDeals = useMemo(() => products.filter((p) => p.price <= 999), [products]);
+  // The rest of the drop, not a hardcoded "under ₹999" over an unrelated catalog page.
+  const flashDeals = members.slice(3);
+  const status = drop.status === 'ready' ? 'ready' : drop.status === 'loading' ? 'loading' : 'error';
+  const reload = () => setReloadKey((n) => n + 1);
   const cellW = (W - SP.l * 2 - SP.s) / 2;
 
   // Actually adds the pieces. This was a toast and nothing else — the bag never
@@ -785,7 +868,7 @@ export function FlashFitScreen() {
                 </>
               )}
             </View>
-            <FlashCountdown />
+            <FlashCountdown endsAt={drop.data?.endsAt} />
           </View>
         </View>
 

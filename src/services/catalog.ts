@@ -314,6 +314,8 @@ export async function listProducts(opts: {
   categorySlug?: string;
   search?: string;
   sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating';
+  /** Price ceiling in paise, applied server-side against the cheapest shoppable variant. */
+  maxPricePaise?: number;
   limit?: number;
   offset?: number;
   /** Abort when the screen unmounts or its parameters change. */
@@ -341,6 +343,7 @@ export async function listProducts(opts: {
       categorySlug: opts.categorySlug,
       search,
       sort: opts.sort,
+      maxPricePaise: opts.maxPricePaise,
       view: 'card',
       limit,
       offset: opts.offset,
@@ -557,20 +560,104 @@ export async function listOccasions(gender?: Gender): Promise<Occasion[]> {
  * auto-resolve from the live catalog server-side, so this is a real answer to
  * "what can I actually wear to a wedding", not a curated guess.
  *
- * Returns an empty array when no such collection exists (404), so a caller can
- * fall back to a plain browse instead of surfacing an error the shopper cannot
- * act on.
+ * Distinguishes the three answers instead of collapsing them to an empty array:
+ * `ok` (the collection resolved), `missing` (404 — no such collection or tag) and
+ * `error` (network/server — retryable).
+ *
+ * Collapsing them is what produced a real bug: every occasion tile called this with a
+ * slug the backend did not recognise, got `[]`, and the screen quietly rendered a
+ * generic browse under a heading promising an occasion. The shopper saw the same
+ * products for Brunch, Party and Gym and nothing anywhere said why.
+ *
+ * `gender` narrows the result to that rail plus unisex; omit it for every rail.
  */
-export async function listCollectionProducts(slug: string): Promise<Product[]> {
+export type CollectionResult =
+  | { status: 'ok'; products: Product[] }
+  | { status: 'missing' }
+  | { status: 'error' };
+
+/** A collection plus its products — the drop's own window is what drives the countdown. */
+export type CollectionDetail = {
+  slug: string;
+  name: string;
+  kind: string;
+  /** Null when the drop has no end date. The UI hides the clock rather than inventing one. */
+  endsAt: string | null;
+  startsAt: string | null;
+  products: Product[];
+};
+
+export type CollectionDetailResult =
+  | { status: 'ok'; collection: CollectionDetail }
+  | { status: 'missing' }
+  | { status: 'error' };
+
+/**
+ * Full collection, including its time window. `listCollectionProducts` returns only the
+ * products; a drop needs `endsAt` to run a real countdown.
+ */
+export async function getCollection(
+  slug: string,
+  opts: { gender?: string; limit?: number } = {},
+): Promise<CollectionDetailResult> {
+  const params = new URLSearchParams();
+  if (opts.gender) params.set('gender', opts.gender);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const query = params.toString();
+
+  try {
+    const data = await cachedGet<{
+      slug: string;
+      name: string;
+      kind: string;
+      startsAt: string | null;
+      endsAt: string | null;
+      listings?: (ApiCard | ApiProduct)[];
+    }>(`/catalog/collections/${encodeURIComponent(slug)}${query ? `?${query}` : ''}`, {
+      auth: false,
+      ttlMs: 60_000,
+    });
+    return {
+      status: 'ok',
+      collection: {
+        slug: data.slug,
+        name: data.name,
+        kind: data.kind,
+        startsAt: data.startsAt ?? null,
+        endsAt: data.endsAt ?? null,
+        products: (data.listings ?? []).map((row) =>
+          isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct),
+        ),
+      },
+    };
+  } catch (e) {
+    const status = (e as { status?: number })?.status;
+    return { status: status === 404 ? 'missing' : 'error' };
+  }
+}
+
+export async function listCollectionProducts(
+  slug: string,
+  opts: { gender?: string; limit?: number } = {},
+): Promise<CollectionResult> {
+  const params = new URLSearchParams();
+  if (opts.gender) params.set('gender', opts.gender);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString();
+
   try {
     const data = await cachedGet<{ listings?: (ApiCard | ApiProduct)[] }>(
-      `/catalog/collections/${encodeURIComponent(slug)}`,
+      `/catalog/collections/${encodeURIComponent(slug)}${qs ? `?${qs}` : ''}`,
       { auth: false, ttlMs: 60_000 },
     );
     const rows = data?.listings ?? [];
-    return rows.map((row) => (isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct)));
-  } catch {
-    return [];
+    return {
+      status: 'ok',
+      products: rows.map((row) => (isCard(row) ? cardToProduct(row) : toProduct(row as ApiProduct))),
+    };
+  } catch (e) {
+    const status = (e as { status?: number })?.status;
+    return { status: status === 404 ? 'missing' : 'error' };
   }
 }
 

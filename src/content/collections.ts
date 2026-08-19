@@ -73,13 +73,13 @@ export const COLLECTIONS: Record<string, CollectionDef> = {
     kicker: 'CLOSET REFRESH',
     title: 'New week, new closet.',
     blurb: 'The newest in, before it goes.',
-    query: { collection: 'drop-monsoon-edit', categorySlugs: ['her-dresses', 'tops', 'her-coords'], gender: 'her', sort: 'newest' },
+    query: { collection: 'drop-monsoon-edit', categorySlugs: ['dresses', 'tops', 'coords'], gender: 'her', sort: 'newest' },
   },
   'edit-her-feat-friday': {
     kicker: 'FRIDAY FEELING',
     title: 'Off the clock.',
     blurb: 'Desk to dinner without going home first.',
-    query: { collection: 'her-date-night-glam', categorySlugs: ['her-dresses-midi', 'shoes-heels', 'her-jewelry-necklaces'], gender: 'her' },
+    query: { collection: 'her-date-night-glam', categorySlugs: ['dresses-midi', 'shoes-heels', 'jewelry-necklaces'], gender: 'her' },
   },
 
   // ── home.reels_banner — the 60-minute delivery banner ─────────────────────
