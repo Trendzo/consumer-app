@@ -33,6 +33,22 @@ type CartItem = Product & { qty: number; size: string; method: DeliveryMethod; v
 const asMethod = (m: unknown): DeliveryMethod =>
   m === 'try_and_buy' || m === 'pickup' ? m : 'express';
 
+/**
+ * What identifies ONE line of the bag.
+ *
+ * NOT the product id. `addToCart` deliberately keeps separate lines per variant
+ * and per delivery method — a medium and a large of the same shirt, or one of
+ * each parked under express and Try & Buy — but every mutation was keyed on
+ * `it.id`, so removing the large removed the medium with it, the qty stepper on
+ * one line moved both, and "move to Try & Buy" dragged the whole product across.
+ * The same collision produced duplicate React keys in the Bag's lists.
+ *
+ * The variant is the real identity when the backend gave us one; the
+ * product+size+method triple is the fallback for a line that has no variant.
+ */
+export const cartLineKey = (it: { id: string; size?: string; method?: string; variantId?: string }): string =>
+  it.variantId ? `v:${it.variantId}:${it.method ?? 'express'}` : `p:${it.id}:${it.size ?? ''}:${it.method ?? 'express'}`;
+
 type AppCtx = {
   // auth
   user: { id?: string; name: string; email: string; phone?: string; address?: string; referralCode?: string; genderPreference?: 'her' | 'him' | 'unisex' | null; profileComplete?: boolean } | null;
@@ -59,9 +75,12 @@ type AppCtx = {
   // cart
   cart: CartItem[];
   addToCart: (p: Product, size?: string, method?: DeliveryMethod, variantId?: string) => void;
-  removeFromCart: (id: string) => void;
-  updateQty: (id: string, qty: number) => void;
-  updateMethod: (id: string, method: DeliveryMethod) => void;
+  /** All three take a LINE key from `cartLineKey`, never a product id — a bag can
+   *  hold several lines of the same product (different size, variant or method). */
+  removeFromCart: (lineKey: string) => void;
+  /** qty <= 0 removes the line. */
+  updateQty: (lineKey: string, qty: number) => void;
+  updateMethod: (lineKey: string, method: DeliveryMethod) => void;
   clearCart: () => void;
   cartTotal: number;
   cartCount: number;
@@ -313,7 +332,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return next;
     }), []);
 
-  const addToCart = useCallback((p: Product, size = 'M', methodArg: DeliveryMethod = 'express', variantId?: string) => {
+  /**
+   * `size` defaults to EMPTY, not 'M'.
+   *
+   * Every call site that adds straight from a grid tile (a reel, a Flash Fit
+   * look) has no size to pass, and the default stamped a specific, usually wrong
+   * claim onto the line: the Bag then said "SIZE M" for a variant that might be
+   * a 32-inch waist or one-size. A line with no size renders no size chip until
+   * the quote comes back with the variant's real `attributesLabel`.
+   */
+  const addToCart = useCallback((p: Product, size = '', methodArg: DeliveryMethod = 'express', variantId?: string) => {
     const method = asMethod(methodArg);
     setCart(prev => {
       // Merge when it's the same delivery method AND (same variant if we have a variant id,
@@ -324,12 +352,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return [...prev, { ...p, qty: 1, size, method, variantId }];
     });
   }, []);
-  const removeFromCart = useCallback((id: string) => setCart(prev => prev.filter(it => it.id !== id)), []);
-  const updateQty = useCallback((id: string, qty: number) => {
-    setCart(prev => prev.map(it => (it.id === id ? { ...it, qty: Math.max(1, qty) } : it)));
+  // All three take a LINE key (see cartLineKey), not a product id.
+  const removeFromCart = useCallback((key: string) =>
+    setCart(prev => prev.filter(it => cartLineKey(it) !== key)), []);
+  const updateQty = useCallback((key: string, qty: number) => {
+    // qty 0 removes the line. The stepper's minus used to clamp at 1, so the only
+    // way out of the bag was the small x in the corner.
+    if (qty <= 0) { setCart(prev => prev.filter(it => cartLineKey(it) !== key)); return; }
+    setCart(prev => prev.map(it => (cartLineKey(it) === key ? { ...it, qty } : it)));
   }, []);
-  const updateMethod = useCallback((id: string, method: DeliveryMethod) => {
-    setCart(prev => prev.map(it => (it.id === id ? { ...it, method: asMethod(method) } : it)));
+  const updateMethod = useCallback((key: string, method: DeliveryMethod) => {
+    const next = asMethod(method);
+    setCart(prev => {
+      const moving = prev.find(it => cartLineKey(it) === key);
+      if (!moving || moving.method === next) return prev;
+      // Moving a line onto a method that already holds the same variant must MERGE
+      // with it, exactly as addToCart would — otherwise the bag ends up with two
+      // identical lines in one bucket and two identical React keys.
+      const movedKey = cartLineKey({ ...moving, method: next });
+      const existing = prev.find(it => it !== moving && cartLineKey(it) === movedKey);
+      if (!existing) return prev.map(it => (it === moving ? { ...it, method: next } : it));
+      return prev
+        .filter(it => it !== moving)
+        .map(it => (it === existing ? { ...it, qty: it.qty + moving.qty } : it));
+    });
   }, []);
   const clearCart = useCallback(() => setCart([]), []);
 

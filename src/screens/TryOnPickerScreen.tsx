@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,10 +111,25 @@ export default function TryOnPickerScreen() {
 
   const filterOptions = useMemo(() => [ALL, ...cats.map((c) => c.label)], [cats]);
 
+  // Session still coming off disk. Rendering the grid here would show a
+  // returning user a browsable page for a frame and then swap it for a sign-in
+  // wall — this screen is a transparentModal, so "render nothing" would let the
+  // page underneath show through instead. A plain surface, briefly.
+  if (!authHydrated) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg }}>
+        <BrutalStatusBar />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
+      </View>
+    );
+  }
+
   // Signed out: one clear page with one action, instead of a grid that cannot
   // be used. The sheet is already opening from the effect above; this is what
   // is behind it, and the button re-opens it if it was dismissed.
-  if (authHydrated && !signedIn) {
+  if (!signedIn) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg }}>
         <BrutalStatusBar />

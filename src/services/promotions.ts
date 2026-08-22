@@ -99,8 +99,38 @@ function toCoupon(p: ApiPromotion): Coupon {
   };
 }
 
-/** Coupons the user can apply at checkout (mechanism='coupon' with a code). */
+/**
+ * Roughly what a coupon is worth, for ordering the list.
+ *
+ * Only ever used to SORT — never shown, never used as a discount. A percentage
+ * has no rupee value without a cart, so it sorts by percent against a nominal
+ * ₹1000 bag purely to keep the ordering stable and sane.
+ */
+function sortWeight(c: Coupon, p: ApiPromotion): number {
+  const cfg = p.config ?? {};
+  if (p.discountType === 'flat_amount' && cfg.amountPaise != null) return cfg.amountPaise;
+  if (p.discountType === 'percentage' && cfg.percent != null) return (cfg.percent / 100) * 100_000;
+  return 0;
+}
+
+/**
+ * Coupons the user can apply at checkout (mechanism='coupon' with a code).
+ *
+ * Ordered best-first, and catalogue-wide codes ahead of store-scoped ones. The
+ * product page advertises the head of this list, and taking whatever the API
+ * happened to return first meant the banner could push a ₹50 store-only code
+ * while a ₹500 sitewide one sat unmentioned in the sheet behind it.
+ *
+ * NOTE this is what EXISTS, not what a given bag qualifies for. Eligibility
+ * depends on cart contents, store scope, first-order status and loyalty tier —
+ * only /pricing/cart with the code attached can answer that.
+ */
 export async function listCoupons(): Promise<Coupon[]> {
   const rows = await request<ApiPromotion[]>('/promotions/active', { auth: false });
-  return rows.filter((p) => p.mechanism === 'coupon' && !!p.code).map(toCoupon);
+  return rows
+    .filter((p) => p.mechanism === 'coupon' && !!p.code)
+    .map((p) => ({ coupon: toCoupon(p), weight: sortWeight(toCoupon(p), p) }))
+    .sort((a, b) =>
+      (a.coupon.storeScoped ? 1 : 0) - (b.coupon.storeScoped ? 1 : 0) || b.weight - a.weight)
+    .map((x) => x.coupon);
 }
