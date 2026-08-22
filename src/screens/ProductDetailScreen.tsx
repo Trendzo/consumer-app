@@ -482,11 +482,34 @@ export default function ProductDetailScreen() {
 
   // Resolve the selected size (+ colour) to a real backend variant id so the cart can be
   // priced/checked-out server-side. Undefined for mock products (falls back to local math).
-  const variantFor = (sz: string): string | undefined => {
-    if (!detail) return undefined;
+  //
+  // Prefers an IN-STOCK variant: a listing can carry a sold-out row and a live one
+  // for the same size in different colourways, and picking the first match landed
+  // the sold-out one in the bag.
+  const variantsFor = (sz: string) => {
+    if (!detail) return [];
     const selColor = detail.swatches[colorIdx]?.name;
-    return (detail.variants.find((v) => v.size === sz && (!selColor || v.color === selColor))
-      ?? detail.variants.find((v) => v.size === sz))?.id;
+    const exact = detail.variants.filter((v) => v.size === sz && (!selColor || v.color === selColor));
+    return exact.length ? exact : detail.variants.filter((v) => v.size === sz);
+  };
+  const variantFor = (sz: string): string | undefined => {
+    const vs = variantsFor(sz);
+    return (vs.find((v) => v.available > 0) ?? vs[0])?.id;
+  };
+  /**
+   * Whether this size can actually be bought in the selected colourway.
+   *
+   * `available` has always been on the variant and was never read, so every size
+   * looked buyable: tapping a sold-out one added it to the bag and the shopper
+   * found out at checkout. Unknown (a mock product, or a size that came from the
+   * category size-scale rather than from a variant) counts as available — the
+   * server is still the authority, and greying out a size we know nothing about
+   * would hide stock that exists.
+   */
+  const sizeAvailable = (sz: string): boolean => {
+    if (!detail || detail.variants.length === 0) return true;
+    const vs = variantsFor(sz);
+    return vs.length === 0 ? true : vs.some((v) => v.available > 0);
   };
 
   // Open THE bag (the CartTab) from a pushed/modal screen. Navigating straight
@@ -513,7 +536,10 @@ export default function ProductDetailScreen() {
   // every parked item into the order. Guests get the sign-in sheet first;
   // the pending line rides the resumed navigation.
   const doBuy = (sz: string) => {
-    const line = { ...product, qty: 1, size: sz || 'M', method: 'express', variantId: variantFor(sz) };
+    // `size` stays EMPTY when the product has no size axis. It used to fall back to
+    // 'M', so a watch or a one-size bag arrived at Review Order labelled "Size M";
+    // the review page now labels it from the quote's `attributesLabel` instead.
+    const line = { ...product, qty: 1, size: sz, method: 'express' as const, variantId: variantFor(sz) };
     requireAuth(() => setTimeout(() => nav.navigate('ReviewOrder', { buyNow: line }), 60));
   };
   // Require a size first — a centred modal, not a toast. The inline row is still
@@ -524,8 +550,15 @@ export default function ProductDetailScreen() {
   };
   // A single product has no size axis, so there is nothing to ask for — demanding
   // one would strand the shopper on a picker that isn't rendered.
-  const handleAdd = () => { if (!size && showSizes) { askSize('add'); return; } doAdd(size ?? ''); };
-  const handleBuy = () => { if (!size && showSizes) { askSize('buy'); return; } doBuy(size ?? ''); };
+  // Belt and braces: the pickers disable a sold-out size, but a size auto-selected
+  // for a one-size product never went through a picker at all.
+  const guardStock = (sz: string): boolean => {
+    if (!showSizes || sizeAvailable(sz)) return true;
+    showToast('Out of stock', `Size ${sz} isn't available right now`, 'alert-circle');
+    return false;
+  };
+  const handleAdd = () => { if (!size && showSizes) { askSize('add'); return; } if (!guardStock(size ?? '')) return; doAdd(size ?? ''); };
+  const handleBuy = () => { if (!size && showSizes) { askSize('buy'); return; } if (!guardStock(size ?? '')) return; doBuy(size ?? ''); };
   const pickSize = (sz: string) => {
     const action = sizeSheet;
     setSize(sz);
@@ -682,10 +715,16 @@ export default function ProductDetailScreen() {
               <Feather name="tag" size={16} color={C.ink} />
               <View style={{ flex: 1 }}>
                 <Text style={[T.bodyB]}>{`${topCoupon.discount} with ${topCoupon.code}`}</Text>
-                <Text style={[T.micro, { marginTop: 1 }]}>
-                  {coupons.length > 1
-                    ? `${topCoupon.min} · ${coupons.length} offers · tap for details`
-                    : `${topCoupon.min} · tap to see where it applies`}
+                <Text style={[T.micro, { marginTop: 1 }]} numberOfLines={1}>
+                  {/* A store-scoped code may not apply to THIS listing's store, and
+                      /promotions/active cannot say — so the banner does not imply
+                      it will. */}
+                  {[
+                    topCoupon.min,
+                    topCoupon.storeScoped ? 'selected stores' : null,
+                    coupons.length > 1 ? `${coupons.length} offers` : null,
+                    'tap for details',
+                  ].filter(Boolean).join(' · ')}
                 </Text>
               </View>
               <View style={{ paddingHorizontal: 8, paddingVertical: 5, backgroundColor: C.ink }}>
@@ -731,11 +770,19 @@ export default function ProductDetailScreen() {
             </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: 8, flexWrap: 'wrap' }}>
-            {sizes.map(sz => (
-              <Pressable key={sz} onPress={() => selectSize(sz)} style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1)]}>
-                <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
-              </Pressable>
-            ))}
+            {sizes.map(sz => {
+              const ok = sizeAvailable(sz);
+              return (
+                <Pressable
+                  key={sz}
+                  disabled={!ok}
+                  onPress={() => selectSize(sz)}
+                  style={[{ minWidth: 48, paddingHorizontal: 10, height: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(needSize ? 2 : 1), !ok && { opacity: 0.4 }]}
+                >
+                  <Text style={[T.caption, { color: size === sz ? C.white : C.ink, textDecorationLine: ok ? 'none' : 'line-through' }]}>{sz}</Text>
+                </Pressable>
+              );
+            })}
           </View>
           </>)}
 
@@ -956,18 +1003,24 @@ export default function ProductDetailScreen() {
             </View>
           </View>
           <Text style={[T.caption, { color: C.dim, marginTop: SP.l }]}>
-            {sizeSheet === 'buy' ? 'Choose a size to continue to checkout' : 'Choose a size to add this to your bag'}
+            {sizes.every((sz) => !sizeAvailable(sz))
+              ? 'Every size is out of stock right now.'
+              : sizeSheet === 'buy' ? 'Choose a size to continue to checkout' : 'Choose a size to add this to your bag'}
           </Text>
           <View style={{ flexDirection: 'row', gap: SP.s, marginTop: SP.s, flexWrap: 'wrap' }}>
-            {sizes.map((sz) => (
-              <Pressable
-                key={sz}
-                onPress={() => pickSize(sz)}
-                style={[{ minWidth: 52, paddingHorizontal: 12, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1)]}
-              >
-                <Text style={[T.caption, { color: size === sz ? C.white : C.ink }]}>{sz}</Text>
-              </Pressable>
-            ))}
+            {sizes.map((sz) => {
+              const ok = sizeAvailable(sz);
+              return (
+                <Pressable
+                  key={sz}
+                  disabled={!ok}
+                  onPress={() => pickSize(sz)}
+                  style={[{ minWidth: 52, paddingHorizontal: 12, height: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: size === sz ? C.ink : C.white }, BORDER(1), !ok && { opacity: 0.4 }]}
+                >
+                  <Text style={[T.caption, { color: size === sz ? C.white : C.ink, textDecorationLine: ok ? 'none' : 'line-through' }]}>{sz}</Text>
+                </Pressable>
+              );
+            })}
           </View>
           <Pressable
             onPress={() => showConfirm({ title: 'Size guide', msg: 'XS · 32 in chest\nS · 34 in chest\nM · 36 in chest\nL · 38 in chest\nXL · 40 in chest', confirmLabel: 'Got it', cancelLabel: 'Close', icon: 'ruler' })}

@@ -11,14 +11,17 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, T, SP, BORDER, rf, HELV} from '../theme/brutal';
 import { CachedImage, FadeInUp, ProductCard } from '../components/Brutal';
-import { useApp, DeliveryMethod } from '../state/AppState';
+import { useApp, cartLineKey, DeliveryMethod } from '../state/AppState';
 import { useTabBarScroll } from '../hooks/useTabBarScroll';
 import { ProductRailSkeleton } from '../components/CatalogState';
 import { useCatalogProducts } from '../hooks/useCatalogProducts';
 import { priceCart, toRupees, type CartPricing } from '../services/pricing';
 import { useAppConfig } from '../hooks/useAppConfig';
 import type { AppConfig } from '../services/appConfig';
-import { readCouponOutcome, retryAsVoucher, type CouponOutcome, type CodeKind } from '../services/coupons';
+import {
+  readCouponOutcome, mergeCouponOutcomes, codeFields,
+  type CouponOutcome, type CodeSource,
+} from '../services/coupons';
 
 const TAB_BAR_HEIGHT = 72;
 const YELLOW = '#F2E63C'; // the Home highlighter — the one accent
@@ -112,7 +115,7 @@ function Slab({ label, onPress, small }: { label: string; onPress: () => void; s
 export default function CartScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { cart, updateQty, removeFromCart, updateMethod, cartCount, showToast, requireAuth, gender } = useApp();
+  const { cart, updateQty, removeFromCart, updateMethod, cartCount, showToast, requireAuth, gender, token } = useApp();
   const tabScroll = useTabBarScroll();
   const cfg = useAppConfig();
   const METHOD_META = useMemo(() => methodMetaFrom(cfg), [cfg]);
@@ -123,16 +126,26 @@ export default function CartScreen() {
   // amount that never reached the backend.
   const [submitted, setSubmitted] = useState<string | null>(null);
   /**
-   * Which field the code travels in.
+   * Where the code came from, which decides which field(s) it is sent in.
    *
-   * A code the shopper types could be a public coupon or a personal voucher, and
-   * the two are separate inputs on /pricing/* — a voucher sent as `couponCode`
-   * comes back `not_found`. So: try it as a coupon, and if the server says no
-   * such coupon, retry once as a voucher. Codes tapped in the wallet arrive with
-   * their kind already known.
+   * A code typed into the box is 'unknown' and goes out as BOTH `couponCode` and
+   * `voucherCode`: the two are separate namespaces and nothing about the string
+   * says which one it belongs to. Sending it as a coupon and retrying as a
+   * voucher would cost a second debounce plus a second quote before the
+   * shopper's own code appeared to work. See codeFields / readCouponOutcome.
    */
-  const [codeKind, setCodeKind] = useState<CodeKind>('coupon');
+  const [codeSource, setCodeSource] = useState<CodeSource>('unknown');
   const [outcome, setOutcome] = useState<CouponOutcome>({ state: 'none' });
+  /**
+   * The verdict PER BUCKET, not just the merged one.
+   *
+   * A code can apply to one delivery and not another (store scope, minimum
+   * order). The merged verdict is what the coupon row shows; this is what
+   * decides whether a given bucket's Checkout is allowed to carry the code
+   * across to Review Order — handing it to a bucket that rejected it would open
+   * checkout with a code that bounces the moment the page prices itself.
+   */
+  const [bucketOutcomes, setBucketOutcomes] = useState<Partial<Record<DeliveryMethod, CouponOutcome>>>({});
 
   // Group cart items by delivery method. Bucketing depends ONLY on `cart`, but
   // used to run on every render — including once per keystroke in the coupon
@@ -161,7 +174,10 @@ export default function CartScreen() {
    * this screen is computed locally any more.
    */
   const [quotes, setQuotes] = useState<Partial<Record<DeliveryMethod, CartPricing>>>({});
-  const [quoting, setQuoting] = useState(false);
+  const [quoteStatus, setQuoteStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  /** The server's own words when a quote fails — usually actionable. */
+  const [quoteErr, setQuoteErr] = useState<string | null>(null);
+  const [quoteNonce, setQuoteNonce] = useState(0);
   const allPriceable = cart.length > 0 && cart.every(it => !!it.variantId);
   // Debounced. Every quantity tap used to fire an immediate, un-abortable
   // POST /pricing/cart; holding the + button put several in flight at once and
@@ -169,46 +185,53 @@ export default function CartScreen() {
   // on a stale response. 400 ms is below the threshold where the delay reads as
   // lag but well above a rapid tap-tap-tap.
   useEffect(() => {
-    if (!allPriceable) { setQuotes({}); setQuoting(false); return; }
+    if (!allPriceable) { setQuotes({}); setQuoteStatus('idle'); setQuoteErr(null); return; }
     let cancelled = false;
     const jobs = activeBuckets.map((m) => ({
       m,
       items: buckets[m].map(it => ({ variantId: it.variantId as string, qty: it.qty })),
     }));
-    setQuoting(true);
+    setQuoteStatus('loading');
+    setQuoteErr(null);
+    const fields = codeFields(submitted, codeSource);
     const t = setTimeout(() => {
       Promise.allSettled(jobs.map(({ m, items }) =>
-        priceCart(items, codeKind === 'coupon' ? submitted ?? undefined : undefined, {
+        priceCart(items, fields.couponCode, {
+          ...(fields.voucherCode ? { voucherCode: fields.voucherCode } : {}),
           deliveryMethod: m,
-          ...(codeKind === 'voucher' && submitted ? { voucherCode: submitted } : {}),
         }).then((p) => [m, p] as const),
       )).then((results) => {
         if (cancelled) return;
         const next: Partial<Record<DeliveryMethod, CartPricing>> = {};
-        const rejected: { code: string; kind: string; reason: string }[] = [];
-        let couponPaise = 0;
+        const perBucket: Partial<Record<DeliveryMethod, CouponOutcome>> = {};
+        let failure: string | null = null;
         for (const r of results) {
-          if (r.status !== 'fulfilled') continue;
+          if (r.status === 'rejected') {
+            // A dropped quote is NOT "prices not confirmed yet". It used to be
+            // swallowed here, which left the summary stuck on a loading line
+            // with no error and nothing to retry — indistinguishable from a slow
+            // network, forever.
+            failure = failure ?? ((r.reason as any)?.message ?? "Couldn't price your bag. Please try again.");
+            continue;
+          }
           const [m, p] = r.value;
           next[m] = p;
-          rejected.push(...(p.rejectedCodes ?? []));
-          couponPaise += p.aggregate.couponPaise;
+          // TOP-LEVEL rejectedCodes only. The per-store arrays report a rejection
+          // for any store the coupon's apportioned subtotal did not reach, so
+          // reading them shows "coupon invalid" on a bag that was discounted.
+          perBucket[m] = readCouponOutcome(submitted, codeSource, p.aggregate.couponPaise, p.rejectedCodes, { signedIn: !!token });
         }
         setQuotes(next);
-        setQuoting(false);
-        // The discount and the rejection reason both come from THESE responses,
-        // so what the customer is shown is exactly what the server computed.
-        setOutcome(readCouponOutcome(submitted, couponPaise, rejected, codeKind));
+        setQuoteErr(failure);
+        setQuoteStatus(failure ? 'error' : 'ready');
+        // A code can legitimately apply to one bucket and not another (store
+        // scope, minimum order). It has only FAILED if every bucket refused it.
+        setBucketOutcomes(perBucket);
+        setOutcome(mergeCouponOutcomes(Object.values(perBucket) as CouponOutcome[]));
       });
     }, 400);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [cart, allPriceable, submitted, codeKind, activeBuckets, buckets]);
-
-  // "No such coupon" means we guessed the wrong field, not that the code is bad.
-  // One retry, as a voucher; a second failure is reported as written.
-  useEffect(() => {
-    if (retryAsVoucher(outcome)) setCodeKind('voucher');
-  }, [outcome]);
+  }, [cart, allPriceable, submitted, codeSource, activeBuckets, buckets, token, quoteNonce]);
 
   /** The quote for one bucket, or null while it has not arrived. */
   const aggOf = (m: DeliveryMethod) => quotes[m]?.aggregate ?? null;
@@ -226,16 +249,29 @@ export default function CartScreen() {
    * included. Falls back to the local figure only while no quote exists.
    */
   const lineByVariant = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, { netLinePaise: number; attributesLabel: string }>();
     for (const q of Object.values(quotes)) {
-      for (const st of q?.stores ?? []) for (const l of st.lines) m.set(l.variantId, l.netLinePaise);
+      for (const st of q?.stores ?? []) {
+        for (const l of st.lines) m.set(l.variantId, { netLinePaise: l.netLinePaise, attributesLabel: l.attributesLabel });
+      }
     }
     return m;
   }, [quotes]);
   const lineTotal = (it: { variantId?: string; price: number; qty: number }) => {
-    const paise = it.variantId ? lineByVariant.get(it.variantId) : undefined;
-    return paise != null ? toRupees(paise) : it.price * it.qty;
+    const q = it.variantId ? lineByVariant.get(it.variantId) : undefined;
+    return q ? toRupees(q.netLinePaise) : it.price * it.qty;
   };
+  /**
+   * What the line is, in the retailer's own words.
+   *
+   * A line added from a product page carries the size the shopper chose; a line
+   * added from a reel or a Flash Fit look carries nothing, because the grid
+   * projection does not know. `attributesLabel` on the quote is the variant's
+   * real label ("M", "32 / Blue", "One size"), so the chip fills in the moment
+   * the bag is priced instead of showing an invented "M" from the first frame.
+   */
+  const variantLabel = (it: { variantId?: string; size?: string }) =>
+    it.size || (it.variantId ? lineByVariant.get(it.variantId)?.attributesLabel ?? '' : '');
 
   const subtotalPaise = sumAgg(a => a.itemsSubtotalPaise);
   const discountPaise = sumAgg(a => a.discountPaise);
@@ -251,20 +287,21 @@ export default function CartScreen() {
       showToast('Cannot apply yet', 'Some items in your bag are not checkout-ready', 'x');
       return;
     }
-    setCodeKind('coupon');
+    setCodeSource('unknown'); // typed — could be either namespace
     setSubmitted(code);
   };
-  const clearCoupon = () => { setSubmitted(null); setCodeKind('coupon'); setOutcome({ state: 'none' }); setCoupon(''); };
+  const clearCoupon = () => {
+    setSubmitted(null); setCodeSource('unknown');
+    setOutcome({ state: 'none' }); setBucketOutcomes({}); setCoupon('');
+  };
+  /** Buckets this code actually landed in — drives the multi-delivery caveat. */
+  const appliedBuckets = activeBuckets.filter((m) => bucketOutcomes[m]?.state === 'applied').length;
 
   // Surface the server's own reason rather than "Try NEWVIBE".
   const lastNotified = useRef<string | null>(null);
   useEffect(() => {
-    const key = `${outcome.state}:${'code' in outcome ? outcome.code : ''}:${'kind' in outcome ? outcome.kind : ''}`;
+    const key = `${outcome.state}:${'code' in outcome ? outcome.code : ''}`;
     if (lastNotified.current === key) return;
-    // A first-pass `not_found` on a coupon is not a verdict — the voucher retry
-    // is already queued. Telling the shopper it failed and then silently
-    // applying it is worse than saying nothing for one round trip.
-    if (retryAsVoucher(outcome)) return;
     lastNotified.current = key;
     if (outcome.state === 'applied') {
       showToast('Coupon applied', `₹${Math.round(outcome.discountPaise / 100)} off · ${outcome.code}`, 'tag');
@@ -302,9 +339,14 @@ export default function CartScreen() {
     // who applied a coupon in the Bag reached Review Order with an empty coupon
     // field and a total that had quietly gone back up — and had to find and type
     // the same code again.
+    //
+    // The RESOLVED kind travels with it, not the guess. The quote already told
+    // us which field the code landed in, so Review Order re-prices in one call
+    // instead of rediscovering it.
+    const applied = bucketOutcomes[m];
     requireAuth(() => nav.navigate('ReviewOrder', {
       preMethod: m,
-      ...(isApplied && submitted ? { code: submitted, codeKind } : {}),
+      ...(applied?.state === 'applied' ? { code: applied.code, codeKind: applied.kind } : {}),
     }));
   };
 
@@ -345,7 +387,7 @@ export default function CartScreen() {
             contentContainerStyle={{ gap: SP.s, paddingTop: SP.m, paddingRight: SP.l }}
           >
             {cart.map((it) => (
-              <View key={it.id + it.size + it.method} style={{ width: 52 }}>
+              <View key={cartLineKey(it)} style={{ width: 52 }}>
                 <View style={[{ width: 52, height: 64, backgroundColor: '#F4F4F4', overflow: 'hidden' }, BORDER(1)]}>
                   <CachedImage source={{ uri: it.img }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                   {it.qty > 1 && (
@@ -354,8 +396,8 @@ export default function CartScreen() {
                     </View>
                   )}
                 </View>
-                {!!it.size && (
-                  <Text style={[T.micro, { color: C.dim, marginTop: 3, textAlign: 'center' }]} numberOfLines={1}>{it.size}</Text>
+                {!!variantLabel(it) && (
+                  <Text style={[T.micro, { color: C.dim, marginTop: 3, textAlign: 'center' }]} numberOfLines={1}>{variantLabel(it)}</Text>
                 )}
               </View>
             ))}
@@ -439,8 +481,12 @@ export default function CartScreen() {
 
                 {/* Items card */}
                 <View style={[{ backgroundColor: C.white, borderTopWidth: 0 }, BORDER(1), { borderTopWidth: 0 }]}>
-                  {items.map((it, i) => (
-                    <View key={it.id + it.size + m} style={{ borderTopWidth: i === 0 ? 0 : 1, borderColor: C.hairline }}>
+                  {items.map((it, i) => {
+                    // The LINE, not the product: two sizes of the same shirt are two
+                    // rows and must be removed and re-counted independently.
+                    const key = cartLineKey(it);
+                    return (
+                    <View key={key} style={{ borderTopWidth: i === 0 ? 0 : 1, borderColor: C.hairline }}>
                       <View style={{ flexDirection: 'row', padding: SP.m, gap: SP.m }}>
                         {/* image */}
                         <View style={[{ width: 82, height: 102, overflow: 'hidden', backgroundColor: '#F4F4F4' }, BORDER(1)]}>
@@ -450,24 +496,28 @@ export default function CartScreen() {
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                             <Text style={[T.micro, { color: C.dim, letterSpacing: 1, textTransform: 'uppercase', flex: 1 }]} numberOfLines={1}>{it.brand}</Text>
-                            <Pressable onPress={() => removeFromCart(it.id)} hitSlop={10}>
+                            <Pressable onPress={() => removeFromCart(key)} hitSlop={10}>
                               <Feather name="x" size={14} color={C.dim} />
                             </Pressable>
                           </View>
                           <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{it.name}</Text>
-                          <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                            <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
-                              <Text style={[T.micro, { color: C.ink }]}>SIZE {it.size}</Text>
+                          {!!variantLabel(it) && (
+                            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                              <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
+                                <Text style={[T.micro, { color: C.ink }]} numberOfLines={1}>{variantLabel(it).toUpperCase()}</Text>
+                              </View>
                             </View>
-                          </View>
+                          )}
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
                             {/* qty stepper */}
                             <View style={[{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1)]}>
-                              <Pressable onPress={() => updateQty(it.id, it.qty - 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline }}>
-                                <Feather name="minus" size={13} color={C.ink} />
+                              {/* At one, minus REMOVES the line — so it says so with a
+                                  bin rather than a dead minus that looks broken. */}
+                              <Pressable onPress={() => updateQty(key, it.qty - 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRightWidth: 1, borderColor: C.hairline }}>
+                                <Feather name={it.qty > 1 ? 'minus' : 'trash-2'} size={13} color={C.ink} />
                               </Pressable>
                               <Text style={[T.bodyB, { paddingHorizontal: 14 }]}>{it.qty}</Text>
-                              <Pressable onPress={() => updateQty(it.id, it.qty + 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderColor: C.hairline }}>
+                              <Pressable onPress={() => updateQty(key, it.qty + 1)} style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderColor: C.hairline }}>
                                 <Feather name="plus" size={13} color={C.ink} />
                               </Pressable>
                             </View>
@@ -480,13 +530,14 @@ export default function CartScreen() {
                         <Feather name="corner-down-right" size={11} color={C.dim} />
                         <Text style={[T.micro, { color: C.dim }]}>Move to</Text>
                         {METHOD_ORDER.filter(x => x !== m).map(x => (
-                          <Pressable key={x} onPress={() => updateMethod(it.id, x)} style={[{ paddingHorizontal: 9, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
+                          <Pressable key={x} onPress={() => updateMethod(key, x)} style={[{ paddingHorizontal: 9, paddingVertical: 4, backgroundColor: C.white }, BORDER(1)]}>
                             <Text style={[T.micro, { color: C.ink }]}>{METHOD_META[x].time}</Text>
                           </Pressable>
                         ))}
                       </View>
                     </View>
-                  ))}
+                    );
+                  })}
 
                   {/* bucket footer — the quote's grand total for this bucket, i.e.
                       exactly what Review Order will ask for. */}
@@ -497,6 +548,16 @@ export default function CartScreen() {
                       </Text>
                       <Text style={[T.h2]}>{bucketTotal == null ? '—' : `₹${bucketTotal}`}</Text>
                     </View>
+                    {/* Only where the server actually applied it. A bucket the code
+                        did not reach must not advertise it. */}
+                    {bucketOutcomes[m]?.state === 'applied' && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: SP.s }}>
+                        <Feather name="tag" size={11} color={C.green} />
+                        <Text style={[T.micro, { color: C.green }]} numberOfLines={1}>
+                          {`${submitted} applied to this delivery`}
+                        </Text>
+                      </View>
+                    )}
                     <Slab small label={CHECKOUT_LABEL[m]} onPress={() => checkoutBucket(m)} />
                   </View>
                 </View>
@@ -566,6 +627,16 @@ export default function CartScreen() {
             {outcome.state === 'rejected' && (
               <Text style={[T.caption, { marginTop: 6, color: '#C1121F' }]}>{outcome.message}</Text>
             )}
+            {/* Each bucket is priced, and checks out, as its own order — so a code
+                that fits more than one is quoted into each of their totals. Almost
+                every code is redeemable once, so say plainly that only the first
+                order placed will keep it, rather than letting the shopper add up
+                two discounts that will not both survive. */}
+            {isApplied && appliedBuckets > 1 && (
+              <Text style={[T.micro, { marginTop: 6, color: C.dim }]}>
+                {`This code fits ${appliedBuckets} of your deliveries. Most codes can be used once, so it will be honoured on whichever you check out first.`}
+              </Text>
+            )}
           </View>
 
           {/* ── ORDER SUMMARY — receipt card with a ghost ₹. Every line is the
@@ -597,12 +668,22 @@ export default function CartScreen() {
                 /* No quote, no numbers. The old fallback did the arithmetic here
                    with the config's delivery table and no tax, so an offline bag
                    showed a total the checkout would never charge. */
-                <View style={{ paddingVertical: SP.m, alignItems: 'center' }}>
-                  <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
-                    {!allPriceable
-                      ? "Some items in your bag can't be priced yet — remove them to check out."
-                      : quoting ? 'Getting the latest prices…' : 'Prices not confirmed yet.'}
-                  </Text>
+                <View style={{ paddingVertical: SP.m, alignItems: 'center', gap: SP.s }}>
+                  {quoteStatus === 'error' ? (
+                    <>
+                      <Feather name="alert-circle" size={18} color="#C1121F" />
+                      <Text style={[T.caption, { color: '#C1121F', textAlign: 'center' }]}>{quoteErr}</Text>
+                      <Pressable onPress={() => setQuoteNonce((n) => n + 1)} hitSlop={10}>
+                        <Text style={[T.bodyB, { textDecorationLine: 'underline' }]}>Retry</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <Text style={[T.caption, { color: C.dim, textAlign: 'center' }]}>
+                      {!allPriceable
+                        ? "Some items in your bag can't be priced yet — remove them to check out."
+                        : quoteStatus === 'loading' ? 'Getting the latest prices…' : 'Prices not confirmed yet.'}
+                    </Text>
+                  )}
                 </View>
               )}
               <Text style={[T.micro, { color: C.dim, marginTop: 6 }]}>

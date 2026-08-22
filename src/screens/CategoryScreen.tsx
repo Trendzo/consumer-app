@@ -314,6 +314,13 @@ export default function CategoryScreen() {
    */
   const chips = facetCats;
 
+  /** How many styles the CURRENT view holds: the chosen sub-category's own count
+   *  when one is active, otherwise the category total. */
+  const activeCount = useMemo(
+    () => (filter === 'ALL' ? total : facetCats.find((c) => c.label === filter)?.count ?? null),
+    [filter, facetCats, total],
+  );
+
   // Per-category hero art (bundled webp) — ink band when nothing matches.
   const bannerArt = isFlash ? null : bannerFor(label, gender);
   const goBag = () => {
@@ -508,8 +515,12 @@ export default function CategoryScreen() {
                   read a hair high (they don't drop fully sold-out listings — see
                   §4.9), so this is an "about this many", which is still far more
                   honest than announcing the page size as the catalogue size. */}
-              {status === 'ready' && (total ?? sorted.length) > 0
-                ? `${total ?? sorted.length} styles · 60-min delivery`
+              {/* `total` is the facet count for the WHOLE category — getFacets is
+                  deliberately called without the sub-category filter. So while a
+                  chip is active it would announce the parent's size next to a
+                  narrowed grid. Count the chip when one is chosen. */}
+              {status === 'ready' && (activeCount ?? sorted.length) > 0
+                ? `${activeCount ?? sorted.length} styles · 60-min delivery`
                 : '60-min delivery · door to door'}
             </Text>
           </View>

@@ -841,11 +841,36 @@ export function FlashFitScreen() {
   const reload = () => setReloadKey((n) => n + 1);
   const cellW = (W - SP.l * 2 - SP.s) / 2;
 
-  // Actually adds the pieces. This was a toast and nothing else — the bag never
-  // changed, so the shopper checked out with an empty cart.
+  /**
+   * Adds the pieces — with their REAL variant, not a made-up size.
+   *
+   * This was a toast and nothing else, so the shopper checked out with an empty
+   * cart. Then it became `addToCart(p.product, 'M')`: a line with the literal
+   * size "M" and no `variantId`, which the Bag cannot price (`allPriceable` is
+   * false without one) and checkout refuses outright — so the fit landed in the
+   * bag and jammed it. The card projection carries `defaultVariantId`, which is
+   * the cheapest in-stock variant, so that is what goes in; a piece without one
+   * is not shoppable and is reported rather than silently dropped.
+   */
   const buyTheFit = () => {
-    fit.forEach((p) => addToCart(p.product, 'M'));
-    showToast('Fit added', `${fit.length} piece${fit.length === 1 ? '' : 's'} in your bag`, 'shopping-bag');
+    const addable = fit.filter((p) => !!p.product.variantId);
+    // No size string: the card projection does not carry the variant's attribute
+    // label, and inventing one ("M") is how the Bag came to mislabel lines. The
+    // Bag reads the real label off the quote instead.
+    addable.forEach((p) => addToCart(p.product, '', 'express', p.product.variantId));
+    if (addable.length === 0) {
+      showToast('Not available', 'This drop is out of stock right now', 'x');
+      return;
+    }
+    if (addable.length < fit.length) {
+      showToast(
+        'Part of the fit added',
+        `${fit.length - addable.length} piece${fit.length - addable.length === 1 ? ' is' : 's are'} out of stock`,
+        'alert-circle',
+      );
+      return;
+    }
+    showToast('Fit added', `${addable.length} piece${addable.length === 1 ? '' : 's'} in your bag`, 'shopping-bag');
   };
   /**
    * Whether every piece of today's fit is already in the bag.
@@ -854,8 +879,12 @@ export function FlashFitScreen() {
    * time silently doubled the quantities and the shopper had no way of telling
    * from this page that the look was already in there. When it is, the control
    * becomes a confirmation that takes you to the bag instead.
+   *
+   * Matched on the VARIANT the button adds, falling back to the listing id: two
+   * pieces of one drop can be the same listing in different colourways.
    */
-  const pieceInBag = (p: { product: { id: string } }) => cart.some((c) => c.id === p.product.id);
+  const pieceInBag = (p: FitPiece) => cart.some((c) =>
+    p.product.variantId ? c.variantId === p.product.variantId : c.id === p.product.id);
   const fitInBag = fit.length > 0 && fit.every(pieceInBag);
 
   return (

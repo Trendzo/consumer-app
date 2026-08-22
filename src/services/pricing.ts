@@ -4,6 +4,7 @@
 // gets wallet/loyalty enrichment. All amounts are integer paise — divide by 100 for rupees.
 
 import { request } from './api';
+import type { RejectedCode } from './coupons';
 
 export type CartLineItem = { variantId: string; qty: number };
 
@@ -23,7 +24,16 @@ export type CartPricing = {
     }[];
     pricing: { totalPaise: number; deliveryFeePaise: number };
     deliveryOptions: { express: number; standard: number; pickup: number; try_and_buy: number };
-    rejectedCodes: { code: string; kind: string; reason: string }[];
+    /**
+     * DO NOT render this for coupon messaging — use the top-level `rejectedCodes`.
+     *
+     * A coupon is order-level, but its eligible subtotal is apportioned across
+     * stores, so a store that contributed nothing reports a rejection of its own
+     * while the coupon applied fine overall. Showing these turns a working coupon
+     * into "coupon invalid" on a cart whose total has already gone down. Only
+     * meaningful inside a per-store breakdown, which this app does not render.
+     */
+    rejectedCodes: RejectedCode[];
   }[];
   aggregate: {
     itemsSubtotalPaise: number;
@@ -42,7 +52,8 @@ export type CartPricing = {
     loyaltyEarnedPoints: number;
     defaultDeliveryMethod: string;
   };
-  rejectedCodes: { code: string; kind: string; reason: string }[];
+  /** The order-level verdict. THIS is the one to read — see the per-store note above. */
+  rejectedCodes: RejectedCode[];
 };
 
 /** paise → whole rupees (integer). */
@@ -54,6 +65,9 @@ export const toRupees = (paise: number) => Math.round((paise ?? 0) / 100);
  */
 export async function priceCart(
   items: CartLineItem[],
+  /** Prefer `codeFields(code, source)` from ./coupons — a typed code has to go
+   *  out in BOTH fields, and building that pair by hand at each call site is how
+   *  the two screens came to disagree about vouchers. */
   couponCode?: string,
   opts?: {
     pointsToRedeem?: number;

@@ -17,7 +17,7 @@ import {
   type PickupSlot,
 } from '../services/orders';
 import { openRazorpayCheckout } from '../services/razorpay-checkout';
-import { readCouponOutcome, retryAsVoucher, type CouponOutcome, type CodeKind } from '../services/coupons';
+import { readCouponOutcome, codeFields, type CouponOutcome, type CodeKind, type CodeSource } from '../services/coupons';
 import { listAddresses, formatAddress, type Address } from '../services/addresses';
 import { useAppConfig } from '../hooks/useAppConfig';
 import { pointsToRupees, type AppConfig } from '../services/appConfig';
@@ -197,8 +197,16 @@ export default function ReviewOrderScreen() {
   // their discount disappear and had to type the same code a second time.
   const [couponInput, setCouponInput] = useState<string>(route.params?.code ?? '');
   const [couponCode, setCouponCode] = useState<string | null>(route.params?.code ?? null);
-  /** Which field the code travels in — see CodeKind. Vouchers are NOT coupons. */
-  const [codeKind, setCodeKind] = useState<CodeKind>((route.params?.codeKind as CodeKind) ?? 'coupon');
+  /**
+   * Where the code came from, which decides which field(s) it goes out in.
+   *
+   * A code handed over by the Bag arrives with its kind already RESOLVED by the
+   * quote that applied it, so it re-prices in one call. A code typed here is
+   * 'unknown' and goes out as both `couponCode` and `voucherCode` — the two are
+   * separate namespaces and the string itself says nothing about which one it
+   * belongs to. See codeFields / readCouponOutcome.
+   */
+  const [codeSource, setCodeSource] = useState<CodeSource>((route.params?.codeKind as CodeKind) ?? 'unknown');
   const [couponOutcome, setCouponOutcome] = useState<CouponOutcome>({ state: 'none' });
   // Myntra-style one-tap apply: every code the shopper can use in a sheet with
   // its own Apply, instead of copy → navigate → paste. The manual input stays
@@ -215,21 +223,37 @@ export default function ReviewOrderScreen() {
    * advertising them. Both lists are shown, each labelled for what it is.
    */
   const [publicCoupons, setPublicCoupons] = useState<Coupon[]>([]);
-  const openCouponSheet = () => {
-    setCouponSheet(true);
-    listCoupons()
-      .then((cs) => setPublicCoupons(cs.filter((c) => c.active)))
-      .catch(() => { /* keep whatever list is showing */ });
-    if (!getToken()) return; // the personal list needs a session
-    listRewards()
-      .then((rs) => setHeldCoupons(rs.filter((r) => r.state === 'available' && !!r.code)))
-      .catch(() => { /* keep whatever list is showing */ });
+  /**
+   * Loading / error / ready for the sheet's two lists.
+   *
+   * Without this a failed fetch rendered "No coupons are available on your
+   * account right now" — a definite statement about the shopper's account made
+   * on the strength of a dropped request. An empty list and an unreachable
+   * server are different answers and have to read differently.
+   */
+  const [couponsStatus, setCouponsStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const loadCoupons = () => {
+    setCouponsStatus('loading');
+    const signedIn = !!getToken();
+    Promise.allSettled([
+      listCoupons(),
+      // The personal list needs a session; for a guest that leg is simply absent
+      // rather than a failure.
+      signedIn ? listRewards() : Promise.resolve([] as Reward[]),
+    ]).then(([pub, mine]) => {
+      if (pub.status === 'fulfilled') setPublicCoupons(pub.value.filter((c) => c.active));
+      if (mine.status === 'fulfilled') setHeldCoupons(mine.value.filter((r) => r.state === 'available' && !!r.code));
+      // Only a total failure is an error. One list arriving is a usable sheet.
+      const anyOk = pub.status === 'fulfilled' || mine.status === 'fulfilled';
+      setCouponsStatus(anyOk ? 'ready' : 'error');
+    });
   };
+  const openCouponSheet = () => { setCouponSheet(true); loadCoupons(); };
   /** Apply a code whose kind we already know (tapped in the sheet). */
   const applyCode = (code: string, kind: CodeKind) => {
     animateNext();
     setCouponInput(code);
-    setCodeKind(kind);
+    setCodeSource(kind);
     setCouponCode(code); // repriced server-side, same as a typed code
     setCouponSheet(false);
   };
@@ -342,13 +366,14 @@ export default function ReviewOrderScreen() {
     let cancelled = false;
     setPricingLoading(true);
     setPricingErr(null);
+    // A voucher sent in `couponCode` comes back `not_found` — they are two separate
+    // inputs on the pricing engine, and a TYPED code goes out in both. See codeFields.
+    const fields = codeFields(couponCode, codeSource);
     priceCart(
       items.map((it) => ({ variantId: it.variantId as string, qty: it.qty })),
-      // A voucher sent in `couponCode` comes back `not_found` — they are two
-      // separate inputs on the pricing engine. See CodeKind.
-      codeKind === 'coupon' ? couponCode ?? undefined : undefined,
+      fields.couponCode,
       {
-        ...(codeKind === 'voucher' && couponCode ? { voucherCode: couponCode } : {}),
+        ...(fields.voucherCode ? { voucherCode: fields.voucherCode } : {}),
         deliveryMethod: apiMethod,
         paymentMethod: effectivePayId,
         // Quote with the same points the placement will redeem. Without this the
@@ -363,7 +388,10 @@ export default function ReviewOrderScreen() {
       .then((p) => {
         if (cancelled) return;
         setPricing(p);
-        setCouponOutcome(readCouponOutcome(couponCode, p.aggregate.couponPaise, p.rejectedCodes, codeKind));
+        // TOP-LEVEL rejectedCodes. The per-store arrays report a rejection for
+        // every store the coupon's apportioned subtotal did not reach, so a
+        // working coupon on a two-store order would read as invalid.
+        setCouponOutcome(readCouponOutcome(couponCode, codeSource, p.aggregate.couponPaise, p.rejectedCodes, { signedIn: !!token }));
       })
       .catch((e: any) => {
         if (cancelled) return;
@@ -375,13 +403,7 @@ export default function ReviewOrderScreen() {
       })
       .finally(() => { if (!cancelled) setPricingLoading(false); });
     return () => { cancelled = true; };
-  }, [items, allPriceable, apiMethod, effectivePayId, couponCode, codeKind, useReward, rewardPoints, applyWallet, quoteNonce]);
-
-  // "No such coupon" means the code is a voucher, not that it is bad. One retry
-  // in the other field; a second failure is reported as the server wrote it.
-  useEffect(() => {
-    if (retryAsVoucher(couponOutcome)) setCodeKind('voucher');
-  }, [couponOutcome]);
+  }, [items, allPriceable, apiMethod, effectivePayId, couponCode, codeSource, useReward, rewardPoints, applyWallet, token, quoteNonce]);
 
   // Pickup: load the store's upcoming windows. A pickup cart is single-store by
   // backend rule, so the first bucket's store is the one to ask about.
@@ -439,12 +461,15 @@ export default function ReviewOrderScreen() {
    * engine's `netLinePaise` is what the shopper is charged.
    */
   const lineByVariant = useMemo(() => {
-    const m = new Map<string, { unitPricePaise: number; netLinePaise: number }>();
+    const m = new Map<string, { unitPricePaise: number; netLinePaise: number; attributesLabel: string }>();
     for (const st of pricing?.stores ?? []) {
-      for (const l of st.lines) m.set(l.variantId, { unitPricePaise: l.unitPricePaise, netLinePaise: l.netLinePaise });
+      for (const l of st.lines) m.set(l.variantId, { unitPricePaise: l.unitPricePaise, netLinePaise: l.netLinePaise, attributesLabel: l.attributesLabel });
     }
     return m;
   }, [pricing]);
+  /** The variant's real label, for lines added without a chosen size. See the Bag. */
+  const variantLabel = (it: { variantId?: string; size?: string }) =>
+    it.size || (it.variantId ? lineByVariant.get(it.variantId)?.attributesLabel ?? '' : '');
 
   /**
    * What each delivery method would cost for this cart, straight from the quote —
@@ -523,7 +548,12 @@ export default function ReviewOrderScreen() {
         // something it already rejected. Placement re-validates independently —
         // if the coupon lapsed between quoting and paying, the order is priced
         // without it rather than at a total we invented.
-        ...(couponApplied && couponCode ? (codeKind === 'voucher' ? { voucherCode: couponCode } : { couponCode }) : {}),
+        // The kind the QUOTE resolved, not what we guessed on the way in: a typed
+        // code goes out in both fields, and only the response says which one
+        // actually carried the discount.
+        ...(couponOutcome.state === 'applied'
+          ? (couponOutcome.kind === 'voucher' ? { voucherCode: couponOutcome.code } : { couponCode: couponOutcome.code })
+          : {}),
         // Redeem points only when the customer opted in AND has a balance.
         ...(useReward && rewardPoints > 0 ? { pointsToRedeem: rewardPoints } : {}),
         ...(applyWallet ? { applyWallet: true } : {}),
@@ -749,9 +779,9 @@ export default function ReviewOrderScreen() {
                     <Text style={[T.micro, { color: C.dim, letterSpacing: 1, textTransform: 'uppercase' }]} numberOfLines={1}>{it.brand}</Text>
                     <Text style={[T.productName, { marginTop: 2 }]} numberOfLines={2}>{it.name}</Text>
                     <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                      {!!it.size && (
+                      {!!variantLabel(it) && (
                         <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
-                          <Text style={[T.micro, { color: C.ink }]}>SIZE {it.size}</Text>
+                          <Text style={[T.micro, { color: C.ink }]} numberOfLines={1}>{variantLabel(it).toUpperCase()}</Text>
                         </View>
                       )}
                       <View style={[{ paddingHorizontal: 7, paddingVertical: 3, backgroundColor: '#F4F4F4' }, BORDER(1)]}>
@@ -803,7 +833,7 @@ export default function ReviewOrderScreen() {
                     </Text>
                   </View>
                   <Pressable
-                    onPress={() => { animateNext(); setCouponCode(null); setCouponInput(''); setCodeKind('coupon'); setCouponOutcome({ state: 'none' }); }}
+                    onPress={() => { animateNext(); setCouponCode(null); setCouponInput(''); setCodeSource('unknown'); setCouponOutcome({ state: 'none' }); }}
                     hitSlop={8}
                     style={[{ paddingHorizontal: 10, paddingVertical: 6, backgroundColor: C.white }, BORDER(1)]}
                   >
@@ -826,7 +856,7 @@ export default function ReviewOrderScreen() {
                       const code = couponInput.trim().toUpperCase();
                       if (!code) return;
                       animateNext();
-                      setCodeKind('coupon');
+                      setCodeSource('unknown'); // typed — could be either namespace
                       setCouponCode(code);
                     }}
                     disabled={!couponInput.trim()}
@@ -836,9 +866,7 @@ export default function ReviewOrderScreen() {
                   </Pressable>
                 </View>
               )}
-              {/* A first-pass `not_found` on a coupon is not a verdict — the
-                  voucher retry is already in flight. */}
-              {couponOutcome.state === 'rejected' && !retryAsVoucher(couponOutcome) && (
+              {couponOutcome.state === 'rejected' && (
                 <Text style={[T.caption, { marginTop: 6, color: '#C1121F' }]}>{couponOutcome.message}</Text>
               )}
               {/* One-tap path — opens the sheet with every usable code. */}
@@ -854,7 +882,21 @@ export default function ReviewOrderScreen() {
                 personal codes this account holds, one Apply per row. */}
             <OptionSheet visible={couponSheet} title="Coupons & offers" onClose={() => setCouponSheet(false)}>
               <ScrollView style={{ maxHeight: 400 }} contentContainerStyle={{ padding: SP.l, gap: SP.s }}>
-                {publicCoupons.length === 0 && heldCoupons.length === 0 ? (
+                {couponsStatus === 'loading' && publicCoupons.length === 0 && heldCoupons.length === 0 ? (
+                  <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
+                    Loading your coupons…
+                  </Text>
+                ) : couponsStatus === 'error' ? (
+                  <View style={{ alignItems: 'center', gap: SP.s, paddingVertical: SP.l }}>
+                    <Feather name="wifi-off" size={18} color={C.dim} />
+                    <Text style={[T.body, { color: C.dim, textAlign: 'center' }]}>
+                      Couldn't load coupons. You can still type a code above.
+                    </Text>
+                    <Pressable onPress={loadCoupons} hitSlop={10}>
+                      <Text style={[T.bodyB, { textDecorationLine: 'underline' }]}>Retry</Text>
+                    </Pressable>
+                  </View>
+                ) : couponsStatus === 'ready' && publicCoupons.length === 0 && heldCoupons.length === 0 ? (
                   <Text style={[T.body, { color: C.dim, textAlign: 'center', paddingVertical: SP.l }]}>
                     {token
                       ? 'No coupons are available on your account right now.'
@@ -863,7 +905,17 @@ export default function ReviewOrderScreen() {
                 ) : null}
 
                 {publicCoupons.length > 0 && (
-                  <Text style={[T.micro, { color: C.dim, letterSpacing: 1.5 }]}>AVAILABLE OFFERS</Text>
+                  <>
+                    <Text style={[T.micro, { color: C.dim, letterSpacing: 1.5 }]}>AVAILABLE OFFERS</Text>
+                    {/* /promotions/active lists what EXISTS, not what this bag
+                        qualifies for — eligibility depends on cart contents, store
+                        scope, first-order status and loyalty tier, none of which
+                        that endpoint can know. Applying is the only way to find
+                        out, so say so rather than implying every row will work. */}
+                    <Text style={[T.micro, { color: C.dim, marginTop: -2 }]}>
+                      Tap Apply to check one against this order.
+                    </Text>
+                  </>
                 )}
                 {publicCoupons.map((c) => (
                   <View key={c.id} style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.white }, BORDER(1)]}>
