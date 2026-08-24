@@ -15,7 +15,7 @@
 // AWS-hosted backend: CloudFront (d208iwmfjcjzy) in front of the EC2 box.
 // Rollback to the old Render backend: 'https://backend-qpmx.onrender.com/api/v1'
 export const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE || 'https://d208iwmfjcjzy.cloudfront.net/api/v1';
+  process.env.EXPO_PUBLIC_API_BASE || 'https://api.trendzonow.com/api/v1';
 
 // MSG91 OTP-widget public credentials (safe to ship; the secret authkey stays
 // server-side). Defaults are the retailer widget from the reference app — see

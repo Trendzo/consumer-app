@@ -19,7 +19,7 @@ import { request, ApiError } from './api';
 
 /** The hosted deletion page. Informational only — see the note below. */
 // AWS-hosted backend (CloudFront). Rollback: 'https://backend-qpmx.onrender.com/account-deletion'
-export const ACCOUNT_DELETION_URL = 'https://d208iwmfjcjzy.cloudfront.net/account-deletion';
+export const ACCOUNT_DELETION_URL = 'https://api.trendzonow.com/account-deletion';
 
 /**
  * Support address, and the ONLY working fallback today.
