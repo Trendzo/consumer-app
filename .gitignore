@@ -58,3 +58,9 @@ fastlane/screenshots
 *.p8
 fastlane/screenshots/
 build/
+
+# build logs/artifacts
+*-build.out.log
+*-build.err.log
+*.aab
+*.apk
