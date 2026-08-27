@@ -2,7 +2,7 @@
   "expo": {
     "name": "Trendzo",
     "slug": "Trendzo",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,11 +15,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.trendzo.consumer",
-      "buildNumber": "6",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryAddUsageDescription": "Trendzo saves your try-on looks to your photo library when you tap Save.",
-        "NSLocationAlwaysUsageDescription": "Trendzo uses your location only while you are adding a delivery address, to pin it for order routing."
+        "NSPhotoLibraryAddUsageDescription": "Trendzo saves your try-on looks to your photo library when you tap Save."
       }
     },
     "android": {
@@ -93,9 +92,11 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Trendzo uses your location only while you are adding a delivery address, to pin it for order routing.",
-          "locationWhenInUsePermission": "Trendzo uses your location only while you are adding a delivery address, to pin it for order routing.",
-          "isAndroidBackgroundLocationEnabled": false
+          "locationWhenInUsePermission": "Trendzo uses your location to show the stores that can deliver to you and how quickly, and to pin a delivery address on the map. It is never used in the background.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
         }
       ]
     ],
