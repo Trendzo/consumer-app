@@ -73,9 +73,9 @@ export const LIGHT: Palette = {
   faint: '#bdbdbd',
   hairline: '#e6e6e6',
   white: '#FFFFFF',
-  ok: '#000000',
-  warn: '#000000',
-  err: '#000000',
+  ok: '#0E8A45',
+  warn: '#A85B00',
+  err: '#C0271C',
   green: '#0E8A45', // deep green — passes contrast on white for discount %
 };
 
