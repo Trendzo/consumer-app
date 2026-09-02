@@ -37,6 +37,9 @@ import { openLocationPicker, usePlace, usePlaceCity } from '../state/location';
 import { placeLabel } from '../services/geo';
 import type { CmsItem, CmsSection } from '../content/types';
 import { resolveMedia, resolveVideo, resolveConfigMedia, withSource, useLastNonEmpty, str, num, color, priceCeilingPaise, type MediaSource } from '../content/media';
+import HeaderDecor from '../components/HeaderDecor';
+import { useFestivalTheme } from '../services/theme';
+import { hexAlpha } from '../theme/remoteTheme';
 import { openLink } from '../content/links';
 import { IMG } from '../services/images';
 
@@ -96,7 +99,6 @@ const ALL_FEATURED_CATEGORIES = (() => {
 // here (HER_/HIM_ pairs of `{ id, label, img: require(...) }`). They are CMS sections now —
 // `home.steals`, `home.top_stories`, `home.explore_grid`, `home.occasion` — and the identical
 // content still ships in content/home.content.json as the offline fallback.
-const EX_YELLOW = '#F2E63C'; // highlighter accent behind the headline words (layout, not content)
 const EX_GAP = SP.s;
 
 const { width: W } = Dimensions.get('window');
@@ -204,6 +206,19 @@ export default function HomeScreen() {
   const flashFitSection = cms['home.flash_fit']!;
   const tryOnSection = cms['home.try_on']!;
   const footerSection = cms['home.footer']!;
+  // ── Festival theme chrome ────────────────────────────────────────────
+  // useFestivalTheme() subscribes this screen, so applying/expiring a theme
+  // repaints the header live. `headerInk` is the one foreground color for
+  // everything in the hero header; un-themed it is the shipped white-on-photo.
+  const festival = useFestivalTheme();
+  const festivalHeader = festival?.chrome.header;
+  const themedHeader = !!festivalHeader && festivalHeader.kind !== 'default';
+  const headerInk = themedHeader && festivalHeader ? festivalHeader.ink : '#fff';
+  // One placeholder for BOTH search bars — the floating copy used to hardcode
+  // its own string and drift from the CMS-driven hero one.
+  const searchPlaceholder =
+    festival?.copy.searchPlaceholder ?? str(headerSection.config, 'searchPlaceholder', 'Search 60-min drops...');
+  const [headerH, setHeaderH] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   // Live catalog from the backend, cached PER GENDER. A missing slice = not
@@ -730,7 +745,11 @@ export default function HomeScreen() {
           a transparent header overlaid on it, so status bar icons stay legible over
           the photo. (Was adaptive per night mode; the old dark/light logic is
           commented below in case the hero goes back to a white top section.) */}
-      <HomeStatusBarFlip scrollY={lastScrollY} boundaryY={catSectionY} />
+      <HomeStatusBarFlip
+        scrollY={lastScrollY}
+        boundaryY={catSectionY}
+        heroBarStyle={festival?.chrome.statusBarStyle === 'dark' ? 'dark-content' : 'light-content'}
+      />
       {/* <StatusBar barStyle={night ? 'light-content' : 'dark-content'} /> */}
 
       {/* ═══ ADAPTIVE-TINT STRIP behind the status bar — commented out per redesign
@@ -802,16 +821,35 @@ export default function HomeScreen() {
               <BrandBanner nav={nav} curveStyle={curveStyle} pausedRef={scrollingRef} gender={cmsGender} section={heroSection} />
             )}
 
+            {/* Festival band + decoration — painted UNDER the header overlay. Only
+                mounts when a theme actually has header chrome or a decoration, so
+                the un-themed hero renders exactly what it always did. */}
+            {festival && festivalHeader
+              && (themedHeader || festivalHeader.overlayUrl || festival.decor.kind !== 'none') ? (
+              <HeaderDecor
+                header={festivalHeader}
+                decor={festival.decor}
+                // headerH is 0 until onLayout; the estimate is the header's real
+                // paddingTop plus its content, not the scrim's much taller box —
+                // a too-tall first frame visibly snaps down on every themed mount.
+                height={headerH > 0 ? headerH + 24 : 176}
+              />
+            ) : null}
+
             {/* Scrim so the header/search stay legible over whichever banner art is
                 showing — the new campaign photos have bright sky/wall backgrounds
                 at the top, so this needs to be strong (near-solid black) rather
-                than a subtle fade, all the way down past the search bar. */}
-            <LinearGradient
-              pointerEvents="none"
-              colors={['rgba(0,0,0,0.95)', 'rgba(0,0,0,0.85)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
-              locations={[0, 0.35, 0.75, 1]}
-              style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 230 }}
-            />
+                than a subtle fade, all the way down past the search bar. Suppressed
+                under a festival band: the band IS the legibility layer there, and
+                black haze over a light band would muddy it. */}
+            {!themedHeader ? (
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(0,0,0,0.95)', 'rgba(0,0,0,0.85)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0)']}
+                locations={[0, 0.35, 0.75, 1]}
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top + 230 }}
+              />
+            ) : null}
 
             {/* Bottom scrim — keeps the HIM/HER switch legible now that it sits
                 on the banner's bottom edge instead of the plain page background. */}
@@ -826,7 +864,11 @@ export default function HomeScreen() {
                 white bar before). Same fields as before, just restyled/repositioned.
                 Pulled up out of the safe-area inset (small fixed padding instead of
                 insets.top) so it sits right under the status bar, not below it. ═══ */}
-            <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}>
+            <View
+              pointerEvents="box-none"
+              onLayout={(e) => setHeaderH(e.nativeEvent.layout.height)}
+              style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 40 }}
+            >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SP.l }}>
                 <View style={{ flex: 1 }}>
                   {/* The wordmark and delivery-ETA lines are CONTENT, so they wait; the search
@@ -840,43 +882,71 @@ export default function HomeScreen() {
                     </>
                   ) : (
                     <>
-                      <TrendzoLogo height={16} />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        {festival?.chrome.header.wordmarkUrl ? (
+                          <FestivalWordmark uri={festival.chrome.header.wordmarkUrl} ink={headerInk} />
+                        ) : (
+                          <TrendzoLogo height={16} tint={headerInk} />
+                        )}
+                        {/* Festival greeting — a NEW surface: renders nothing (zero
+                            layout change) outside a festival. */}
+                        {festival?.copy.greeting ? (
+                          <Text numberOfLines={1} style={[T.caption, { color: headerInk, ...HERO_SHADOW, flexShrink: 1 }]}>
+                            {festival.copy.greeting}
+                          </Text>
+                        ) : null}
+                      </View>
                       {/* Delivery ETA — the headline. Mirrors the quick-commerce "X minutes · Y away" line.
                           Still editorial copy, not a live estimate: nothing measures it. Making it
                           CMS-editable at least means ops can correct it without a release. */}
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
-                        <Text numberOfLines={1} style={[T.h1, { color: '#fff', flexShrink: 0, ...HERO_SHADOW }]}>{headerSection.subtitle ?? '60 minutes'}</Text>
-                        <Text numberOfLines={1} style={[T.micro, { color: '#fff', opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>{headerSection.kicker ?? ''}</Text>
+                        <Text numberOfLines={1} style={[T.h1, { color: headerInk, flexShrink: 0, ...HERO_SHADOW }]}>{headerSection.subtitle ?? '60 minutes'}</Text>
+                        <Text numberOfLines={1} style={[T.micro, { color: headerInk, opacity: 0.85, flexShrink: 1 }, HERO_SHADOW]}>{headerSection.kicker ?? ''}</Text>
                       </View>
                     </>
                   )}
                   {/* Delivery location — the real one, tap to re-pin on the map. It read
                       "Bandra, Mumbai 400050" for every shopper in the country. */}
                   <Pressable onPress={openLocationPicker} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 }}>
-                    <RealIcon name="marker" size={13} color="#fff" />
-                    <Text style={[T.caption, { color: '#fff', ...HERO_SHADOW }]} numberOfLines={1}>{placeLabel(place)}</Text>
-                    <Feather name="chevron-down" size={13} color="#fff" />
+                    <RealIcon name="marker" size={13} color={headerInk} />
+                    <Text style={[T.caption, { color: headerInk, ...HERO_SHADOW }]} numberOfLines={1}>{placeLabel(place)}</Text>
+                    <Feather name="chevron-down" size={13} color={headerInk} />
                   </Pressable>
                 </View>
                 <Pressable onPress={() => nav.navigate('Profile')} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name="user" size={22} color="#fff" />
+                  <Feather name="user" size={22} color={headerInk} />
                 </Pressable>
               </View>
 
               {/* ═══════════ SEARCH — overlaid on the banner, frosted/transparent ═══════════ */}
-              <AnimatedPressable ref={heroSearchRef} onPress={() => openSearch(heroSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', backgroundColor: 'rgba(0,0,0,0.35)' }, curveStyle]}>
-                <RealIcon name="search" size={22} color="#FFFFFF" />
+              <AnimatedPressable
+                ref={heroSearchRef}
+                onPress={() => openSearch(heroSearchRef)}
+                style={[{
+                  flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10,
+                  marginHorizontal: SP.l, marginTop: SP.m, borderWidth: 1,
+                  borderColor: hexAlpha(headerInk === '#fff' ? '#FFFFFF' : headerInk, 0.6),
+                  // Frosted backing keyed off the theme's status-bar luminance signal:
+                  // dark icons ⇒ light band ⇒ a light frost; light icons keep the
+                  // shipped dark frost that works over photos.
+                  backgroundColor:
+                    festival?.chrome.statusBarStyle === 'dark' && themedHeader
+                      ? 'rgba(255,255,255,0.5)'
+                      : 'rgba(0,0,0,0.35)',
+                }, curveStyle]}
+              >
+                <RealIcon name="search" size={22} color={headerInk} />
                 {/* No placeholder text until it is confirmed — the magnifier already says what
                     this control is, so an empty label reads as "loading", not as broken. */}
-                <Text style={[T.body, { flex: 1, color: '#fff' }]}>
-                  {cmsLoading ? '' : str(headerSection.config, 'searchPlaceholder', 'Search 60-min drops...')}
+                <Text style={[T.body, { flex: 1, color: headerInk }]}>
+                  {cmsLoading && !festival?.copy.searchPlaceholder ? '' : searchPlaceholder}
                 </Text>
                 {/* Was a bare icon — not tappable at all. Voice input rides the
                     keyboard's own mic key, so this opens Search focused. */}
                 <Pressable onPress={() => openSearch(heroSearchRef)} hitSlop={8}>
                 </Pressable>
                 <Pressable onPress={() => nav.navigate('ImageSearch')} hitSlop={8}>
-                  <RealIcon name="camera" size={16} color="#fff" />
+                  <RealIcon name="camera" size={16} color={headerInk} />
                 </Pressable>
               </AnimatedPressable>
 
@@ -1312,7 +1382,7 @@ export default function HomeScreen() {
         >
           <AnimatedPressable ref={floatSearchRef} onPress={() => openSearch(floatSearchRef)} style={[{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: SP.m, paddingVertical: 12, gap: 10, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white }, curveStyle]}>
             <RealIcon name="search" size={20} color={C.ink} />
-            <Text style={[T.body, { flex: 1, color: C.dim }]}>Search 60-min drops...</Text>
+            <Text style={[T.body, { flex: 1, color: C.dim }]}>{searchPlaceholder}</Text>
             {/* Was a bare icon — see the hero bar's mic note. */}
             <Pressable onPress={() => openSearch(floatSearchRef)} hitSlop={8}>
             </Pressable>
@@ -1345,13 +1415,31 @@ export default function HomeScreen() {
   );
 }
 
+// ─── FESTIVAL WORDMARK — the theme's uploaded mark, with the bundled logo as
+//     the error fallback. Remote art ships pre-colored, so it is NEVER tinted;
+//     only the bundled-PNG fallback takes the header ink. ───
+function FestivalWordmark({ uri, ink }: { uri: string; ink: string }) {
+  const [dead, setDead] = useState(false);
+  if (dead) return <TrendzoLogo height={16} tint={ink} />;
+  return (
+    <CachedImage
+      source={{ uri }}
+      resizeMode="contain"
+      style={{ height: 20, width: 140 }}
+      onError={() => setDead(true)}
+    />
+  );
+}
+
 // ─── STATUS-BAR FLIP — isolated so the light↔dark icon flip at the category
 //     boundary re-renders ONLY this (a <StatusBar/> and nothing else), not the
 //     whole HomeScreen. The full-page re-render at that exact scroll offset was
 //     the hero's Category→Steals boundary jitter. ───
-function HomeStatusBarFlip({ scrollY, boundaryY }: {
+function HomeStatusBarFlip({ scrollY, boundaryY, heroBarStyle = 'light-content' }: {
   scrollY: SharedValue<number>;
   boundaryY: SharedValue<number>;
+  /** Bar style while the hero is on screen — a light festival band wants dark icons. */
+  heroBarStyle?: 'light-content' | 'dark-content';
 }) {
   const [dark, setDark] = useState(false);
   useAnimatedReaction(
@@ -1359,7 +1447,8 @@ function HomeStatusBarFlip({ scrollY, boundaryY }: {
     (pinned, prev) => { if (pinned !== prev) runOnJS(setDark)(pinned); },
     [],
   );
-  return <StatusBar barStyle={dark ? 'dark-content' : 'light-content'} />;
+  // Pinned past the hero the page is white, so icons are always dark there.
+  return <StatusBar barStyle={dark ? 'dark-content' : heroBarStyle} />;
 }
 
 // ─── LAZY SECTION — viewport culling for Home's below-fold sections ───
@@ -1698,7 +1787,7 @@ function ExploreGrid({ nav, gender, section, herSection, himSection }: {
   // Headline is authored as one string with newlines; each line keeps its own hand-tuned
   // highlighter geometry below, which is layout rather than content.
   const headlineLines = (section.title ?? '').split('\n').filter(Boolean);
-  const highlight = color(section.config, 'highlightColor', EX_YELLOW);
+  const highlight = color(section.config, 'highlightColor', C.accent);
   const HL_GEOMETRY = [
     { left: 12, right: -3 },
     { left: 0, right: -8 },

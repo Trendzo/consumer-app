@@ -24,7 +24,6 @@ import {
 } from '../services/coupons';
 
 const TAB_BAR_HEIGHT = 72;
-const YELLOW = '#F2E63C'; // the Home highlighter — the one accent
 
 type MethodMeta = { label: string; icon: string; time: string; blurb: string };
 
@@ -103,7 +102,7 @@ function Ticker({ text }: { text: string }) {
 function Slab({ label, onPress, small }: { label: string; onPress: () => void; small?: boolean }) {
   return (
     <View>
-      <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: YELLOW, borderWidth: 1, borderColor: C.ink }} />
+      <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: C.accent, borderWidth: 1, borderColor: C.ink }} />
       <Pressable onPress={onPress} style={{ backgroundColor: C.ink, paddingVertical: small ? 12 : 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7, borderWidth: 1, borderColor: C.ink }}>
         <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(small ? 13 : 15), color: C.white, letterSpacing: 2 }}>{label}</Text>
         <Feather name="arrow-right" size={small ? 14 : 16} color={C.white} />
@@ -369,7 +368,7 @@ export default function CartScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[T.micro, { color: C.dim, letterSpacing: 3 }]}>TRENDZO · YOUR BAG</Text>
             <View style={{ alignSelf: 'flex-start', marginTop: 6 }}>
-              <View style={{ position: 'absolute', left: -3, right: -6, bottom: 2, height: 11, backgroundColor: YELLOW }} />
+              <View style={{ position: 'absolute', left: -3, right: -6, bottom: 2, height: 11, backgroundColor: C.accent }} />
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(30), lineHeight: rf(34), color: C.ink, letterSpacing: -1 }}>IN THE BAG.</Text>
             </View>
           </View>
@@ -472,8 +471,8 @@ export default function CartScreen() {
                   {/* No fee until the server has quoted one. This chip used to
                       print a constant from this file, which is how the Bag and
                       Review Order came to disagree. */}
-                  <View style={{ backgroundColor: fee == null ? 'rgba(255,255,255,0.25)' : YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Text style={[T.micro, { color: fee == null ? C.white : C.ink, fontFamily: HELV, fontWeight: '700' }]}>
+                  <View style={{ backgroundColor: fee == null ? 'rgba(255,255,255,0.25)' : C.accent, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={[T.micro, { color: fee == null ? C.white : C.accentInk, fontFamily: HELV, fontWeight: '700' }]}>
                       {fee == null ? '···' : fee === 0 ? 'FREE' : `₹${fee}`}
                     </Text>
                   </View>
@@ -569,7 +568,7 @@ export default function CartScreen() {
           <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: SP.s }}>
               <View style={{ alignSelf: 'flex-start' }}>
-                <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: YELLOW }} />
+                <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: C.accent }} />
                 <Text style={[T.h3, { textTransform: 'uppercase' }]}>Coupon</Text>
               </View>
               <Pressable onPress={() => nav.navigate('CouponWallet')} hitSlop={8} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -659,7 +658,7 @@ export default function CartScreen() {
                   <View style={s.sumRow}>
                     <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
                     <View>
-                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: YELLOW }} />
+                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: C.accent }} />
                       <Text style={[T.h1]}>₹{toRupees(grandTotalPaise)}</Text>
                     </View>
                   </View>

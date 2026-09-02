@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Linking } from 'react-native';
-import { C, T, SP, HELV, rf } from '../theme/brutal';
+import { C, T, SP, HELV, rf, subscribeTheme, useThemeVersion } from '../theme/brutal';
 
 /**
  * Dependency-free renderer for the product long-description rich text.
@@ -196,13 +196,20 @@ function renderBlocks(nodes: Node[], keyBase: string): React.ReactNode[] {
 }
 
 export function RichText({ html }: { html?: string | null }) {
+  // Theme-reactive: `styles` below is rebuilt on every palette swap, and this
+  // subscription re-renders mounted instances so they pick the rebuilt map up.
+  const themeVersion = useThemeVersion();
   const tree = React.useMemo(() => (html ? parse(html) : []), [html]);
-  const blocks = React.useMemo(() => renderBlocks(tree, 'r'), [tree]);
+  const blocks = React.useMemo(() => renderBlocks(tree, 'r'), [tree, themeVersion]);
   if (!html || blocks.length === 0) return null;
   return <View>{blocks}</View>;
 }
 
-const styles = StyleSheet.create({
+// Module-scope StyleSheet.create SNAPSHOTS C.*/T.* values at bundle load — the
+// one pattern the reactive Proxy cannot reach. Rebuilt via subscribeTheme so a
+// festival apply (and the cold-start hydrate, which runs before first mount)
+// always lands. Do not copy the bare-const version of this pattern elsewhere.
+const makeStyles = () => StyleSheet.create({
   p: { ...T.body, color: C.inkSoft, marginTop: SP.s, lineHeight: rf(21) },
   bold: { fontFamily: HELV, fontWeight: '700', color: C.ink },
   italic: { fontStyle: 'italic' },
@@ -225,3 +232,5 @@ const styles = StyleSheet.create({
   tr: { flexDirection: 'row', gap: SP.m, marginTop: SP.s },
   td: { flex: 1, marginTop: 0 },
 });
+let styles = makeStyles();
+subscribeTheme(() => { styles = makeStyles(); });

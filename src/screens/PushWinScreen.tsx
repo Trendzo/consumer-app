@@ -15,8 +15,6 @@ import { useApp } from '../state/AppState';
 
 const { width: W } = Dimensions.get('window');
 
-// The Home headline highlighter yellow (EX_YELLOW) — the one accent colour.
-const YELLOW = '#F2E63C';
 
 // ── Reel symbols — ink icons, index-keyed payouts below ──
 const SYMBOLS = [
@@ -73,7 +71,7 @@ function Ticker({ text }: { text: string }) {
 function Highlight({ children }: { children: string }) {
   return (
     <View style={{ alignSelf: 'flex-start' }}>
-      <View style={{ position: 'absolute', left: -3, right: -6, bottom: 3, height: 12, backgroundColor: YELLOW }} />
+      <View style={{ position: 'absolute', left: -3, right: -6, bottom: 3, height: 12, backgroundColor: C.accent }} />
       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(34), lineHeight: rf(38), color: C.ink, letterSpacing: -1 }}>{children}</Text>
     </View>
   );
@@ -109,7 +107,7 @@ export function PushWinScreen() {
         tx: Math.cos(angle) * dist,
         ty: Math.sin(angle) * dist * 0.8,
         size: 5 + Math.random() * 5,
-        color: i % 3 === 0 ? YELLOW : C.ink,
+        color: i % 3 === 0 ? C.accent : C.ink,
         delay: Math.random() * 100,
       };
     });
@@ -251,7 +249,7 @@ export function PushWinScreen() {
           {/* Window: 2px ink frame, the brand highlighter as the payline */}
           <View style={{ width: WIN_W + 2, height: WIN_H + 2, borderWidth: 2, borderColor: C.ink, alignSelf: 'center', overflow: 'hidden', backgroundColor: C.white }}>
             {/* Yellow payline band — behind the icons, full width */}
-            <View pointerEvents="none" style={{ position: 'absolute', top: SYM_H, left: 0, right: 0, height: SYM_H, backgroundColor: YELLOW }} />
+            <View pointerEvents="none" style={{ position: 'absolute', top: SYM_H, left: 0, right: 0, height: SYM_H, backgroundColor: C.accent }} />
 
             <View style={{ flexDirection: 'row' }}>
               {reels.map((val, i) => (
@@ -284,7 +282,7 @@ export function PushWinScreen() {
             </View>
 
             {/* Win flash — a beat of pure highlighter */}
-            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: YELLOW, opacity: winFlash }} />
+            <Animated.View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.accent, opacity: winFlash }} />
           </View>
 
           {/* Paytable — hairline row, ink icons */}
@@ -332,7 +330,7 @@ export function PushWinScreen() {
             onPress={() => { setResult(null); nav.navigate('LoyaltyRewards'); }}
             style={[
               { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: SP.m, paddingVertical: 11 },
-              result.big ? { backgroundColor: YELLOW, borderWidth: 1, borderColor: C.ink }
+              result.big ? { backgroundColor: C.accent, borderWidth: 1, borderColor: C.ink }
                 : result.win ? { backgroundColor: C.ink }
                 : [{ backgroundColor: C.white }, BORDER(1)],
             ]}
@@ -340,15 +338,15 @@ export function PushWinScreen() {
             <MaterialCommunityIcons
               name={result.big ? 'crown-outline' : result.win ? 'check-decagram' : 'refresh'}
               size={18}
-              color={result.big ? C.ink : result.win ? C.white : C.ink}
+              color={result.big ? C.accentInk : result.win ? C.white : C.ink}
             />
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(14), color: result.big ? C.ink : result.win ? C.white : C.ink, letterSpacing: 0.5 }}>{result.label}</Text>
+              <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(14), color: result.big ? C.accentInk : result.win ? C.white : C.ink, letterSpacing: 0.5 }}>{result.label}</Text>
               <Text style={[T.micro, { color: result.big ? 'rgba(0,0,0,0.6)' : result.win ? 'rgba(255,255,255,0.7)' : C.dim, marginTop: 1 }]}>
                 {result.sub}{result.win ? ' · tap to view' : ''}
               </Text>
             </View>
-            {result.win && <Feather name="arrow-right" size={15} color={result.big ? C.ink : C.white} />}
+            {result.win && <Feather name="arrow-right" size={15} color={result.big ? C.accentInk : C.white} />}
           </Pressable>
         </MotiView>
       )}
@@ -357,7 +355,7 @@ export function PushWinScreen() {
       <View style={{ paddingHorizontal: SP.l, marginBottom: insets.bottom + 20 }}>
         <View>
           {/* offset shadow block */}
-          <View style={{ position: 'absolute', top: 5, left: 5, right: -5, bottom: -5, backgroundColor: disabled ? C.hairline : YELLOW, borderWidth: 1, borderColor: disabled ? C.hairline : C.ink }} />
+          <View style={{ position: 'absolute', top: 5, left: 5, right: -5, bottom: -5, backgroundColor: disabled ? C.hairline : C.accent, borderWidth: 1, borderColor: disabled ? C.hairline : C.ink }} />
           <Animated.View style={{ transform: [{ translateX: pressShift }, { translateY: pressShift }] }}>
             <Pressable
               onPress={push}

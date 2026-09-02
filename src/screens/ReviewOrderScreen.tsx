@@ -25,8 +25,6 @@ import { updateMe } from '../services/auth';
 import { getWallet } from '../services/wallet';
 import { getLoyalty } from '../services/loyalty';
 
-/** The Home/Bag highlighter — the one accent, shared so the two receipts match. */
-const YELLOW = '#F2E63C';
 /**
  * Two tenders, because two is what checkout actually does: pay now through the gateway, or
  * pay on handover. `id` is the value the backend takes.
@@ -1076,7 +1074,7 @@ export default function ReviewOrderScreen() {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 }}>
                     <Text style={[T.h3, { textTransform: 'uppercase' }]}>Total</Text>
                     <View>
-                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: YELLOW }} />
+                      <View style={{ position: 'absolute', left: -4, right: -4, bottom: 2, height: 10, backgroundColor: C.accent }} />
                       <Text style={[T.h1]}>₹{total}</Text>
                     </View>
                   </View>

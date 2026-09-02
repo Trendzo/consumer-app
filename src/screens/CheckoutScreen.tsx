@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
-import { C, T, SP, BORDER, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, useThemeVersion } from '../theme/brutal';
 import { ScreenHeader, BrutalButton, BrutalStatusBar, FadeInUp } from '../components/Brutal';
 import { DeliveryTermsSheet } from '../components/DeliveryTermsSheet';
 import { useApp } from '../state/AppState';
@@ -54,7 +54,7 @@ export default function CheckoutScreen() {
   const cInsets = useSafeAreaInsets();
   const preMethod: Method | undefined = route.params?.preMethod;
   const { cart, cartTotal, placeOrder, showToast, requireAuth } = useApp();
-  const s = React.useMemo(() => makeS(), []);
+  const s = React.useMemo(() => makeS(), [useThemeVersion()]);
   const [addr, setAddr] = useState('a1');
   const [method, setMethod] = useState<Method>(preMethod || 'express');
   const [store, setStore] = useState('s1');

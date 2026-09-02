@@ -999,7 +999,6 @@ export function FlashFitScreen() {
 // tiles, alternating editorial split bands, a trending grid and a story poster.
 // Same modern language as the rest of Home — ink, hairline, highlighter yellow.
 // ════════════════════════════════════════════════════════════════════════════
-const EDIT_YELLOW = '#F2E63C';
 
 /**
  * The Her/His Edit page, assembled from four CMS sections rather than one hardcoded object:
@@ -1139,8 +1138,8 @@ function GenderEditScreen({
               title above stay, so the screen is navigable while the campaign resolves. */}
           {!loading && (
             <View style={{ position: 'absolute', left: SP.l, bottom: 56 }}>
-              <View style={{ alignSelf: 'flex-start', backgroundColor: EDIT_YELLOW, paddingHorizontal: 8, paddingVertical: 3 }}>
-                <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '700', letterSpacing: 1.5 }]}>{content.kicker}</Text>
+              <View style={{ alignSelf: 'flex-start', backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={[T.micro, { color: C.accentInk, fontFamily: HELV, fontWeight: '700', letterSpacing: 1.5 }]}>{content.kicker}</Text>
               </View>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(58), lineHeight: rf(56), color: '#fff', letterSpacing: -2, marginTop: 10 }}>{content.headline}</Text>
             </View>
@@ -1171,7 +1170,7 @@ function GenderEditScreen({
         {/* ── NUMBERED CATEGORY TILES — swipeable cutout row ── */}
         <View style={{ marginTop: SP.xl, paddingHorizontal: SP.l }}>
           <View style={{ alignSelf: 'flex-start' }}>
-            <View style={{ position: 'absolute', left: -3, right: -6, bottom: 2, height: 10, backgroundColor: EDIT_YELLOW }} />
+            <View style={{ position: 'absolute', left: -3, right: -6, bottom: 2, height: 10, backgroundColor: C.accent }} />
             <Text style={[T.h2, { textTransform: 'uppercase' }]}>Shop the pieces</Text>
           </View>
         </View>
@@ -1252,7 +1251,7 @@ function GenderEditScreen({
         {/* ── CTA — black slab on a yellow offset shadow (brand press) ── */}
         <View style={{ paddingHorizontal: SP.l, marginTop: SP.xl }}>
           <View>
-            <View style={{ position: 'absolute', top: 5, left: 5, right: -5, bottom: -5, backgroundColor: EDIT_YELLOW, borderWidth: 1, borderColor: C.ink }} />
+            <View style={{ position: 'absolute', top: 5, left: 5, right: -5, bottom: -5, backgroundColor: C.accent, borderWidth: 1, borderColor: C.ink }} />
             <Pressable onPress={() => nav.navigate('Categories')} style={{ backgroundColor: C.ink, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderWidth: 1, borderColor: C.ink }}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(15), color: C.white, letterSpacing: 2 }}>{content.cta}</Text>
               <Feather name="arrow-right" size={16} color={C.white} />

@@ -328,9 +328,9 @@ export function CouponWalletScreen() {
               {rewards.map((r, i) => (
                 <FadeInUp key={r.id} delay={i * 40}>
                   <View style={[{ flexDirection: 'row', backgroundColor: C.white, overflow: 'hidden' }, BORDER(1), r.state !== 'available' && { opacity: 0.5 }]}>
-                    <View style={{ width: 96, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F2E63C', padding: SP.s, borderRightWidth: 1, borderColor: C.hairline, borderStyle: 'dashed' }}>
-                      <Feather name="gift" size={18} color={C.ink} />
-                      <Text style={[T.micro, { color: C.ink, marginTop: 4, letterSpacing: 1 }]}>YOURS</Text>
+                    <View style={{ width: 96, alignItems: 'center', justifyContent: 'center', backgroundColor: C.accent, padding: SP.s, borderRightWidth: 1, borderColor: C.hairline, borderStyle: 'dashed' }}>
+                      <Feather name="gift" size={18} color={C.accentInk} />
+                      <Text style={[T.micro, { color: C.accentInk, marginTop: 4, letterSpacing: 1 }]}>YOURS</Text>
                     </View>
                     <View style={{ flex: 1, padding: SP.m }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>

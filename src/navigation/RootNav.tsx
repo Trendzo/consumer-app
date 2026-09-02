@@ -11,6 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, T, BORDER, HELV} from '../theme/brutal';
 import { BrutalToast, BrutalConfirm } from '../components/Brutal';
 import { useApp } from '../state/AppState';
+import { useFestivalTheme } from '../services/theme';
 import { tabBarBus } from '../state/uiBus';
 
 /** Placeholder while a lazily-loaded screen's chunk resolves. Deliberately plain —
@@ -120,7 +121,12 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
     { name: 'CartTab', label: 'Bag', icon: 'bag' },
   ];
   const { cartCount, tabBarOffset } = useApp();
-  const activeTint = TAB_ACTIVE;
+  // Festival chrome: active tint + badge color come from the live theme, with
+  // the shipped constants as fallback. useFestivalTheme() subscribes this bar,
+  // so a mid-session apply repaints it immediately.
+  const festival = useFestivalTheme();
+  const activeTint = festival?.chrome.tabBar.activeInk ?? TAB_ACTIVE;
+  const badgeBg = festival?.chrome.tabBar.badgeBg ?? TAB_ACTIVE;
   const insets = useSafeAreaInsets();
   const tabStyles = tabStylesStatic;
 
@@ -163,7 +169,7 @@ function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               <View style={tabStyles.iconWrap}>
                 <PixelIcon name={it.icon} size={22} color={tint} />
                 {it.name === 'CartTab' && cartCount > 0 && (
-                  <View style={tabStyles.badge}>
+                  <View style={[tabStyles.badge, { backgroundColor: badgeBg }]}>
                     {/* Capped: an uncapped 3-4 digit count widens the badge past
                         the wrap and puts the clipping straight back. */}
                     <Text style={tabStyles.badgeTxt} numberOfLines={1}>
@@ -243,7 +249,7 @@ const tabStylesStatic = StyleSheet.create({
     minWidth: 16,
     height: 16,
     borderRadius: 0,
-    backgroundColor: '#111111',
+    // backgroundColor intentionally absent — themed at render time (badgeBg).
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,

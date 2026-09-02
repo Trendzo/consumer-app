@@ -623,7 +623,7 @@ export function LoyaltyRewardsScreen() {
                 <View style={{ flex: 1 }}>
                   {/* title with the Home highlighter bar */}
                   <View style={{ alignSelf: 'flex-start' }}>
-                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: '#F2E63C' }} />
+                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: C.accent }} />
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink, letterSpacing: 0.5 }}>PUSH & WIN</Text>
                   </View>
                   <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Match 3 on the machine · win up to ₹500</Text>
@@ -631,7 +631,7 @@ export function LoyaltyRewardsScreen() {
                 </View>
                 {/* PLAY — black slab on a yellow offset shadow */}
                 <View>
-                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: '#F2E63C', borderWidth: 1, borderColor: C.ink }} />
+                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: C.accent, borderWidth: 1, borderColor: C.ink }} />
                   <View style={{ backgroundColor: C.ink, paddingHorizontal: 18, paddingVertical: 11 }}>
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 2 }}>PLAY</Text>
                   </View>
@@ -652,14 +652,14 @@ export function LoyaltyRewardsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ alignSelf: 'flex-start' }}>
-                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: '#F2E63C' }} />
+                    <View style={{ position: 'absolute', left: -2, right: -4, bottom: 1, height: 8, backgroundColor: C.accent }} />
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(17), color: C.ink, letterSpacing: 0.5 }}>SPIN & WIN</Text>
                   </View>
                   <Text style={[T.micro, { color: C.dim, marginTop: 4 }]}>Real coupon codes and points · applied at checkout</Text>
                   <Text style={[T.micro, { color: C.ink, fontFamily: HELV, fontWeight: '600', marginTop: 2 }]}>One spin a day</Text>
                 </View>
                 <View>
-                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: '#F2E63C', borderWidth: 1, borderColor: C.ink }} />
+                  <View style={{ position: 'absolute', top: 4, left: 4, right: -4, bottom: -4, backgroundColor: C.accent, borderWidth: 1, borderColor: C.ink }} />
                   <View style={{ backgroundColor: C.ink, paddingHorizontal: 18, paddingVertical: 11 }}>
                     <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 2 }}>SPIN</Text>
                   </View>

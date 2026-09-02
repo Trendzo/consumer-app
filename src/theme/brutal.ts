@@ -2,6 +2,7 @@
 // Reactive palette: C is a Proxy that resolves at access time, so styles
 // built inside components (re-evaluated on `night` toggle) flip instantly.
 
+import { useSyncExternalStore } from 'react';
 import { Dimensions, Platform, PixelRatio } from 'react-native';
 import { initialWindowMetrics } from 'react-native-safe-area-context';
 
@@ -63,6 +64,15 @@ export type Palette = {
   warn: string;
   err: string;
   green: string; // discount / savings accent (only non-mono color in the system)
+
+  // ── Remote-safe festival tokens ─────────────────────────────────────
+  // The ONLY keys a server-driven theme may override (see theme/remoteTheme.ts).
+  // LIGHT values reproduce today's hardcoded look exactly, so with no theme
+  // published the app is pixel-identical to before these existed.
+  accent: string; // the campaign highlighter (was the hardcoded #F2E63C yellow)
+  accentInk: string; // text/icons ON an accent-filled surface
+  accentSoft: string; // pale accent tint for chips/price flashes
+  surfaceAlt: string; // alternate neutral surface (thumb backing, bands)
 };
 
 export const LIGHT: Palette = {
@@ -77,6 +87,10 @@ export const LIGHT: Palette = {
   warn: '#A85B00',
   err: '#C0271C',
   green: '#0E8A45', // deep green — passes contrast on white for discount %
+  accent: '#F2E63C', // Home headline highlighter — matches every migrated YELLOW const
+  accentInk: '#000000', // === ink: exactly what sat on the yellow before, so unthemed pixels are unchanged
+  accentSoft: '#FCF8D8', // pale wash of the accent
+  surfaceAlt: '#F4F4F4', // the app's established neutral chip/thumb grey
 };
 
 
@@ -94,6 +108,53 @@ export function subscribeTheme(fn: () => void) {
 // LIGHT MODE ONLY — night mode was removed app-wide. Kept as a no-op export
 // so any lagging call site still compiles; _active is pinned to LIGHT.
 export function setNight(_on: boolean) {}
+
+// ── Server-driven theme swap ──────────────────────────────────────────
+// The machinery night mode left behind, finally reconnected: a festival theme
+// reassigns _active (never mutates), rebuilds the precomputed T map, and
+// notifies subscribers. Callers pass PRE-VALIDATED tokens only — the allowlist
+// lives in theme/remoteTheme.ts and raw server JSON must never reach here.
+
+export type RemoteTokenKey = 'accent' | 'accentInk' | 'accentSoft' | 'surfaceAlt' | 'hairline';
+export const REMOTE_TOKEN_KEYS: readonly RemoteTokenKey[] = [
+  'accent',
+  'accentInk',
+  'accentSoft',
+  'surfaceAlt',
+  'hairline',
+];
+
+let _themeVersion = 0;
+export const getThemeVersion = () => _themeVersion;
+function notifyTheme() {
+  _themeVersion += 1;
+  subscribers.forEach((fn) => fn());
+}
+
+/** Merge validated, allowlisted tokens over LIGHT and repaint subscribed surfaces. */
+export function applyPalette(tokens: Partial<Pick<Palette, RemoteTokenKey>>) {
+  _active = { ...LIGHT, ...tokens };
+  T_ACTIVE = buildT(_active);
+  notifyTheme();
+}
+
+/** Back to the bundled look — theme expired, was disabled, or failed validation. */
+export function resetPalette() {
+  if (_active === LIGHT) return;
+  _active = LIGHT;
+  T_ACTIVE = T_LIGHT;
+  notifyTheme();
+}
+
+/**
+ * Re-render hook for theme-aware components: subscribes to the palette store and
+ * returns a version that bumps on every apply/reset. Chrome surfaces (header, tab
+ * bar, status bar) call this; body content repaints via its normal renders because
+ * every C and T read resolves _active at access time.
+ */
+export function useThemeVersion(): number {
+  return useSyncExternalStore(subscribeTheme, getThemeVersion, getThemeVersion);
+}
 
 // Proxy forwards every access to the current _active palette.
 // `C.ink` → `_active.ink` at read time, so there's no stale snapshot.
@@ -243,12 +304,18 @@ const buildT = (P: Palette) => ({
   monoB: { fontFamily: HELV, fontWeight: '700', fontSize: rf(12), color: P.ink, letterSpacing: 0.5 },
 });
 const T_LIGHT = buildT(LIGHT);
+// The map the trap actually reads. applyPalette swaps in a rebuild (buildT is
+// deterministic — rf() depends only on metrics captured at module load), which
+// is what the original night-mode design intended: "flips simply select the
+// other prebuilt map". Without this, a palette swap would leave every T.* site
+// on LIGHT — themed backgrounds with unthemed text.
+let T_ACTIVE: ReturnType<typeof buildT> = T_LIGHT;
 
 export const T: any = new Proxy(
   {},
   {
     get(_, key: string) {
-      return T_LIGHT[key as keyof typeof T_LIGHT];
+      return T_ACTIVE[key as keyof typeof T_ACTIVE];
     },
   },
 );

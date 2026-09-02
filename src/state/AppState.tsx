@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useEf
 import { InteractionManager } from 'react-native';
 import { useSharedValue, withSpring, SharedValue } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { hydratePersistedTheme, startThemeService, THEME_KEY } from '../services/theme';
 
 const GENDER_KEY = '@closetx/gender';
 import { Product } from '../data/mockData';
@@ -227,9 +228,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const pairs = await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY, ONBOARDED_KEY, GENDER_KEY]);
+        const pairs = await AsyncStorage.multiGet([
+          TOKEN_KEY,
+          USER_KEY,
+          ONBOARDED_KEY,
+          GENDER_KEY,
+          THEME_KEY,
+        ]);
         if (cancelled) return;
         const read = (k: string) => pairs.find(([key]) => key === k)?.[1] ?? null;
+
+        // Festival theme FIRST and synchronously: routing waits on authHydrated
+        // (set in the finally below), so the palette is in place before the first
+        // themed frame ever mounts — no LIGHT flash, no repaint.
+        hydratePersistedTheme(read(THEME_KEY));
+        startThemeService();
         const t = read(TOKEN_KEY);
         const u = read(USER_KEY);
         const ob = read(ONBOARDED_KEY);

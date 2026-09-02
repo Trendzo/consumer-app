@@ -8,7 +8,12 @@
 // The auth token lives in a module-level holder (set by AppState on login /
 // hydrate) so non-React code can attach the Bearer header without prop-drilling.
 
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { API_BASE } from '../config/env';
+
+/** The binary's marketing version ("1.0.6"); '0.0.0' only in exotic dev contexts. */
+const APP_VERSION: string = Constants.expoConfig?.version ?? '0.0.0';
 
 let authToken: string | null = null;
 
@@ -58,6 +63,10 @@ export async function request<T>(path: string, opts: RequestOpts = {}): Promise<
   const headers: Record<string, string> = { ...(opts.headers ?? {}) };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (auth && authToken) headers.Authorization = `Bearer ${authToken}`;
+  // Client identity for server-side gating (festival themes gate on min app
+  // version + platform; anything future-shaped can reuse these).
+  headers['x-app-version'] = APP_VERSION;
+  headers['x-app-platform'] = Platform.OS;
 
   // The backend runs on a free tier that cold-starts slowly, so without a
   // timeout a request can hang indefinitely (looks like a frozen "Verifying…").

@@ -118,6 +118,15 @@ export function usePlace(): Place | null {
  */
 export function usePlaceCity(): string | null {
   const place = usePlace();
+  return normalizeCity(place);
+}
+
+/** Same normalisation, read imperatively — the theme service is not a component. */
+export function getPlaceCity(): string | null {
+  return normalizeCity(getPlace());
+}
+
+function normalizeCity(place: Place | null): string | null {
   const city = place?.city?.trim();
   return city ? city.toLowerCase() : null;
 }

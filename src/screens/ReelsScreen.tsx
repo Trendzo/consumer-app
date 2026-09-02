@@ -7,7 +7,7 @@ import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { C, T, SP, BORDER, rf, HELV, HEADER_TOP } from '../theme/brutal';
+import { C, T, SP, BORDER, rf, HELV, HEADER_TOP, useThemeVersion } from '../theme/brutal';
 import { REELS } from '../data/mockData';
 import { useApp } from '../state/AppState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -121,7 +121,7 @@ export default function ReelsScreen({ route }: { route: any }) {
   // instead of looping/decoding in the background on other tabs.
   const isFocused = useIsFocused();
   const { addToCart, toggleFavorite, isFavorite, showToast, requireAuth, token, getToken } = useApp();
-  const s = React.useMemo(() => makeS(), []);
+  const s = React.useMemo(() => makeS(), [useThemeVersion()]);
   const [active, setActive] = useState(0);
   const [seed, setSeed] = useState(0);
   const [data, setData] = useState<FeedItem[]>(() => buildPage(0, PAGE_SIZE * 2) as any);
@@ -397,7 +397,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
   const aProd = Platform.OS === 'android' ? { bottom: TAB_H + 8 } : null;
   const aUser = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 6 } : null;
   const aActs = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 12 } : null;
-  const s = React.useMemo(() => makeS(), []);
+  const s = React.useMemo(() => makeS(), [useThemeVersion()]);
   const { requireAuth, token, getToken } = useApp();
   const { ref: prodRef, open: openProd } = useZoomCard();
 

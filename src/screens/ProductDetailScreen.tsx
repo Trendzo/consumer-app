@@ -5,7 +5,7 @@ import { MotiView as MV } from 'moti';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, StackActions, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, SP, BORDER, HELV, HEADER_TOP, rf } from '../theme/brutal';
+import { C, T, SP, BORDER, HELV, HEADER_TOP, rf, useThemeVersion } from '../theme/brutal';
 import { BrutalButton, BrutalIconBtn, BagButton, CenterModal, OptionSheet, CachedImage, ProductCard, FadeInUp, CARD_STYLES} from '../components/Brutal';
 import { useApp } from '../state/AppState';
 import { RichText } from '../components/RichText';
@@ -178,7 +178,7 @@ export default function ProductDetailScreen() {
     return () => sub.remove();
   }, []));
 
-  const s = React.useMemo(() => makeS(), []);
+  const s = React.useMemo(() => makeS(), [useThemeVersion()]);
   const [size, setSize] = useState<string | null>(null);
   /**
    * The pending Add/Buy action while the CENTRED size modal is open.
@@ -760,7 +760,7 @@ export default function ProductDetailScreen() {
             style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: SP.l }}
           >
             <View>
-              {needSize && <View style={{ position: 'absolute', left: -3, right: -5, bottom: 0, height: 9, backgroundColor: '#F2E63C' }} />}
+              {needSize && <View style={{ position: 'absolute', left: -3, right: -5, bottom: 0, height: 9, backgroundColor: C.accent }} />}
               <Text style={[T.caption, needSize && { color: C.ink, fontFamily: HELV, fontWeight: '700' }]}>
                 {needSize ? 'PICK A SIZE TO CONTINUE' : 'Size'}
               </Text>

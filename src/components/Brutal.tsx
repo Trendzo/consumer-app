@@ -6,8 +6,9 @@ import { MotiView } from 'moti';
 import Reanimated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV, HEADER_TOP } from '../theme/brutal';
+import { C, T, BORDER, SP, HAIRLINE, rf, subscribeTheme, isHer, HELV, HEADER_TOP, useThemeVersion } from '../theme/brutal';
 import { useApp } from '../state/AppState';
+import { useFestivalTheme } from '../services/theme';
 import { toastBus, confirmBus, tabBarBus } from '../state/uiBus';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
@@ -65,8 +66,12 @@ export function useKeyboardHeight() {
   return kb;
 }
 
-// Light-mode only — dark status-bar content over the app's white surfaces.
+// Dark status-bar content over the app's white surfaces. Inner screens keep
+// white bodies even under a festival theme, so dark-content stays correct;
+// the subscription is the hook point if themed inner chrome ever lands
+// (Home's hero has its own flip — see HomeStatusBarFlip in HomeScreen).
 export function BrutalStatusBar() {
+  useThemeVersion();
   return <StatusBar barStyle="dark-content" />;
 }
 
@@ -332,6 +337,9 @@ export function BrutalIconBtn({ icon, onPress, size = 38, active }: { icon: keyo
  */
 export function BagButton({ onPress, light, size = 38, bare }: { onPress?: () => void; light?: boolean; size?: number; bare?: boolean }) {
   const { cartCount } = useApp();
+  // Festival badge color; the `light` (photo-header) variant stays white-on-ink.
+  const festival = useFestivalTheme();
+  const badgeBg = festival?.chrome.tabBar.badgeBg ?? C.ink;
   const badge = cartCount > 99 ? '99+' : String(cartCount);
   return (
     <View>
@@ -348,7 +356,7 @@ export function BagButton({ onPress, light, size = 38, bare }: { onPress?: () =>
           style={{
             position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, paddingHorizontal: 4,
             alignItems: 'center', justifyContent: 'center',
-            backgroundColor: light ? '#fff' : C.ink,
+            backgroundColor: light ? '#fff' : badgeBg,
             borderWidth: 1, borderColor: light ? C.ink : '#fff',
           }}
         >

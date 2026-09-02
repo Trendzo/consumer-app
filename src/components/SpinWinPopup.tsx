@@ -22,7 +22,6 @@ import { claim as claimPrize, play, setPendingClaim, type SpinResult, type SpinW
 
 const { width: W } = Dimensions.get('window');
 
-const YELLOW = '#F2E63C'; // Home headline highlighter — the one accent
 const CARD_W = Math.min(W - 36, 380);
 const WHEEL = CARD_W - SP.l * 2 - 26;
 const R = WHEEL / 2;
@@ -155,7 +154,7 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
         tx: Math.cos(angle) * dist,
         ty: Math.sin(angle) * dist,
         size: 5 + Math.random() * 5,
-        color: i % 3 === 0 ? YELLOW : C.ink,
+        color: i % 3 === 0 ? C.accent : C.ink,
         delay: Math.random() * 120,
       };
     });
@@ -181,8 +180,8 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
         >
           {/* ── Header strip — same shell as the app's confirm dialog ── */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: SP.m, backgroundColor: C.ink }}>
-            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: YELLOW }}>
-              <MaterialCommunityIcons name="gift-outline" size={15} color={C.ink} />
+            <View style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: C.accent }}>
+              <MaterialCommunityIcons name="gift-outline" size={15} color={C.accentInk} />
             </View>
             <Text style={[T.h3, { color: C.white, flex: 1, textTransform: 'uppercase' }]}>Spin & Win</Text>
             <Pressable onPress={onClose} hitSlop={10}>
@@ -194,7 +193,7 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
           <View style={{ padding: SP.l, alignItems: 'center' }}>
             {/* Headline with the Home highlighter bar */}
             <View style={{ alignSelf: 'center' }}>
-              <View style={{ position: 'absolute', left: -4, right: -8, bottom: 2, height: 11, backgroundColor: YELLOW }} />
+              <View style={{ position: 'absolute', left: -4, right: -8, bottom: 2, height: 11, backgroundColor: C.accent }} />
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink, letterSpacing: -0.5, textTransform: 'uppercase' }}>
                 {headline}
               </Text>
@@ -275,7 +274,7 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
                     style={{ width: 58, height: 58, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.white }}
                   >
                     {result !== null ? (
-                      <Feather name={result.won ? 'check' : 'x'} size={22} color={YELLOW} />
+                      <Feather name={result.won ? 'check' : 'x'} size={22} color={C.accent} />
                     ) : (
                       <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(13), color: C.white, letterSpacing: 1.5 }}>{spinning ? '···' : 'SPIN'}</Text>
                     )}
@@ -302,7 +301,7 @@ export function SpinWinPopup({ visible, wheel, onClose, onShop }: {
                   disabled={claiming}
                   style={{ alignSelf: 'stretch', paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, backgroundColor: claiming ? C.faint : C.ink }}
                 >
-                  <Feather name={result.won ? 'gift' : 'x'} size={16} color={YELLOW} />
+                  <Feather name={result.won ? 'gift' : 'x'} size={16} color={C.accent} />
                   <Text style={[T.button, { color: C.white, letterSpacing: 2 }]}>
                     {!result.won ? 'CLOSE'
                       : claiming ? 'CLAIMING···'
