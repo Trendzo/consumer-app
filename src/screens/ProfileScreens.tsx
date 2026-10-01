@@ -551,7 +551,7 @@ export function LoyaltyRewardsScreen() {
                   </Text>
                 </View>
               ) : (
-                <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', marginTop: SP.l }]}>You've reached the top tier ✦</Text>
+                <Text style={[T.micro, { color: 'rgba(255,255,255,0.7)', marginTop: SP.l }]}>You've reached the top tier</Text>
               )}
             </View>
             {/* redeem strip */}

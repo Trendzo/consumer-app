@@ -113,7 +113,7 @@ export const CATEGORIES: Category[] = [
   { id: 'c4', label: 'Bags',    icon: 'bag-handle-outline', tint: '#A78BFA', img: png('women_bag', 6427) },
   { id: 'c5', label: 'Dresses', icon: 'diamond-outline',   tint: '#F59E0B', img: png('dress', 196) },
   { id: 'c6', label: 'Coats',   icon: 'flower-outline',    tint: '#EC4899', img: png('coat', 79) },
-  { id: 'c7', label: 'Jackets', icon: 'sparkles-outline',  tint: '#10B981', img: png('jacket', 8058) },
+  { id: 'c7', label: 'Jackets', icon: 'layers-outline',    tint: '#10B981', img: png('jacket', 8058) },
   { id: 'c8', label: 'Tees',    icon: 'fitness-outline',   tint: '#3B82F6', img: png('tshirt', 5452) },
 ];
 
@@ -168,7 +168,7 @@ export const COMMUNITY: CommunityPost[] = [
 ];
 
 export const GAMES: GameCard[] = [
-  { id: 'g1', title: 'Daily Reward', subtitle: 'Day 7 streak 🔥', cta: 'CLAIM', icon: 'gift-outline' },
+  { id: 'g1', title: 'Daily Reward', subtitle: 'Day 7 streak', cta: 'CLAIM', icon: 'gift-outline' },
   { id: 'g2', title: 'Spin & Win', subtitle: 'Up to 80% OFF', cta: 'SPIN', icon: 'sync-outline' },
   { id: 'g3', title: 'Lucky Draw', subtitle: 'Win iPhone 17', cta: 'ENTER', icon: 'trophy-outline' },
   { id: 'g4', title: 'Style Quiz', subtitle: 'Find your vibe', cta: 'START', icon: 'color-palette-outline' },
