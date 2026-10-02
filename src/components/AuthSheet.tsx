@@ -11,24 +11,26 @@ import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { BrutalButton, BrutalInput } from './Brutal';
 import { useApp } from '../state/AppState';
 import { authBus } from '../state/uiBus';
-import { sendOtp, resendOtp, verifyOtp, consumerOtpLogin } from '../services/auth';
+import { consumerOtpLogin, fetchOtpConfig } from '../services/auth';
+import { useOtp } from '../services/otp';
 import { DEFAULT_DIAL_CODE } from '../config/env';
 import { TERMS_URL, PRIVACY_URL } from '../config/legal';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const NATIONAL_RE = /^[0-9]{6,14}$/;
-const RESEND_SECONDS = 30;
-const OTP_LEN = 4;
 
-// 4-box OTP entry — one hidden full-width input owns the keyboard; the boxes
-// just render each digit, so paste/SMS-autofill drops all 4 in at once.
+// OTP entry - one hidden full-width input owns the keyboard; the boxes just render each
+// digit, so paste/SMS-autofill drops the whole code in at once. The length follows the OTP
+// provider (MSG91 widgets send 4 digits, Slide's is set in its dashboard).
 function OtpBoxes({
   value,
+  length: OTP_LEN,
   onChange,
   onComplete,
   error,
 }: {
   value: string;
+  length: number;
   onChange: (v: string) => void;
   onComplete?: (code: string) => void;
   error?: string;
@@ -99,7 +101,11 @@ export function AuthSheet() {
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
-  const [reqId, setReqId] = useState<string | null>(null);
+  // Phone OTP provider (MSG91 or Slide) as selected by the backend; see services/otp. The
+  // provider keeps the in-flight request (reqId / requestId) for resend and verify.
+  const otpClient = useOtp(fetchOtpConfig);
+  const OTP_LEN = otpClient.otpLength;
+  const RESEND_SECONDS = otpClient.resendSeconds;
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [phoneErr, setPhoneErr] = useState<string | undefined>();
@@ -121,7 +127,7 @@ export function AuthSheet() {
   // different product/order) always starts from a clean phone step.
   useEffect(() => {
     if (open) return;
-    setStep('phone'); setPhone(''); setOtp(''); setReqId(null);
+    setStep('phone'); setPhone(''); setOtp('');
     setPhoneErr(undefined); setOtpErr(undefined); setResendIn(0);
     // A request still in flight when the sheet was dismissed must not leave the next
     // attempt permanently blocked by its own guard.
@@ -142,8 +148,7 @@ export function AuthSheet() {
     sendingRef.current = true;
     setSending(true);
     try {
-      const rid = await sendOtp(national, DEFAULT_DIAL_CODE);
-      setReqId(rid);
+      await otpClient.send(DEFAULT_DIAL_CODE, national);
       setOtp('');
       setStep('otp');
       setResendIn(RESEND_SECONDS);
@@ -159,10 +164,10 @@ export function AuthSheet() {
     // Same batching hazard as handleSend: `resendIn` has not committed yet on a double tap.
     // retryOTP reuses the reqId but issues a fresh code, so a duplicate resend invalidates
     // the code the user is about to read.
-    if (resendIn > 0 || !reqId || sendingRef.current) return;
+    if (resendIn > 0 || step !== 'otp' || sendingRef.current) return;
     sendingRef.current = true;
     try {
-      await resendOtp(reqId);
+      await otpClient.resend();
       setResendIn(RESEND_SECONDS);
       showToast('OTP resent', `Sent to +${DEFAULT_DIAL_CODE} ${phone}`, 'send');
     } catch (e: any) {
@@ -173,27 +178,27 @@ export function AuthSheet() {
   };
 
   const handleVerify = async (codeArg?: unknown) => {
-    // Two triggers reach this: the 4th digit landing (OtpBoxes.onComplete) and the button.
-    // MSG91 treats a reqId+code pair as single-use, so a second call for the same code is
+    // Two triggers reach this: the last digit landing (OtpBoxes.onComplete) and the button.
+    // Providers treat a request+code pair as single-use, so a second call for the same code is
     // rejected even when the first one is still in flight and about to succeed — which would
     // read as "correct code refused". The button is disabled while verifying; this guards
     // the auto-submit path too.
     if (verifyingRef.current) return;
     setOtpErr(undefined);
     const code = (typeof codeArg === 'string' ? codeArg : otp).replace(/\D/g, '');
-    if (code.length < 4 || !reqId) { setOtpErr('Enter the code we sent you'); return; }
+    if (code.length < OTP_LEN) { setOtpErr('Enter the code we sent you'); return; }
     verifyingRef.current = true;
     setVerifying(true);
     // Which leg failed. The two are indistinguishable in the copy the user sees, but they
-    // have completely different causes: `sms` means MSG91 rejected the code itself (wrong,
+    // have completely different causes: `sms` means the OTP provider rejected the code itself (wrong,
     // expired, or never delivered), `server` means MSG91 accepted it and our backend's
     // re-verification or account lookup failed. Tagged into the error line below so a
     // screenshot is enough to tell them apart.
     let leg: 'sms' | 'server' = 'sms';
     try {
-      const accessToken = await verifyOtp(reqId, code);
+      const { accessToken, provider } = await otpClient.verify(code);
       leg = 'server';
-      const session = await consumerOtpLogin(accessToken);
+      const session = await consumerOtpLogin(accessToken, provider);
       await signInWithSession(session);
       const onSuccess = data?.onSuccess;
       hideAuthSheet();
@@ -310,7 +315,7 @@ export function AuthSheet() {
             ) : (
               <>
                 <Text style={[T.body, { color: C.dim, marginBottom: 8 }]}>Sent to +{DEFAULT_DIAL_CODE} {phone}.</Text>
-                <OtpBoxes value={otp} onChange={(v) => { setOtp(v); if (otpErr) setOtpErr(undefined); }} onComplete={handleVerify} error={otpErr} />
+                <OtpBoxes value={otp} length={OTP_LEN} onChange={(v) => { setOtp(v); if (otpErr) setOtpErr(undefined); }} onComplete={handleVerify} error={otpErr} />
                 <BrutalButton label={verifying ? 'Verifying…' : 'Verify & continue'} iconRight="arrow-right" onPress={handleVerify} disabled={verifying} block />
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: SP.l }}>
                   <Pressable onPress={() => { setStep('phone'); setOtp(''); setOtpErr(undefined); }} hitSlop={10}>

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
+    "start": "node api.js && expo start",
     "start:fast": "expo start --no-dev --minify",
     "android": "expo run:android",
     "android:release": "expo run:android --variant release",
