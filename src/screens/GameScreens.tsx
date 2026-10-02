@@ -456,6 +456,12 @@ export function SpinWheelScreen() {
           </Text>
         </Pressable>
 
+        {/* Promotion rules. App Store Guideline 5.3 requires a prize draw to state
+            who runs it and that Apple is not a sponsor. */}
+        <Text style={[T.micro, { color: C.dim, marginTop: SP.s, textAlign: 'center' }]}>
+          Spins are free. Prizes are Trendzo discount codes with no cash value. This promotion is run by Trendzo. Apple is not a sponsor and is not involved in any way.
+        </Text>
+
         {/* What you already hold — real codes, not a seeded list of fake spins */}
         <Text style={[T.caption, { marginTop: SP.xl }]}>{'Your prizes'}</Text>
         <View style={{ marginTop: SP.s }}>

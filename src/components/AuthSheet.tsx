@@ -2,7 +2,7 @@
 // useApp().requireAuth() whenever a guest attempts to buy/checkout; the
 // pending action resumes automatically the moment sign-in succeeds.
 import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { View, Text, Pressable, TextInput, Dimensions, StyleSheet, Modal } from 'react-native';
+import { View, Text, Pressable, TextInput, Dimensions, StyleSheet, Modal, Linking } from 'react-native';
 import { MotiView } from 'moti';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import { useApp } from '../state/AppState';
 import { authBus } from '../state/uiBus';
 import { sendOtp, resendOtp, verifyOtp, consumerOtpLogin } from '../services/auth';
 import { DEFAULT_DIAL_CODE } from '../config/env';
+import { TERMS_URL, PRIVACY_URL } from '../config/legal';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const NATIONAL_RE = /^[0-9]{6,14}$/;
@@ -295,6 +296,16 @@ export function AuthSheet() {
                   />
                 </View>
                 <BrutalButton label={sending ? 'Sending…' : 'Send code'} iconRight="arrow-right" onPress={handleSend} disabled={sending} block />
+                {/* Consent at the point of account creation. App Review (Guideline 1.2)
+                    expects the terms accepted here to forbid abusive or objectionable
+                    reels and comments. The page at TERMS_URL is still the retailer
+                    terms and has no such clause — it needs a customer version. */}
+                <Text style={[T.micro, { color: C.dim, marginTop: 12, textAlign: 'center' }]}>
+                  By continuing you agree to our{' '}
+                  <Text style={{ color: C.ink, textDecorationLine: 'underline' }} onPress={() => Linking.openURL(TERMS_URL).catch(() => {})}>Terms of Use</Text>
+                  {' '}and{' '}
+                  <Text style={{ color: C.ink, textDecorationLine: 'underline' }} onPress={() => Linking.openURL(PRIVACY_URL).catch(() => {})}>Privacy Policy</Text>.
+                </Text>
               </>
             ) : (
               <>

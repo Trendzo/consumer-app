@@ -470,8 +470,8 @@ const DESTINATION_NOTE: Record<string, { done: string; pending: string }> = {
     pending: 'On its way back to your original payment method — usually 3-5 working days.',
   },
   wallet: {
-    done: 'Added to your ClosetX Wallet.',
-    pending: 'Being added to your ClosetX Wallet.',
+    done: 'Added to your Trendzo Wallet.',
+    pending: 'Being added to your Trendzo Wallet.',
   },
   cash: {
     done: 'Paid to you in cash.',

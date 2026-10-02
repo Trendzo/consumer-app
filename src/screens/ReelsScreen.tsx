@@ -16,6 +16,8 @@ import {
   listComments, addComment,
   type Reel as ApiReel,
 } from '../services/reels';
+import { reportContent } from '../services/community';
+import { getBlockedAuthors, blockAuthor } from '../services/blocked';
 import { useGenderCurve, CachedImage, OptionSheet } from '../components/Brutal';
 import { useZoomCard } from '../navigation/ZoomTransition';
 
@@ -46,6 +48,8 @@ const FASHION_VIDEOS: (string | number)[] = [
 function adaptReel(r: ApiReel) {
   return {
     id: r.id,
+    // Kept so a blocked creator's reels can be filtered out of the feed.
+    authorId: r.author?.id ?? null,
     user: r.author?.name ? `@${r.author.name}` : '@trendzo',
     title: r.caption ?? '',
     colors: ['#111111', '#333333'] as [string, string],
@@ -104,6 +108,7 @@ const buildPage = (offset: number, count: number) =>
     return {
       ...base,
       id: `${base.id}-${i}`,
+      authorId: null,
       video: FASHION_VIDEOS[i % FASHION_VIDEOS.length] as string,
       product: null,
       likes: 1240 + i * 137,
@@ -115,12 +120,21 @@ const buildPage = (offset: number, count: number) =>
 
 const PAGE_SIZE = 12;
 
+/** Offered when reporting a reel or a comment; sent to moderation as the reason. */
+const REPORT_REASONS = [
+  'Spam or misleading',
+  'Nudity or sexual content',
+  'Hate or harassment',
+  'Violence or dangerous acts',
+  'Something else',
+] as const;
+
 export default function ReelsScreen({ route }: { route: any }) {
   const nav = useNavigation<any>();
   // Drops isActive on every player the moment the tab blurs → videos pause
   // instead of looping/decoding in the background on other tabs.
   const isFocused = useIsFocused();
-  const { addToCart, toggleFavorite, isFavorite, showToast, requireAuth, token, getToken } = useApp();
+  const { addToCart, toggleFavorite, isFavorite, showToast, showConfirm, requireAuth, token, getToken } = useApp();
   const s = React.useMemo(() => makeS(), [useThemeVersion()]);
   const [active, setActive] = useState(0);
   const [seed, setSeed] = useState(0);
@@ -130,6 +144,55 @@ export default function ReelsScreen({ route }: { route: any }) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [live, setLive] = useState(false);
   const loadingMore = useRef(false);
+
+  /**
+   * Moderation, required for user-generated content (App Store Guideline 1.2).
+   *
+   * `blocked` is the creators this shopper has blocked (persisted on the device),
+   * `hiddenIds` the reels they have reported this session. Both are filtered out
+   * of `visible` below, so a reported or blocked reel leaves the feed at once
+   * rather than waiting for the moderation queue.
+   */
+  const [blocked, setBlocked] = useState<string[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  useEffect(() => { getBlockedAuthors().then(setBlocked); }, []);
+  const visible = React.useMemo(
+    () => data.filter((r) => !hiddenIds.includes(r.id) && !(r.authorId && blocked.includes(r.authorId))),
+    [data, hiddenIds, blocked],
+  );
+
+  /** Report a reel to moderation and take it out of this shopper's feed. */
+  const reportReel = useCallback((item: FeedItem, reason: string) => {
+    // A report is attributed to a person — same sign-in replay as toggleLike.
+    if (!getToken()) { requireAuth(() => reportReel(item, reason)); return; }
+    if (!live) {
+      Alert.alert('Not available', 'This is a sample reel — reporting opens once real reels are live.');
+      return;
+    }
+    reportContent('reel', item.id, reason)
+      .then(() => {
+        setHiddenIds((prev) => prev.concat(item.id));
+        showToast('Reel reported', 'Thanks — our team reviews reports within 24 hours.', 'flag');
+      })
+      .catch(() => showToast("Couldn't send report", 'Please try again', 'x'));
+  }, [live, requireAuth, showToast]);
+
+  /** Block a creator: every reel of theirs leaves the feed, now and on later launches. */
+  const blockCreator = useCallback((item: FeedItem) => {
+    const authorId = item.authorId;
+    if (!authorId) return;
+    showConfirm({
+      title: `Block ${item.user}?`,
+      msg: "You won't see reels from this creator again.",
+      confirmLabel: 'Block',
+      cancelLabel: 'Cancel',
+      danger: true,
+      onConfirm: () => {
+        blockAuthor(authorId).then(setBlocked);
+        showToast('Creator blocked', `You won't see reels from ${item.user}.`, 'slash');
+      },
+    });
+  }, [showConfirm, showToast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,10 +256,10 @@ export default function ReelsScreen({ route }: { route: any }) {
 
   // A view is only meaningful for a reel the backend knows about.
   useEffect(() => {
-    const current = data[active];
+    const current = visible[active];
     if (!live || !current) return;
     recordView(current.id).catch(() => {});
-  }, [active, live, data]);
+  }, [active, live, visible]);
   const listRef = useRef<FlatList>(null);
 
   // Stable list plumbing. `.current` on a ref created once, so these identities
@@ -275,7 +338,7 @@ export default function ReelsScreen({ route }: { route: any }) {
       <StatusBar barStyle="light-content" />
       <FlatList
         ref={listRef}
-        data={data}
+        data={visible}
         keyExtractor={r => r.id}
         onLayout={onListLayout}
         snapToInterval={pageH}
@@ -322,6 +385,8 @@ export default function ReelsScreen({ route }: { route: any }) {
               showToast('Added to bag', item.product.name, 'shopping-bag');
             }}
             onProduct={() => item.product && nav.navigate('ProductDetail', { product: item.product })}
+            onReport={(reason: string) => reportReel(item, reason)}
+            onBlock={() => blockCreator(item)}
           />
         )}
       />
@@ -388,7 +453,7 @@ function ReelVideo({ url, isActive }: { url: string | number; isActive: boolean 
   );
 }
 
-function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct, live, pageH }: any) {
+function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct, onReport, onBlock, live, pageH }: any) {
   // Items span the TRUE screen (under the system nav on edge-to-edge Android),
   // so the overlay cluster is anchored off the real chrome: system inset +
   // tab bar height + a hair of air. Static numbers can't fit every device.
@@ -398,7 +463,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
   const aUser = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 6 } : null;
   const aActs = Platform.OS === 'android' ? { bottom: TAB_H + 8 + 70 + 12 } : null;
   const s = React.useMemo(() => makeS(), [useThemeVersion()]);
-  const { requireAuth, token, getToken } = useApp();
+  const { requireAuth, token, getToken, showToast } = useApp();
   const { ref: prodRef, open: openProd } = useZoomCard();
 
   // Seeded from the server's per-viewer flag so a saved reel still reads as saved
@@ -418,7 +483,10 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
       .catch(() => setSaved(!next));
   };
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [comments, setComments] = useState<{ user: string; text: string }[]>([]);
+  const [comments, setComments] = useState<{ id?: string; user: string; text: string }[]>([]);
+  // "Report or block" sheet for the reel, and the comment being reported (if any).
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [reportingComment, setReportingComment] = useState<string | null>(null);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [posting, setPosting] = useState(false);
   const [draft, setDraft] = useState('');
@@ -474,6 +542,7 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
     setCommentsLoaded(true);
     listComments(reel.id)
       .then((page) => setComments(page.items.map((c) => ({
+        id: c.id,
         user: c.author?.name ? `@${c.author.name}` : '@trendzo',
         text: c.body,
       }))))
@@ -507,6 +576,18 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
       .finally(() => setPosting(false));
   };
 
+  /** Report a comment to moderation and drop it from this sheet. */
+  const reportComment = (commentId: string, reason: string) => {
+    setReportingComment(null);
+    if (!getToken()) { requireAuth(); return; }
+    reportContent('reel_comment', commentId, reason)
+      .then(() => {
+        setComments((c) => c.filter((x) => x.id !== commentId));
+        showToast('Comment reported', 'Thanks — our team reviews reports within 24 hours.', 'flag');
+      })
+      .catch(() => showToast("Couldn't send report", 'Please try again', 'x'));
+  };
+
   return (
     <View style={{ height: pageH ?? height, width, backgroundColor: '#000' }}>
       <GestureDetector gesture={doubleTap}>
@@ -532,7 +613,28 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
         <ReelAction icon="message-circle" count={live ? reel.comments : comments.length} onPress={openComments} />
         <ReelAction icon="share-2" onPress={handleShare} />
         <ReelAction icon={saved ? 'bookmark' : 'bookmark-outline'} iconSet="ion" active={saved} onPress={toggleSave} />
+        <ReelAction icon="more-horizontal" onPress={() => setMoreOpen(true)} />
       </View>
+
+      {/* REPORT / BLOCK — required for user-generated content (Guideline 1.2) */}
+      <OptionSheet visible={moreOpen} title="Report or block" onClose={() => setMoreOpen(false)}>
+        <View>
+          <Text style={[T.caption, { color: C.dim, paddingHorizontal: SP.l, paddingTop: SP.m, paddingBottom: 4 }]}>Report this reel</Text>
+          {REPORT_REASONS.map((reason) => (
+            <Pressable key={reason} onPress={() => { setMoreOpen(false); onReport(reason); }} style={s.sheetRow}>
+              <Text style={[T.body, { color: C.ink }]}>{reason}</Text>
+              <Feather name="flag" size={15} color={C.dim} />
+            </Pressable>
+          ))}
+          {/* Only for a real creator — sample reels have no author to block. */}
+          {!!reel.authorId && (
+            <Pressable onPress={() => { setMoreOpen(false); onBlock(); }} style={s.sheetRow}>
+              <Text style={[T.bodyB, { color: '#c1121f' }]}>Block {reel.user}</Text>
+              <Feather name="slash" size={15} color="#c1121f" />
+            </Pressable>
+          )}
+        </View>
+      </OptionSheet>
 
       {/* COMMENTS — shared light bottom sheet (children mode) */}
       <OptionSheet visible={commentsOpen} title="Comments" onClose={() => setCommentsOpen(false)}>
@@ -550,7 +652,23 @@ function ReelItem({ reel, isActive, distance, onLike, isLiked, onAdd, onProduct,
               <View style={{ flex: 1 }}>
                 <Text style={[T.caption, { color: C.ink }]}>@{c.user}</Text>
                 <Text style={[T.body, { marginTop: 2 }]}>{c.text}</Text>
+                {/* Reasons open inline under the comment being reported. */}
+                {!!c.id && reportingComment === c.id && (
+                  <View style={{ marginTop: 6, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {REPORT_REASONS.map((reason) => (
+                      <Pressable key={reason} onPress={() => reportComment(c.id!, reason)} style={s.reasonChip}>
+                        <Text style={[T.micro, { color: C.ink }]}>{reason}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
               </View>
+              {/* Your own just-posted comment has no id yet, so no flag on it. */}
+              {!!c.id && (
+                <Pressable onPress={() => setReportingComment(reportingComment === c.id ? null : c.id!)} hitSlop={10} accessibilityLabel="Report comment">
+                  <Feather name="flag" size={14} color={C.dim} />
+                </Pressable>
+              )}
             </View>
           ))}
         </ScrollView>
@@ -644,4 +762,6 @@ const makeS = () => StyleSheet.create({
   commentInputRow: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: C.hairline, padding: 10, gap: 8 },
   commentInput: { width: '100%', height: 42, paddingHorizontal: 12, backgroundColor: C.white, borderWidth: 1, borderColor: C.hairline, ...T.body },
   sendBtn: { width: 42, height: 42, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SP.l, paddingVertical: 14, borderBottomWidth: 1, borderColor: C.hairline },
+  reasonChip: { paddingHorizontal: 8, paddingVertical: 5, borderWidth: 1, borderColor: C.hairline, backgroundColor: C.white },
 });

@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, StatusBar, Linking } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C, SP, BORDER, rf } from '../theme/brutal';
 import { useApp } from '../state/AppState';
 import { getLoyalty } from '../services/loyalty';
 import { deleteAccount, DeletionUnsupportedError, deletionMailto, ACCOUNT_DELETION_EMAIL } from '../services/account';
+import { TERMS_URL, PRIVACY_URL, GRIEVANCE_MAILTO } from '../config/legal';
 
-const APP_VERSION = '1.0.0';
+// From app.json, so the footer cannot drift from the shipped build (it read 1.0.0 for every release).
+const APP_VERSION = Constants.expoConfig?.version ?? '';
 const BAND = '#F4F4F4';       // light grey separator band
 const GOLD = '#B58A2E';       // rewards accent
 const NEW = '#F1315B';        // avatar ring / "NEW" badge
@@ -22,12 +25,12 @@ const H = (size: number, weight: '400' | '500' | '600' | '700' | '800' | '900', 
   ({ fontFamily: HELV, fontWeight: weight, fontSize: rf(size), color, ...extra } as any);
 
 // Bottom text links (both states).
-const LINKS: { label: string; screen?: string }[] = [
+const LINKS: { label: string; screen?: string; url?: string }[] = [
   { label: 'FAQs', screen: 'CustomerSupport' },
   { label: 'About Us', screen: 'About' },
-  { label: 'Terms of Use' },
-  { label: 'Privacy Policy' },
-  { label: 'Grievance Redressal' },
+  { label: 'Terms of Use', url: TERMS_URL },
+  { label: 'Privacy Policy', url: PRIVACY_URL },
+  { label: 'Grievance Redressal', url: GRIEVANCE_MAILTO },
 ];
 
 const PROFILE_TIERS: Array<{ name: string; min: number }> = [
@@ -53,8 +56,9 @@ export default function ProfileScreen() {
     return () => { cancelled = true; };
   }, [user]);
 
-  const go = (screen?: string, label?: string) =>
-    screen ? nav.navigate(screen) : showToast(label || 'Coming soon', 'Coming soon');
+  const go = (screen?: string) => { if (screen) nav.navigate(screen); };
+  const openLink = (url: string) =>
+    Linking.openURL(url).catch(() => showToast("Couldn't open link", 'Please try again', 'x'));
 
   const name = user?.name || 'Guest';
   const initials = (name.trim().split(/\s+/).map(s => s[0]).join('').slice(0, 2) || 'G').toUpperCase();
@@ -117,7 +121,7 @@ export default function ProfileScreen() {
                   state for one. Returning for a refund is the whole of it. */}
               <ListRow icon="rotate-ccw" title="Returns & Refunds" sub="7-day window, free pickup" onPress={() => go('OrderReturn')} />
               <ListRow icon="map-pin" title="Saved Addresses" sub="Home, office & more" onPress={() => go('SavedAddresses')} />
-              <ListRow icon="credit-card" title="Payment Methods" sub="UPI, cards, wallet & COD" onPress={() => go('PaymentMethods')} />
+              <ListRow icon="credit-card" title="Payment Methods" sub="Wallet balance & how you pay" onPress={() => go('PaymentMethods')} />
               <ListRow icon="gift" title="Refer & Earn" sub="Invite friends, get shopping credit" onPress={() => go('ReferralRewards')} />
               <ListRow icon="sliders" title="Style & Fit" sub="Preferences, sizes & measurements" onPress={() => go('StylePreferences')} />
               <ListRow icon="bell" title="Notifications" sub="Push, email & deal alerts" onPress={() => go('NotificationSettings')} />
@@ -150,7 +154,7 @@ export default function ProfileScreen() {
         <View style={{ height: 10, backgroundColor: BAND, marginTop: SP.l }} />
         <View style={{ paddingHorizontal: SP.l, paddingTop: SP.s }}>
           {LINKS.map(l => (
-            <Pressable key={l.label} onPress={() => go(l.screen, l.label)} style={{ paddingVertical: 15 }}>
+            <Pressable key={l.label} onPress={() => (l.url ? openLink(l.url) : go(l.screen))} style={{ paddingVertical: 15 }}>
               <Text style={H(14, '700', C.dim, { letterSpacing: 0.3 })}>{l.label.toUpperCase()}</Text>
             </Pressable>
           ))}

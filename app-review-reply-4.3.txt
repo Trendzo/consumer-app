@@ -1,0 +1,43 @@
+Hello App Review team,
+
+Thank you for the review. We would like to clarify how Trendzo (com.trendzo.consumer) differs from our other app, Trendzo Retailer (com.trendzo.retailer), since we believe that relationship is what was flagged under Guideline 4.3.
+
+Trendzo is a two-sided fashion marketplace in India, in the same way that ride-hailing or food-delivery services publish one app for customers and a separate app for their merchants. The two apps serve different people, do different jobs, and share no code or binary.
+
+1. DIFFERENT USERS
+- Trendzo (this app) is for shoppers: members of the public buying clothing.
+- Trendzo Retailer is a B2B tool for GST-registered apparel stores. Every retailer account is manually approved, and a shopper cannot use it for anything.
+
+2. DIFFERENT FUNCTIONALITY
+Trendzo (shoppers):
+- Browse edits, categories, weekly drops and deals, with search
+- Product pages with size selection, bag and checkout
+- Payment through Razorpay, with delivery, service and tax itemised before paying
+- Express delivery from a nearby partner store in about 60 minutes, standard delivery or in-store pickup
+- Try and Buy: the delivery agent waits while the customer tries items on and returns what does not fit
+- Virtual try-on from the customer's own photo
+- Shoppable reels, and posting your own reel with a tagged product (with report and block controls)
+- Order tracking and returns
+
+Trendzo Retailer (stores):
+- Photograph stock and generate catalog images with AI
+- Product, variant, pricing and inventory management
+- Business KYC (GSTIN, PAN, bank proof)
+- Store online/offline control and an earnings view
+
+There is no shopping, cart, checkout or payment in the retailer app, and no catalog editing, KYC or inventory tools in this app.
+
+3. SEPARATE SOURCE CODE AND BINARIES
+The apps are separate projects built on different stacks. This app is an Expo / React Native 0.81 project. Trendzo Retailer is a bare React Native 0.86 project. They share no source code, templates, screens or image assets. Their icons, designs and App Store metadata are different. The only thing they share is our own backend API (api.trendzonow.com), which is how orders placed in this app reach the right store.
+
+4. NOT A TEMPLATE OR REPACKAGED APP
+Both apps were written by our team for Trendzo. Neither was built from a purchased or third-party template.
+[FILL IN, only if true: "Trendzo has not been submitted under any other developer account." If an earlier copy was submitted under another account, say so here and confirm it has been removed.]
+
+5. HOW TO SEE THE DIFFERENCE
+Sign in with the demo account in the review notes (phone + OTP 1234). Home shows the shopper storefront. Tap a product, add it to the bag and go to checkout to see delivery options and itemised pricing. The Reels tab shows shoppable reels. None of these screens exist in Trendzo Retailer.
+
+If it would help, we are happy to provide a screen recording comparing the two apps, or to answer anything else on a call.
+
+Thank you,
+[FILL IN: name], Trendzo

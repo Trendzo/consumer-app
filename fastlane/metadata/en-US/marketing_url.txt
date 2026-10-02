@@ -1,1 +1,1 @@
-https://backend-qpmx.onrender.com/terms
+https://api.trendzonow.com/

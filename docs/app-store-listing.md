@@ -51,9 +51,8 @@ STEALS AND FLASH FITS
 Price-banded deals, daily flash fits and editorial collections built around real moments: the coffee
 run, clock-out looks, weekend plans.
 
-REELS AND COMMUNITY
-Watch shoppable reels, save looks to mood boards and see how other people are wearing the same
-pieces.
+SHOPPABLE REELS
+Watch reels from other shoppers, post your own, and tap the tagged piece to add it to your bag.
 
 EVERY CHARGE, UP FRONT
 Delivery, service and taxes are itemised in your bill before you pay. What the pay button says is
@@ -179,9 +178,8 @@ Required sizes, PNG or JPG, no alpha:
 | 6.5" (iPhone 11 Pro Max) | 1242 × 2688 | **Yes** |
 | 12.9" iPad Pro | 2048 × 2732 | Only if you ship iPad |
 
-> `app.json` currently sets `"supportsTablet": true`, so **iPad screenshots are required** and the
-> reviewer will test on iPad. If the layouts are not iPad-ready, set `supportsTablet: false` and
-> rebuild — that is far cheaper than an iPad rejection.
+> `app.json` sets `"supportsTablet": false`, so the app is iPhone-only and **no iPad screenshots are
+> needed**. The layouts are portrait phone layouts and are not iPad-ready.
 
 Suggested six, in order: Home hero · Category browse · Product detail · Virtual try-on result ·
 Bag with the free-delivery meter · Order tracking.

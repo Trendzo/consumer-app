@@ -127,12 +127,11 @@ export default function EditProfileScreen() {
         {/* ═══ BASICS — clean rows (Myntra-style), avatar on top ═══ */}
         <View onLayout={onSectionLayout(0)}>
           <View style={{ alignItems: 'center', paddingTop: SP.l, paddingBottom: SP.s }}>
-            <Pressable onPress={() => showToast('Coming soon', 'Photo upload is on the way', 'camera')} style={[{ width: 76, height: 76, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
+            {/* Initials only. This was a button with a camera badge that answered
+                "Coming soon" — there is no avatar upload, so it no longer offers one. */}
+            <View style={[{ width: 76, height: 76, backgroundColor: TILE, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
               <Text style={{ fontFamily: 'Inter_900Black', fontSize: rf(26), color: C.ink }}>{initials}</Text>
-              <View style={[{ position: 'absolute', bottom: -1, right: -1, width: 22, height: 22, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }, BORDER(1)]}>
-                <Feather name="camera" size={10} color="#fff" />
-              </View>
-            </Pressable>
+            </View>
           </View>
 
           <View style={{ paddingHorizontal: SP.l, paddingTop: SP.s }}>

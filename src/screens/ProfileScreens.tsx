@@ -428,20 +428,19 @@ export function SavedAddressesScreen() {
 // ═══════════════════════════════════════════════════════════
 // PAYMENT METHODS
 // ═══════════════════════════════════════════════════════════
+// Only what is really the customer's own. This list used to open with a sample
+// UPI id and a sample VISA card shown as "linked" to every account; there is no
+// stored-instrument endpoint, and UPI / cards are entered in Razorpay at checkout.
 const PAYMENTS = [
-  { id: '1', type: 'UPI', label: 'pay@okhdfcbank', sub: 'HDFC · linked Oct 2024', icon: 'smartphone' },
-  { id: '2', type: 'CARD', label: '•••• •••• •••• 4242', sub: 'VISA · exp 08/28', icon: 'credit-card' },
   // Balance filled from GET /consumer/wallet at render — it was the literal ₹1,240.
-  { id: '3', type: 'WALLET', label: 'Trendzo Pay', sub: '', icon: 'briefcase' },
+  { id: '3', type: 'WALLET', label: 'Trendzo Wallet', sub: '', icon: 'briefcase' },
 ];
 
 export function PaymentMethodsScreen() {
   const nav = useNavigation<any>();
   const { showToast } = useApp();
-  const [selected, setSelected] = useState('1');
-  // Real wallet balance. The saved UPI id and card here remain placeholders —
-  // there is no stored-instrument endpoint yet, so they are NOT presented as the
-  // customer's own (see the note on PAYMENTS above).
+  const [selected, setSelected] = useState('3');
+  // Real wallet balance (see the note on PAYMENTS above).
   const [walletPaise, setWalletPaise] = useState(0);
   useEffect(() => {
     let cancelled = false;
@@ -456,12 +455,12 @@ export function PaymentMethodsScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
         <Hero
           code={'PAYMENT_METHODS_v2'}
-          title={'Your\nwallets.'}
-          intro="UPI, cards, wallets. Pick your default — we remember for next time."
-          chips={[{ label: 'SECURE' }, { label: '256-BIT' }, { label: 'PCI DSS' }]}
+          title={'Your\nwallet.'}
+          intro="Refunds and credits land in your Trendzo Wallet. UPI, cards and netbanking are entered securely with Razorpay when you pay."
+          chips={[{ label: 'SECURE' }, { label: 'RAZORPAY' }]}
         />
 
-        <SectionHead title="Methods" right={`${PAYMENTS.length} linked`} />
+        <SectionHead title="Methods" />
         <View style={{ paddingHorizontal: SP.l }}>
           {PAYMENTS.map((p, i) => {
             const on = selected === p.id;
@@ -483,20 +482,6 @@ export function PaymentMethodsScreen() {
               </FadeInUp>
             );
           })}
-        </View>
-
-        <SectionHead title="Add new" />
-        <View style={{ flexDirection: 'row', gap: SP.s, paddingHorizontal: SP.l }}>
-          {[
-            { icon: 'smartphone', label: 'UPI' },
-            { icon: 'credit-card', label: 'Card' },
-            { icon: 'briefcase', label: 'Wallet' },
-          ].map(o => (
-            <Pressable key={o.label} onPress={() => showToast('Add ' + o.label, 'Coming soon', 'plus')} style={[{ flex: 1, paddingVertical: SP.l, alignItems: 'center', gap: 8, backgroundColor: C.white }, BORDER(1)]}>
-              <IconTile icon={o.icon} size={36} />
-              <Text style={[T.caption, { color: C.ink }]}>{o.label}</Text>
-            </Pressable>
-          ))}
         </View>
       </ScrollView>
     </PageShell>

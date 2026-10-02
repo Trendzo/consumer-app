@@ -40,8 +40,9 @@ export const KNOWN_ROUTES = [
   'CartTab',
   'CategoryTab',
   'HomeTab',
-  'CommunityFeed',
-  'MoodBoard',
+  // 'CommunityFeed' and 'MoodBoard' are deliberately absent: both screens still render
+  // bundled sample data (invented users and like counts), so a CMS link to either is
+  // ignored until they are wired to /consumer/community and /consumer/moodboards.
   'CouponWallet',
   'LoyaltyRewards',
   'ReferralRewards',
