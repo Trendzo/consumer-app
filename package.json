@@ -4,7 +4,7 @@
   "main": "index.ts",
   "scripts": {
     "start": "node init && expo start",
-    "start:fast": "expo start --no-dev --minify",
+    "start:fast": "node init && expo start --no-dev --minify",
     "android": "expo run:android",
     "android:release": "expo run:android --variant release",
     "ios": "expo run:ios",

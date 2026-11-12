@@ -47,9 +47,6 @@ yarn-error.*
 # secrets (scrubbed from history 2026-06)
 credentials.json
 release.keystore
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
 
 # fastlane
 fastlane/report.xml
@@ -64,3 +61,4 @@ build/
 *-build.err.log
 *.aab
 *.apk
+config.bat
